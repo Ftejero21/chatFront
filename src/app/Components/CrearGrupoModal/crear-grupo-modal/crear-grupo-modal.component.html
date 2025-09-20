@@ -1,0 +1,138 @@
+<div #modalRoot class="modal fade" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content modal-glass">
+
+      <!-- Header con marca -->
+      <div class="modal-header fancy-header">
+        <div class="brand-wrap">
+          <i class="fas fa-comments brand-icon"></i>
+          <span class="brand-text">TejeChat</span>
+          <span class="brand-chip">Nuevo grupo</span>
+        </div>
+        <button type="button" class="btn-close" aria-label="Cerrar" (click)="close()"></button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Sección principal -->
+        <div class="section">
+          <!-- Avatar uploader -->
+          <div class="avatar-wrap">
+            <label class="avatar-uploader" for="groupImageInput" tabindex="0">
+              <img *ngIf="nuevoGrupo.fotoDataUrl" class="avatar-img" [src]="nuevoGrupo.fotoDataUrl" alt="Foto grupo" />
+              <div *ngIf="!nuevoGrupo.fotoDataUrl" class="avatar-placeholder">
+                <i class="bi bi-camera"></i>
+                <span>Subir imagen</span>
+              </div>
+            </label>
+
+            <!-- Botonera sobre el avatar -->
+            <div class="avatar-actions">
+              <button class="avatar-btn" title="Cambiar imagen" (click)="fileInput.click()">
+                <i class="fas fa-camera"></i>
+              </button>
+              <button *ngIf="nuevoGrupo.fotoDataUrl" class="avatar-btn danger" title="Quitar imagen"
+                (click)="nuevoGrupo.fotoDataUrl = null">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+
+            <input #fileInput id="groupImageInput" type="file" accept="image/*" (change)="onGroupImageSelected($event)"
+              class="visually-hidden" />
+          </div>
+
+          <!-- Nombre del grupo -->
+          <div class="group-fields">
+            <label class="form-label">Nombre del grupo</label>
+            <input class="form-control form-control-xl" placeholder="p. ej. Equipo Frontend"
+              [(ngModel)]="nuevoGrupo.nombre" />
+            <div class="field-hint">
+              Elegí un nombre claro. Podrás cambiarlo más tarde.
+            </div>
+          </div>
+        </div>
+
+        <!-- Divider -->
+        <div class="divider">
+          <i class="fas fa-users"></i>
+          <span>Miembros</span>
+        </div>
+
+        <!-- Seleccionados (chips) + contador -->
+        <div class="chips-row" *ngIf="nuevoGrupo.seleccionados.length">
+          <div class="chips">
+            <div class="chip" *ngFor="let u of nuevoGrupo.seleccionados">
+              <img class="chip-pic" [src]="u.foto || '/assets/usuario.png'" alt="u" />
+              <span>{{ u.nombre }} {{ u.apellido }}</span>
+              <button class="chip-x" (click)="removeSeleccionado(u)" title="Quitar">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+          </div>
+          <span class="count-pill">{{ nuevoGrupo.seleccionados.length }}</span>
+        </div>
+
+        <!-- Buscador -->
+        <div class="search-row">
+          <i class="fas fa-search"></i>
+          <input class="search-input" placeholder="Buscar usuarios por nombre o apellido…"
+            [(ngModel)]="busquedaUsuario" />
+          <button *ngIf="busquedaUsuario" class="clear-search" title="Limpiar" (click)="busquedaUsuario = ''"
+            aria-label="Limpiar búsqueda">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+
+        <!-- Lista de usuarios -->
+        <div class="user-list">
+          <!-- Loading skeleton -->
+          <ng-container *ngIf="loadingUsuarios; else listaUsuarios">
+            <div class="skeleton-item" *ngFor="let _ of skeletons"></div>
+          </ng-container>
+
+          <ng-template #listaUsuarios>
+            <div class="user-item cardy" *ngFor="let u of usuariosFiltrados; trackBy: trackByUserId"
+              (click)="toggleUsuario(u)" [class.selected]="isSeleccionado(u)">
+              <img class="user-pic" [src]="u.foto || '/assets/usuario.png'" (error)="onUserPicError($event)"
+                [alt]="'Avatar de ' + u.nombre + ' ' + (u.apellido || '')" />
+              <div class="user-info">
+                <div class="user-name">
+                  {{ u.nombre }} {{ u.apellido }}
+                </div>
+                <div class="user-meta">
+                  {{ isSeleccionado(u) ? 'Seleccionado' : 'Invitar' }}
+                </div>
+              </div>
+              <div class="user-cta">
+                <i class="fas" [ngClass]="isSeleccionado(u) ? 'fa-check' : 'fa-plus'"></i>
+              </div>
+            </div>
+
+            <!-- Estado vacío -->
+            <div class="empty" *ngIf="!usuariosFiltrados.length">
+              <i class="fas fa-user-slash"></i>
+              <p>Sin resultados. Probá con otro nombre.</p>
+            </div>
+          </ng-template>
+        </div>
+      </div>
+
+      <div class="modal-footer footer-flex">
+        <div class="footer-left">
+          <div class="status-inline">
+            <i class="fas fa-user-friends"></i>
+            <span>Seleccionados: <strong>{{ nuevoGrupo.seleccionados.length }}</strong></span>
+          </div>
+        </div>
+
+        <div class="footer-right d-flex gap-2">
+          <button class="btn btn-light btn-cancel" (click)="close()">Cancelar</button>
+          <button class="btn btn-create" [disabled]="!nuevoGrupo.nombre || nuevoGrupo.seleccionados.length === 0"
+            (click)="crearGrupoClick()">
+            <i class="fas fa-paper-plane"></i>
+            Crear grupo
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

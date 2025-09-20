@@ -1,0 +1,176 @@
+<div class="auth-page">
+  <div class="auth-card">
+    <!-- Header con gradiente + marca -->
+    <div class="auth-header fancy-header">
+      <div class="auth-brand">
+        <span class="brand-mark">
+          <i class="fas fa-comments brand-icon"></i>
+        </span>
+        <span class="brand-name">TejeChat</span>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="auth-tabs" role="tablist" aria-label="Cambiar formulario">
+      <button
+        class="auth-tab"
+        [class.active]="modoLogin"
+        (click)="switchTo(true)"
+        role="tab"
+        [attr.aria-selected]="modoLogin">
+        Iniciar sesión
+      </button>
+      <button
+        class="auth-tab"
+        [class.active]="!modoLogin"
+        (click)="switchTo(false)"
+        role="tab"
+        [attr.aria-selected]="!modoLogin">
+        Registrarse
+      </button>
+    </div>
+
+    <!-- Login -->
+    <form *ngIf="modoLogin" (ngSubmit)="iniciarSesion()" class="auth-form" aria-label="Formulario de inicio de sesión">
+      <label class="input-group">
+        <i class="bi bi-envelope"></i>
+        <input type="email" [(ngModel)]="login.email" name="email" placeholder="Email" required />
+      </label>
+
+      <label class="input-group">
+        <i class="bi bi-lock"></i>
+        <input type="password" [(ngModel)]="login.password" name="password" placeholder="Contraseña" required />
+      </label>
+
+      <div class="form-row">
+        <label class="checkbox">
+          <input type="checkbox" /> Recuérdame
+        </label>
+        <a class="link" href="#" (click)="$event.preventDefault()">¿Olvidaste tu contraseña?</a>
+      </div>
+
+      <button type="submit" class="btn-primary">Entrar</button>
+
+      <div class="divider"><span>o</span></div>
+
+      <button type="button" class="btn-outline">
+        <i class="bi bi-google"></i> Continuar con Google
+      </button>
+
+      <p class="switch">
+        ¿No tienes cuenta? <a class="link" (click)="switchTo(false)">Regístrate</a>
+      </p>
+    </form>
+
+    <!-- Toasts -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1080;">
+      <div
+        *ngFor="let t of toasts"
+        class="toast show align-items-center text-white border-0 mb-2"
+        role="alert"
+        aria-live="assertive"
+        aria-atomic="true"
+        [ngClass]="{
+          'bg-danger': t.variant === 'danger',
+          'bg-success': t.variant === 'success',
+          'bg-warning text-dark': t.variant === 'warning',
+          'bg-info': t.variant === 'info'
+        }">
+        <div class="d-flex">
+          <div class="toast-body">
+            <strong *ngIf="t.title">{{ t.title }}:</strong> {{ t.message }}
+          </div>
+          <button
+            type="button"
+            class="btn-close btn-close-white me-2 m-auto"
+            aria-label="Close"
+            (click)="dismissToast(t.id)"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Registro -->
+    <form *ngIf="!modoLogin" (ngSubmit)="registrarse()" class="auth-form" aria-label="Formulario de registro">
+      <!-- Uploader con acciones (botones FUERA del círculo) -->
+      <div class="avatar-wrap">
+        <label class="avatar-uploader" for="regAvatarInput" tabindex="0" role="button" aria-label="Subir foto de perfil">
+          <img
+            *ngIf="avatarPreviewUrl; else avatarPlaceholder"
+            [src]="avatarPreviewUrl"
+            alt="Previsualización de avatar"
+            class="avatar-img" />
+          <ng-template #avatarPlaceholder>
+            <div class="avatar-placeholder">
+              <i class="bi bi-camera"></i>
+              <span>Agregar foto</span>
+            </div>
+          </ng-template>
+        </label>
+
+        <!-- Botonera sobre el avatar (fuera de la imagen) -->
+        <div class="avatar-actions">
+          <button
+            type="button"
+            class="avatar-btn"
+            title="Cambiar imagen"
+            (click)="avatarInput.click()"
+            aria-label="Cambiar imagen">
+            <i class="fas fa-camera"></i>
+          </button>
+
+          <button
+            *ngIf="avatarPreviewUrl"
+            type="button"
+            class="avatar-btn danger"
+            title="Quitar imagen"
+            (click)="clearAvatar()"
+            aria-label="Quitar imagen">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+
+        <!-- ÚNICO input real -->
+        <input
+          #avatarInput
+          id="regAvatarInput"
+          type="file"
+          accept="image/*"
+          (change)="onAvatarSelected($event)"
+          hidden />
+      </div>
+
+      <div class="grid-2">
+        <label class="input-group">
+          <i class="bi bi-person"></i>
+          <input type="text" [(ngModel)]="registro.nombre" name="nombre" placeholder="Nombre" required />
+        </label>
+        <label class="input-group">
+          <i class="bi bi-person"></i>
+          <input type="text" [(ngModel)]="registro.apellido" name="apellido" placeholder="Apellido" required />
+        </label>
+      </div>
+
+      <label class="input-group">
+        <i class="bi bi-envelope"></i>
+        <input type="email" [(ngModel)]="registro.email" name="emailRegistro" placeholder="Email" required />
+      </label>
+
+      <label class="input-group">
+        <i class="bi bi-lock"></i>
+        <input type="password" [(ngModel)]="registro.password" name="passwordRegistro" placeholder="Contraseña" required />
+      </label>
+
+      <button type="submit" class="btn-primary">Registrarse</button>
+
+      <div class="divider"><span>o</span></div>
+
+      <button type="button" class="btn-outline">
+        <i class="bi bi-google"></i> Registrarse con Google
+      </button>
+
+      <p class="switch">
+        ¿Ya tienes cuenta? <a class="link" (click)="switchTo(true)">Inicia sesión</a>
+      </p>
+    </form>
+  </div>
+</div>

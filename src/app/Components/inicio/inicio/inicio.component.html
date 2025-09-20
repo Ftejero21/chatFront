@@ -1,0 +1,542 @@
+<div class="imagenPrincipal">
+  <div class="contenedorChat">
+
+    <!-- 🔹 BARRA SUPERIOR GLOBAL -->
+    <header class="topbar">
+      <div class="topbar__left">
+        <i class="fas fa-comments topbar__logo"></i>
+        <span class="topbar__brand">TejeChat</span>
+      </div>
+
+      <div class="topbar__search">
+        <i class="bi bi-search topbar__search-icon"></i>
+        <input type="search" class="topbar__search-input" placeholder="Buscar o iniciar un chat" [value]="topbarQuery"
+          (input)="onTopbarSearch($event)" (focus)="topbarOpen = !!topbarResults.length" />
+
+        <!-- Resultados (collapse) -->
+        <div class="topbar__results collapse" [class.show]="topbarOpen" (mousedown)="$event.preventDefault()">
+          <!-- Cargando -->
+          <div *ngIf="topbarSearching" class="result-row muted">
+            Buscando…
+          </div>
+
+          <!-- Sin resultados -->
+          <div *ngIf="!topbarSearching && topbarResults.length === 0" class="result-row muted">
+            Sin resultados
+          </div>
+
+          <!-- Listado -->
+          <button type="button" class="result-row" *ngFor="let u of topbarResults; trackBy: trackIndex"
+            (click)="onTopbarResultClick(u)">
+            <!-- Avatar con badge de estado overlay -->
+            <div class="result-avatar-wrap">
+              <img [src]="avatarOrDefaultUser(u)" alt="" class="result-avatar" />
+              <span class="estado-icono-topbar" [ngClass]="{
+            'conectado-topbar': u.estado === 'Conectado',
+            'desconectado-topbar': !u.estado || u.estado === 'Desconectado',
+            'ausente-topbar': u.estado === 'Ausente'
+          }" [attr.title]="u.estado || 'Desconectado'">
+                <i class="bi" [ngClass]="{
+               'bi-check': u.estado === 'Conectado',
+               'bi-x-circle-fill': !u.estado || u.estado === 'Desconectado',
+               'bi bi-stopwatch ausente-icono-topbar': u.estado === 'Ausente'
+             }">
+                </i>
+              </span>
+            </div>
+
+            <!-- Nombre -->
+            <div class="full-name">
+              {{ nombreCompleto(u) }}
+            </div>
+
+            <!-- Email a la derecha -->
+            <div class="email">
+              {{ u.email }}
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <div class="topbar__right">
+        <div class="notif-wrapper" [class.open]="panelNotificacionesAbierto">
+          <button class="topbar__btn notif-btn" title="Notificaciones" aria-label="Notificaciones"
+            (click)="togglePanelNotificaciones()">
+            <i class="fas fa-bell"></i>
+
+            <!-- ✅ Badge: solo invitaciones pendientes; no aparece si es 0 -->
+            <span *ngIf="invitePendingCount > 0" class="notif-badge">
+              {{ invitePendingCount <= 99 ? invitePendingCount : '99+' }} </span>
+          </button>
+          <!-- Panel de notificaciones -->
+          <div class="notif-panel" *ngIf="panelNotificacionesAbierto">
+            <div class="notif-header">Notificaciones</div>
+            <!-- ✅ Muestra algo solo si hay invites o responses pendientes -->
+            <ng-container *ngIf="notifInvites.length  else notifEmpty">
+              <!-- 🔔 Invitaciones PENDING que TE llegan -->
+              <div *ngFor="let n of notifInvites" class="notif-card">
+                <div class="notif-text">
+                  <strong>{{ n.inviterNombre }}</strong>
+                  te invita al grupo <strong>“{{ n.groupName }}”</strong>
+                </div>
+                <div class="notif-actions">
+                  <button class="btn-add-user" (click)="aceptarInvitacion(n)">Aceptar</button>
+                  <button class="btn-opcion-eliminar" (click)="rechazarInvitacion(n)">Cancelar</button>
+                </div>
+              </div>
+            </ng-container>
+
+            <ng-template #notifEmpty>
+              <div class="notif-empty">Sin notificaciones</div>
+            </ng-template>
+          </div>
+        </div>
+
+        <!-- Ajustes + Avatar -->
+        <button class="topbar__btn" title="Ajustes"><i class="fas fa-cog"></i></button>
+        <img [src]="usuarioFotoUrl || '/assets/usuario.png'" alt="Perfil" class="topbar__avatar" />
+      </div>
+    </header>
+    <!-- 🔹 FIN TOPBAR -->
+
+    <!-- 🔹 CUERPO: TUS 3 COLUMNAS -->
+    <div class="cuerpoChat">
+      <div class="barraLateral">
+        <div class="iconos-superiores">
+          <i class="fas fa-home icono-barra"></i>
+          <i class="fas fa-comment icono-barra"></i>
+          <i class="fas fa-star icono-barra"></i>
+        </div>
+
+        <div class="usuario-config">
+          <img [src]="usuarioFotoUrl || '/assets/usuario.png'" alt="Perfil" class="topbar__avatar" />
+          <i class="fas fa-cog icono-barra"></i>
+        </div>
+      </div>
+
+      <div class="listadoChats">
+        <!-- Encabezado -->
+        <div class="encabezado-chats">
+          <div class="titulo-chat">TejeChat</div>
+          <div class="acciones-chat">
+            <button class="icono-chat" title="Crear grupo" data-bs-toggle="modal" (click)="crearGrupoModal.open()"
+              data-bs-target="#crearGrupoModal">
+              <i class="fas fa-users"></i>
+            </button>
+            <i class="fas fa-ellipsis-v icono-chat" title="Opciones"></i>
+          </div>
+        </div>
+
+        <!-- Buscador de la columna (lo mantengo por si lo usas) -->
+        <div class="buscador">
+          <input type="text" placeholder="Buscar personas..." class="input-busqueda" [value]="busquedaChat"
+            (input)="onSearchChange($event)" />
+        </div>
+
+        <!-- Solo este div tiene scroll -->
+        <div class="chat-scroll">
+          <div *ngFor="let chat of chatsFiltrados" class="chat-item" [class.chat-item--unread]="chat.unreadCount > 0"
+            [class.chat-item--group]="chat.esGrupo" (click)="mostrarMensajes(chat)">
+            <div class="foto-con-estado">
+              <img [src]="chat.foto" alt="Foto" class="foto-perfil" />
+              <!-- badge de grupo -->
+              <span *ngIf="chat.esGrupo" class="badge-group" title="Grupo">
+                <i class="bi bi-people-fill"></i>
+              </span>
+
+              <span *ngIf="chat.receptor" class="estado-icono" [ngClass]="{
+                'conectado': chat.estado === 'Conectado',
+                'desconectado': chat.estado === 'Desconectado',
+                'ausente': chat.estado === 'Ausente'
+              }" title="{{ chat.estado }}">
+                <i class="bi" [ngClass]="{
+                  'bi-check': chat.estado === 'Conectado',
+                  'bi-x-circle-fill': chat.estado === 'Desconectado',
+                  'bi bi-stopwatch ausente-icono': chat.estado === 'Ausente'
+                }"></i>
+              </span>
+            </div>
+
+            <div class="info-chat">
+              <div class="nombre-linea">
+                <span class="nombre">{{ chat.nombre }}</span>
+                <!-- etiqueta “Grupo” -->
+                <span *ngIf="chat.esGrupo" class="pill pill--group">Grupo</span>
+              </div>
+
+              <div class="mensaje-preview" [class.preview-unread]="chat.unreadCount > 0">
+                <ng-container *ngIf="
+                  (chat.receptor && usuariosEscribiendo.has(chat.receptor.id) && chat.receptor.id !== chatActual?.receptor?.id)
+                  || (chat.esGrupo && gruposEscribiendo.has(chat.id));
+                  else ultimoMensaje
+                ">
+                  <em class="escribiendo-lista">
+                    {{ chat.esGrupo ? (quienEscribeEnGrupo.get(chat.id) || 'Alguien') + ' está escribiendo...' :
+                    'Escribiendo...' }}
+                  </em>
+                </ng-container>
+
+                <ng-template #ultimoMensaje>
+                  <ng-container *ngIf="isAudioPreviewChat(chat); else textoPrev">
+                    <span class="preview-audio compact">
+                      <!-- Solo muestro 'Tú:' si el último audio lo enviaste tú -->
+                      <span *ngIf="audioPreviewLabel(chat) === 'Tú'" class="me-label">Tú:</span>
+
+                      <i class="fas fa-microphone" aria-hidden="true"></i>
+                      <span class="sep">•</span>
+                      <span class="time">{{ audioPreviewTime(chat) }}</span>
+                    </span>
+
+                    <span *ngIf="chat.unreadCount > 0" class="badge-inline">{{ chat.unreadCount }}</span>
+                  </ng-container>
+
+                  <ng-template #textoPrev>
+                    <span class="preview-line">
+                      <span class="preview-text">{{ formatearPreview(chat) }}</span>
+                      <span *ngIf="chat.unreadCount > 0" class="badge-inline">{{ chat.unreadCount }}</span>
+                    </span>
+                  </ng-template>
+                </ng-template>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="zonaMensajes">
+        <!-- Encabezado del chat -->
+        <div *ngIf="chatSeleccionadoId !== null" class="encabezado-chat-mensajes">
+          <div class="info-usuario-chat">
+            <img [src]="chatActual?.foto || 'assets/placeholder-user.png'" alt="Foto" class="foto-perfil-chat" />
+
+            <div class="detalle-usuario-chat">
+              <span class="nombre-usuario-chat">
+                {{ chatActual?.nombre }}
+                <div *ngIf="chatActual?.esGrupo && chatActual?.usuarios?.length" class="grupo-miembros"
+                  [attr.title]="getMiembrosLinea(chatActual?.usuarios || [])">
+                  <ng-container *ngFor="let u of chatActual.usuarios; let last = last">
+                    <span class="miembro">{{ u.nombre }} {{ u.apellido }}</span><ng-container *ngIf="!last">,
+                    </ng-container>
+                  </ng-container>
+                </div>
+
+                <!-- Estado (solo individuales) -->
+                <span *ngIf="chatActual?.receptor" class="estado-posicion-encabezado" [ngClass]="{
+                  'estado-icono': true,
+                  'conectado-header': chatActual?.estado === 'Conectado',
+                  'desconectado-header': chatActual?.estado === 'Desconectado',
+                  'ausente-header': chatActual?.estado === 'Ausente'
+                }" title="{{ chatActual?.estado }}">
+                  <i class="bi" [ngClass]="{
+            'bi-check': chatActual?.estado === 'Conectado',
+            'bi-x-circle-fill': chatActual?.estado === 'Desconectado',
+            'bi bi-stopwatch ausente-icono': chatActual?.estado === 'Ausente'
+          }"></i>
+                </span>
+              </span>
+
+              <div *ngIf="!chatActual?.esGrupo && usuarioEscribiendo" class="escribiendo">
+                <em>Escribiendo...</em>
+              </div>
+
+              <!-- GRUPAL -->
+              <div *ngIf="chatActual?.esGrupo && escribiendoHeader" class="escribiendo">
+                <em>{{ escribiendoHeader }}</em>
+              </div>
+            </div>
+          </div>
+
+          <!-- 🔹 Acciones a la derecha -->
+          <div class="header-actions">
+            <!-- Botón añadir usuario SOLO en grupos -->
+            <button *ngIf="chatActual?.esGrupo" class="btn-icon header-add-user" type="button" data-bs-toggle="collapse"
+              [attr.data-bs-target]="'#addUserPanel-'+chatActual?.id" aria-expanded="false"
+              [attr.aria-controls]="'addUserPanel-'+chatActual?.id" title="Añadir personas al grupo">
+              <i class="bi bi-person-plus"></i>
+            </button>
+
+            <button *ngIf="chatActual && !chatActual.esGrupo" class="btn-icon header-video-call me-2" type="button"
+              title="Iniciar videollamada" aria-label="Iniciar videollamada"
+              (click)="iniciarVideollamada(chatActual?.id)">
+              <i class="bi bi-camera-video"></i>
+            </button>
+
+            <i class="fas fa-ellipsis-v icono-opciones-chat" (click)="toggleMenuOpciones()"></i>
+
+            <!-- Menú desplegable -->
+            <div class="dropdown-opciones" *ngIf="mostrarMenuOpciones" (mouseleave)="cerrarMenuOpciones()">
+              <!-- Solo para chats grupales -->
+              <button class="dropdown-item dropdown-item--salir" *ngIf="chatActual?.esGrupo" (click)="salirDelGrupo()">
+                <span class="icono-salir" aria-hidden="true">🚪</span>
+                Salir del grupo
+              </button>
+            </div>
+          </div>
+        </div>
+        <!-- Panel para añadir usuarios al grupo -->
+        <div *ngIf="chatActual?.esGrupo" class="collapse add-user-panel" [id]="'addUserPanel-'+chatActual?.id">
+
+          <!-- Ejemplo de listado; pinta lo que tengas en candidatosAgregar -->
+          <div *ngFor="let u of candidatosAgregar" class="add-user-item">
+            <img [src]="u.foto || 'assets/usuario.png'" class="add-user-avatar" alt="Avatar" />
+            <div class="add-user-content">
+              <div class="add-user-name">{{ u.nombre }} {{ u.apellido }}</div>
+              <hr class="add-user-sep" />
+              <button type="button" class="btn-add-user" (click)="agregarUsuarioAlGrupo(u)">
+                <i class="bi bi-person-plus"></i> Añadir usuario al grupo
+              </button>
+            </div>
+          </div>
+
+          <!-- (Opcional) estado vacío -->
+          <div *ngIf="candidatosAgregar?.length === 0" class="add-user-empty">
+            <i class="bi bi-people"></i>
+            <span>No hay usuarios sugeridos</span>
+          </div>
+        </div>
+        <div *ngIf="chatActual?.esGrupo" class="collapse add-user-panel" [id]="'addUserPanel-'+chatActual?.id">
+          <div class="group-users-list">
+            <div *ngFor="let u of chatActual?.usuarios" class="group-user-row">
+              <img [src]="u.foto || 'assets/usuario.png'" alt="Avatar" class="group-user-avatar" />
+              <div class="group-user-name">{{ u.nombre }} {{ u.apellido }}</div>
+            </div>
+          </div>
+
+          <div class="text-sep">
+            <hr>
+          </div>
+
+          <button type="button" class="btn-add-users">Agregar usuarios</button>
+        </div>
+
+
+        <!-- Zona de mensajes -->
+        <div class="cuerpo-mensajes" #contenedorMensajes>
+
+          <!-- Ningún chat seleccionado -->
+          <div *ngIf="chatSeleccionadoId === null" class="placeholder-chat">
+            <i class="bi bi-chat-dots-fill"></i>
+            <h3>Selecciona un chat</h3>
+            <p>Elige una conversación de la lista para comenzar a chatear</p>
+          </div>
+
+          <!-- Chat seleccionado pero sin mensajes -->
+          <div *ngIf="chatSeleccionadoId !== null && mensajesSeleccionados.length === 0" class="placeholder-chat">
+            <i class="bi bi-inbox"></i>
+            <h3>No hay mensajes</h3>
+            <p>Envía un mensaje para iniciar la conversación</p>
+          </div>
+
+          <div *ngIf="showCallUI" class="call-overlay">
+            <div class="call-window" [class.is-ended]="callStatusClass === 'is-ended'">
+
+              <!-- 🟦 ÁREA REMOTA -->
+              <div class="remote-area">
+                <!-- Video remoto SOLO si hay pista de vídeo viva -->
+                <video *ngIf="hasRemoteVideoActive" class="remote-video" [appMediaStream]="remoteStream" autoplay
+                  playsinline>
+                </video>
+
+                <!-- Placeholder/overlay cuando NO hay vídeo remoto -->
+                <div *ngIf="!hasRemoteVideoActive" class="remote-overlay" [ngClass]="callStatusClass">
+                  <ng-container *ngIf="peerAvatarUrl; else remoteIcon">
+                    <img [src]="peerAvatarUrl" alt="avatar" class="avatar" />
+                  </ng-container>
+                  <ng-template #remoteIcon>
+                    <i class="bi bi-person-circle avatar-icon" aria-hidden="true"></i>
+                  </ng-template>
+
+                  <div class="peer-name">{{ peerDisplayName }}</div>
+
+                  <div *ngIf="callInfoMessage" class="status-row">
+                    <i class="bi" [ngClass]="{
+                      'bi-telephone-fill': callStatusClass === 'is-ringing',
+                      'bi-telephone-x-fill': callStatusClass === 'is-ended' || callStatusClass === 'is-error'
+                    }">
+                    </i>
+                    <span class="text">{{ callInfoMessage }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Vídeo local (siempre visible) -->
+              <video class="local-video" [appMediaStream]="localStream" autoplay playsinline muted></video>
+
+              <!-- Controles -->
+              <div class="call-controls">
+                <button class="cc-btn" (click)="toggleMute()" [attr.aria-pressed]="isMuted">
+                  <i class="bi" [ngClass]="isMuted ? 'bi-mic-mute-fill' : 'bi-mic-fill'"></i>
+                </button>
+                <button class="cc-btn" (click)="toggleCam()" [attr.aria-pressed]="camOff">
+                  <i class="bi" [ngClass]="camOff ? 'bi-camera-video-off-fill' : 'bi-camera-video-fill'"></i>
+                </button>
+                <button class="cc-btn hang" (click)="colgar()">
+                  <i class="bi bi-telephone-x-fill"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div *ngIf="ultimaInvite && !showCallUI" class="incoming-call-banner">
+            <div class="caller">
+              <strong>{{ ultimaInvite.callerNombre }} {{ ultimaInvite.callerApellido }}</strong> te está llamando…
+            </div>
+            <div class="actions">
+              <button class="btn-accept" (click)="aceptarLlamada()">
+                <i class="bi bi-telephone-inbound-fill"></i> Aceptar
+              </button>
+              <button class="btn-decline" (click)="rechazarLlamada()">
+                <i class="bi bi-telephone-x-fill"></i> Rechazar
+              </button>
+            </div>
+          </div>
+
+          <!-- Lista de mensajes -->
+          <div *ngIf="mensajesSeleccionados.length > 0" class="mensaje">
+            <ng-container *ngFor="let mensaje of mensajesSeleccionados; trackBy: trackMensaje">
+              <div class="mensaje-row" [class.es-propio]="mensaje.emisorId === usuarioActualId"
+                [class.es-otro]="mensaje.emisorId !== usuarioActualId">
+
+                <!-- Avatar a la izquierda SOLO en grupos y SOLO si no soy yo -->
+                <img *ngIf="chatActual?.esGrupo && mensaje.emisorId !== usuarioActualId" class="msg-avatar-left"
+                  [src]="mensaje.emisorFoto || getAvatarFallback(mensaje.emisorId)" alt="Avatar emisor" />
+                <div class="mensaje"
+                  [ngClass]="mensaje.emisorId === usuarioActualId ? 'mensaje-propio' : 'mensaje-otro'">
+
+                  <!-- Nombre dentro del globo, SOLO en grupos y SOLO si no soy yo -->
+                  <div *ngIf="chatActual?.esGrupo && mensaje.emisorId !== usuarioActualId" class="msg-name-inline"
+                    [style.color]="getNameColor(mensaje.emisorId)">
+                    {{ mensaje.emisorNombre || obtenerNombrePorId(mensaje.emisorId) }}
+                    {{ mensaje.emisorApellido || '' }}
+                  </div>
+
+                  <span class="contenido-mensaje" [class.mensaje-eliminado]="mensaje.activo === false">
+                    <!-- Eliminado -->
+                    <ng-container *ngIf="mensaje.activo === false; else contenidoNormal">
+                      <i class="bi bi-slash-circle" aria-hidden="true"></i>
+                      {{ mensaje.emisorId === usuarioActualId ? 'Eliminaste este mensaje.' : 'Este mensaje ha sido
+                      eliminado.' }}
+                    </ng-container>
+
+                    <ng-template #contenidoNormal>
+                      <!-- 🎤 Audio -->
+                      <ng-container *ngIf="(mensaje.tipo || 'TEXT') === 'AUDIO'; else contenidoTexto">
+                        <div class="audio-bubble" [class.mine]="mensaje.emisorId === usuarioActualId">
+                          <button class="audio-play"
+                            [attr.aria-label]="(audioStates.get(mensaje.id!)?.playing ? 'Pausar' : 'Reproducir') + ' audio'"
+                            (click)="togglePlay(mensaje, audioRef)">
+                            <i class="fas"
+                              [ngClass]="audioStates.get(mensaje.id!)?.playing ? 'fa-pause' : 'fa-play'"></i>
+                          </button>
+
+                          <div class="audio-wave">
+                            <div class="audio-track">
+                              <div class="audio-progress" [style.width.%]="progressPercent(mensaje)"></div>
+                            </div>
+                            <div class="audio-time">
+                              {{ formatDur(audioStates.get(mensaje.id!)?.current) || formatDur(mensaje.audioDuracionMs)
+                              }}
+                            </div>
+                          </div>
+
+                          <audio #audioRef [src]="getAudioSrc(mensaje)"
+                            (loadedmetadata)="onAudioLoadedMetadata(mensaje, audioRef)"
+                            (timeupdate)="onAudioTimeUpdate(mensaje, audioRef)" (ended)="onAudioEnded(mensaje)"></audio>
+                        </div>
+                      </ng-container>
+
+                      <!-- 📝 Texto normal -->
+                      <ng-template #contenidoTexto>
+                        <span (mouseup)="onMessageMouseUp(mensaje, textHost)" #textHost>
+                          {{ mensaje.contenido }}
+                        </span>
+                      </ng-template>
+                    </ng-template>
+                  </span>
+
+                  <!-- Menú de opciones (solo en propios y cuando está activo) -->
+                  <div *ngIf="mensaje.emisorId === usuarioActualId && mensaje.activo" class="menu-opciones">
+                    <i class="bi bi-three-dots-vertical" role="button" data-bs-toggle="collapse"
+                      [attr.data-bs-target]="'#opciones-' + mensaje.id" aria-expanded="false"
+                      [attr.aria-controls]="'opciones-' + mensaje.id"></i>
+
+                    <div class="collapse opciones-collapse" [attr.id]="'opciones-' + mensaje.id">
+                      <button type="button" class="btn-opcion-eliminar" (click)="eliminarMensaje(mensaje)">
+                        <i class="bi bi-trash"></i> Eliminar
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Double check en propios -->
+                  <i *ngIf="mensaje.emisorId === usuarioActualId" class="bi bi-check2-all double-check"
+                    [ngClass]="mensaje.leido ? 'leido' : 'no-leido'"></i>
+                </div>
+              </div>
+            </ng-container>
+
+          </div>
+        </div>
+        <div class="ai-panel" *ngIf="aiPanelOpen">
+          <div class="ai-panel__header">
+            <span>Preguntarle a la IA</span>
+            <button type="button" class="ai-close" (click)="cancelAiPanel()" title="Cerrar">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+        </div>
+        <div *ngIf="chatSeleccionadoId !== null" class="entrada-mensaje">
+          <!-- Estado NORMAL (texto) -->
+          <ng-container *ngIf="!recording; else grabandoUI">
+            <textarea [(ngModel)]="mensajeNuevo" (keydown)="notificarEscribiendo()"
+              (keydown.enter)="enviarMensaje(); $event.preventDefault()" placeholder="Escribe un mensaje..."
+              class="input-mensaje" [readonly]="haSalidoDelGrupo" [class.input-mensaje--loading]="aiLoading"
+              [class.input-mensaje--salido]="haSalidoDelGrupo">
+            </textarea>
+
+            <button class="btn-mic" [title]="'Grabar audio'" (click)="startRecording()" [disabled]="haSalidoDelGrupo">
+              <i class="fas fa-microphone"></i>
+            </button>
+
+            <button class="btn-enviar" (click)="enviarMensaje()" [disabled]="aiLoading">
+              <i class="fas fa-paper-plane"></i>
+            </button>
+          </ng-container>
+
+          <!-- Estado GRABANDO (audio) -->
+          <ng-template #grabandoUI>
+            <div class="rec-wrapper">
+              <!-- Indicador rojo de grabación -->
+              <button class="btn-mic recording" disabled title="Grabando…">
+                <span class="rec-dot" aria-hidden="true"></span>
+                <i class="fas fa-microphone"></i>
+              </button>
+
+              <!-- Visual (onda + cronómetro) -->
+              <div class="rec-visual" aria-live="polite">
+                <div class="rec-wave" aria-hidden="true">
+                  <span class="bar" *ngFor="let _ of recBars; trackBy: trackIndex"></span>
+                </div>
+                <span class="rec-timer">{{ formatDur(recordElapsedMs) }}</span>
+              </div>
+
+              <!-- Acciones -->
+              <button class="btn-send-audio" title="Enviar audio" (click)="stopRecordingAndSend()">
+                <i class="fas fa-paper-plane"></i>
+              </button>
+
+              <button class="btn-cancel-rec" title="Cancelar grabación" (click)="cancelRecording()">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+          </ng-template>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+
+
+<app-crear-grupo-modal #crearGrupoModal [currentUserId]="usuarioActualId" (create)="onCrearGrupo($event)">
+</app-crear-grupo-modal>
