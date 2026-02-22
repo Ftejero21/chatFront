@@ -1106,13 +1106,35 @@ private async decryptPreviewString(contenido: string): Promise<string> {
           const emisorRsaKey = await this.cryptoService.importPublicKey(emisorPubKeyBase64);
           const aesEmisorEncrypted = await this.cryptoService.encryptRSA(aesKeyRawBase64, emisorRsaKey);
 
-          const e2ePayload = {
+          const adminPubKeyBase64 =
+            localStorage.getItem('auditPublicKey') ||
+            localStorage.getItem('publicKey_admin_audit') ||
+            localStorage.getItem('forAdminPublicKey');
+
+          let aesAdminEncrypted: string | undefined;
+
+          if (adminPubKeyBase64) {
+            try {
+              const adminRsaKey = await this.cryptoService.importPublicKey(adminPubKeyBase64);
+              aesAdminEncrypted = await this.cryptoService.encryptRSA(aesKeyRawBase64, adminRsaKey);
+            } catch (error) {
+              console.warn('No se pudo cifrar la llave AES para auditoría admin.', error);
+            }
+          }
+
+          const e2ePayload: any = {
             type: "E2E",
             iv: iv,
             ciphertext: ciphertext,
             forEmisor: aesEmisorEncrypted,
             forReceptor: aesReceptorEncrypted
           };
+
+          if (aesAdminEncrypted) {
+            e2ePayload.forAdmin = aesAdminEncrypted;
+          } else {
+            e2ePayload.auditStatus = 'NO_AUDITABLE';
+          }
 
           finalContenido = JSON.stringify(e2ePayload);
           // console.log("Mensaje cifrado a enviar:", e2ePayload);

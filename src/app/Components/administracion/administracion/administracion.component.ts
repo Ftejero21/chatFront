@@ -153,11 +153,52 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
     await Promise.all(
       this.userChats.map(async (chat) => {
-        if (chat?.ultimoMensaje) {
+        if (!chat) return;
+
+        const previewAdmin =
+          chat.ultimoMensajeDescifrado ??
+          chat.ultimoMensajePlano ??
+          chat.previewAdmin ??
+          chat.ultimoMensajeAdmin;
+
+        if (previewAdmin) {
+          chat.ultimoMensaje = await this.normalizeAdminPreview(previewAdmin);
+          return;
+        }
+
+        if (chat.ultimoMensaje) {
           chat.ultimoMensaje = await this.decryptPreviewString(chat.ultimoMensaje);
         }
       })
     );
+  }
+
+  private async normalizeAdminPreview(preview: string): Promise<string> {
+    if (!preview) return preview;
+
+    const normalizedPreview = String(preview).trim();
+
+    if (normalizedPreview === 'NO_AUDITABLE') {
+      return '⚠️ [Mensaje legado no auditable]';
+    }
+
+    // Si backend envía por error JSON E2E en `ultimoMensajeDescifrado`, evitamos mostrarlo crudo.
+    if (this.isEncryptedE2EPayload(normalizedPreview)) {
+      return this.decryptPreviewString(normalizedPreview);
+    }
+
+    return normalizedPreview;
+  }
+
+  private isEncryptedE2EPayload(value: string): boolean {
+    if (!value || !value.startsWith('{')) return false;
+
+    try {
+      const payload = JSON.parse(value);
+      return payload?.type === 'E2E' && !!payload?.ciphertext;
+    } catch {
+      return false;
+    }
   }
 
   toggleSidebar() {
