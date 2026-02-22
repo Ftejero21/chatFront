@@ -156,6 +156,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         if (!chat) return;
 
         const previewAdmin =
+        const previewPlanoAdmin =
           chat.ultimoMensajeDescifrado ??
           chat.ultimoMensajePlano ??
           chat.previewAdmin ??
@@ -163,6 +164,8 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
         if (previewAdmin) {
           chat.ultimoMensaje = await this.normalizeAdminPreview(previewAdmin);
+        if (previewPlanoAdmin) {
+          chat.ultimoMensaje = previewPlanoAdmin;
           return;
         }
 
