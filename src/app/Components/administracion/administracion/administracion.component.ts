@@ -155,12 +155,15 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       this.userChats.map(async (chat) => {
         if (!chat) return;
 
+        const previewAdmin =
         const previewPlanoAdmin =
           chat.ultimoMensajeDescifrado ??
           chat.ultimoMensajePlano ??
           chat.previewAdmin ??
           chat.ultimoMensajeAdmin;
 
+        if (previewAdmin) {
+          chat.ultimoMensaje = await this.normalizeAdminPreview(previewAdmin);
         if (previewPlanoAdmin) {
           chat.ultimoMensaje = previewPlanoAdmin;
           return;
@@ -171,6 +174,30 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         }
       })
     );
+  }
+
+  private async normalizeAdminPreview(preview: string): Promise<string> {
+    if (!preview) return preview;
+
+    const normalizedPreview = String(preview).trim();
+
+    // Si backend envía por error JSON E2E en `ultimoMensajeDescifrado`, evitamos mostrarlo crudo.
+    if (this.isEncryptedE2EPayload(normalizedPreview)) {
+      return this.decryptPreviewString(normalizedPreview);
+    }
+
+    return normalizedPreview;
+  }
+
+  private isEncryptedE2EPayload(value: string): boolean {
+    if (!value || !value.startsWith('{')) return false;
+
+    try {
+      const payload = JSON.parse(value);
+      return payload?.type === 'E2E' && !!payload?.ciphertext;
+    } catch {
+      return false;
+    }
   }
 
   toggleSidebar() {
