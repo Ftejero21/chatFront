@@ -77,6 +77,10 @@ export async function decryptPreviewStringE2E(
     const payload = JSON.parse(contenido);
     if (payload.type !== 'E2E') return contenido;
 
+    if (payload.auditStatus === 'NO_AUDITABLE') {
+      return '⚠️ [Mensaje legado no auditable]';
+    }
+
     const privKeyBase64 = localStorage.getItem(`privateKey_${usuarioActualId}`);
     if (!privKeyBase64) return '🔒 [Mensaje Cifrado]';
 
@@ -84,19 +88,13 @@ export async function decryptPreviewStringE2E(
 
     let aesRawStr: string | undefined;
 
-    try {
-      if (payload.forReceptor) {
-        aesRawStr = await cryptoService.decryptRSA(payload.forReceptor, myPrivKey);
-      }
-    } catch {}
-
-    if (!aesRawStr) {
+    for (const candidate of [payload.forAdmin, payload.forReceptor, payload.forEmisor]) {
+      if (!candidate) continue;
       try {
-        if (payload.forEmisor) {
-          aesRawStr = await cryptoService.decryptRSA(payload.forEmisor, myPrivKey);
-        }
+        aesRawStr = await cryptoService.decryptRSA(candidate, myPrivKey);
+        if (aesRawStr) break;
       } catch {
-        return '🔒 [Mensaje Cifrado]';
+        // Intentamos con la siguiente llave disponible.
       }
     }
 
