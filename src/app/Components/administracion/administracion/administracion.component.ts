@@ -153,11 +153,40 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
     await Promise.all(
       this.userChats.map(async (chat) => {
-        if (chat?.ultimoMensaje) {
+        if (!chat) return;
+
+        const previewAdmin =
+          chat.ultimoMensajeDescifrado ??
+          chat.ultimoMensajePlano ??
+          chat.previewAdmin ??
+          chat.ultimoMensajeAdmin;
+
+        if (previewAdmin) {
+          chat.ultimoMensaje = await this.normalizeAdminPreview(previewAdmin);
+          return;
+        }
+
+        if (chat.ultimoMensaje) {
           chat.ultimoMensaje = await this.decryptPreviewString(chat.ultimoMensaje);
         }
       })
     );
+  }
+
+  private async normalizeAdminPreview(preview: string): Promise<string> {
+    if (!preview) return preview;
+
+    const maybeEncryptedPayload =
+      preview.startsWith('{') &&
+      preview.includes('"type":"E2E"') &&
+      preview.includes('"ciphertext"');
+
+    if (!maybeEncryptedPayload) {
+      return preview;
+    }
+
+    // Si backend envía por error JSON E2E en `ultimoMensajeDescifrado`, evitamos mostrarlo crudo.
+    return this.decryptPreviewString(preview);
   }
 
   toggleSidebar() {
