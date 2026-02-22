@@ -155,17 +155,14 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       this.userChats.map(async (chat) => {
         if (!chat) return;
 
-        const previewAdmin =
         const previewPlanoAdmin =
           chat.ultimoMensajeDescifrado ??
           chat.ultimoMensajePlano ??
           chat.previewAdmin ??
           chat.ultimoMensajeAdmin;
 
-        if (previewAdmin) {
-          chat.ultimoMensaje = await this.normalizeAdminPreview(previewAdmin);
         if (previewPlanoAdmin) {
-          chat.ultimoMensaje = previewPlanoAdmin;
+          chat.ultimoMensaje = await this.normalizeAdminPreview(previewPlanoAdmin);
           return;
         }
 
