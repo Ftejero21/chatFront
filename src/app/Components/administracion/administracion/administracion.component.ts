@@ -155,14 +155,14 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       this.userChats.map(async (chat) => {
         if (!chat) return;
 
-        const previewAdmin =
+        const previewPlanoAdmin =
           chat.ultimoMensajeDescifrado ??
           chat.ultimoMensajePlano ??
           chat.previewAdmin ??
           chat.ultimoMensajeAdmin;
 
-        if (previewAdmin) {
-          chat.ultimoMensaje = await this.normalizeAdminPreview(previewAdmin);
+        if (previewPlanoAdmin) {
+          chat.ultimoMensaje = await this.normalizeAdminPreview(previewPlanoAdmin);
           return;
         }
 
@@ -177,10 +177,6 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     if (!preview) return preview;
 
     const normalizedPreview = String(preview).trim();
-
-    if (normalizedPreview === 'NO_AUDITABLE') {
-      return '⚠️ [Mensaje legado no auditable]';
-    }
 
     // Si backend envía por error JSON E2E en `ultimoMensajeDescifrado`, evitamos mostrarlo crudo.
     if (this.isEncryptedE2EPayload(normalizedPreview)) {
