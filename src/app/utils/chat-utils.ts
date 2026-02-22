@@ -4,6 +4,7 @@ import { environment } from '../environments';
 import { GroupInviteResponseWS } from '../Interface/GroupInviteResponseWS';
 import { GroupInviteWS } from '../Interface/GroupInviteWS';
 import { UnseenCountWS } from '../Interface/UnseenCountWS';
+import { CryptoService } from '../Service/crypto/crypto.service';
 
 export const DEFAULT_NAME_PALETTE = [
   '#2563EB',
@@ -20,6 +21,93 @@ export const DEFAULT_NAME_PALETTE = [
   '#06B6D4',
   '#84CC16',
 ] as const;
+
+
+
+/**
+ * Descifra el contenido de un mensaje cifrado de extremo a extremo (E2E).
+ * Devuelve el texto claro o un mensaje de error si faltan claves.
+ */
+export async function decryptContenidoE2E(
+  contenido: string,
+  emisorId: number,
+  receptorId: number,
+  usuarioActualId: number,
+  cryptoService: CryptoService
+): Promise<string> {
+  try {
+    if (contenido && contenido.startsWith('{') && contenido.includes('"type":"E2E"')) {
+      const payload = JSON.parse(contenido);
+
+      if (payload.type === 'E2E') {
+        const privKeyBase64 = localStorage.getItem(`privateKey_${usuarioActualId}`);
+        if (!privKeyBase64) return '🔒 [Mensaje Cifrado - Sin clave privada local]';
+
+        const myPrivKey = await cryptoService.importPrivateKey(privKeyBase64);
+
+        const isSender = String(emisorId) === String(usuarioActualId);
+        const aesEncryptedBase64 = isSender ? payload.forEmisor : payload.forReceptor;
+
+        if (!aesEncryptedBase64) {
+          return '🔒 [Mensaje Cifrado - Llave no disponible para este usuario]';
+        }
+
+        const aesRawStr = await cryptoService.decryptRSA(aesEncryptedBase64, myPrivKey);
+        const aesKey = await cryptoService.importAESKey(aesRawStr);
+        return await cryptoService.decryptAES(payload.ciphertext, payload.iv, aesKey);
+      }
+    }
+  } catch {
+    return '🔒 [Error de descifrado E2E]';
+  }
+
+  return contenido;
+}
+
+export async function decryptPreviewStringE2E(
+  contenido: string,
+  usuarioActualId: number,
+  cryptoService: CryptoService
+): Promise<string> {
+  try {
+    if (!contenido || !contenido.startsWith('{') || !contenido.includes('"type":"E2E"')) {
+      return contenido;
+    }
+
+    const payload = JSON.parse(contenido);
+    if (payload.type !== 'E2E') return contenido;
+
+    const privKeyBase64 = localStorage.getItem(`privateKey_${usuarioActualId}`);
+    if (!privKeyBase64) return '🔒 [Mensaje Cifrado]';
+
+    const myPrivKey = await cryptoService.importPrivateKey(privKeyBase64);
+
+    let aesRawStr: string | undefined;
+
+    try {
+      if (payload.forReceptor) {
+        aesRawStr = await cryptoService.decryptRSA(payload.forReceptor, myPrivKey);
+      }
+    } catch {}
+
+    if (!aesRawStr) {
+      try {
+        if (payload.forEmisor) {
+          aesRawStr = await cryptoService.decryptRSA(payload.forEmisor, myPrivKey);
+        }
+      } catch {
+        return '🔒 [Mensaje Cifrado]';
+      }
+    }
+
+    if (!aesRawStr) return '🔒 [Mensaje Cifrado]';
+
+    const aesKey = await cryptoService.importAESKey(aesRawStr);
+    return await cryptoService.decryptAES(payload.ciphertext, payload.iv, aesKey);
+  } catch {
+    return '🔒 [Mensaje Cifrado]';
+  }
+}
 
 export function truncate(text: string, max: number): string {
   if (!text) return '';

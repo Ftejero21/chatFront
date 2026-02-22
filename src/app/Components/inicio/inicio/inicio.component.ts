@@ -18,6 +18,8 @@ import {
   clampPercent,
   colorForUserId,
   computePreviewPatch,
+  decryptContenidoE2E,
+  decryptPreviewStringE2E,
   formatDuration,
   formatPreviewText,
   getNombrePorId,
@@ -41,6 +43,7 @@ import {
   ChatGrupalCreateDTO,
   CrearGrupoModalComponent,
 } from '../../CrearGrupoModal/crear-grupo-modal/crear-grupo-modal.component';
+import { CryptoService } from '../../../Service/crypto/crypto.service';
 import { environment } from '../../../environments';
 import { UsuarioDTO } from '../../../Interface/UsuarioDTO';
 import { ChatIndividualCreateDTO } from '../../../Interface/ChatIndividualCreateDTO';
@@ -50,17 +53,15 @@ import { MessagueSalirGrupoDTO } from '../../../Interface/MessagueSalirGrupoDTO'
 
 // Bootstrap (modales)
 declare const bootstrap: any;
-declare const navigator: any;
-// Helper opcional (no usado directamente, lo dejo por si lo referencias en template)
-function mmss(ms: number | undefined | null): string {
-  if (!ms || ms < 0) return '';
-  const total = Math.floor(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
 
+/**
+ * Representa los diferentes estados en los que puede estar un usuario.
+ */
 export type EstadoUsuario = 'Conectado' | 'Desconectado' | 'Ausente';
+
+/**
+ * Extensión del DTO de usuario que incluye su estado actual.
+ */
 export type UserWithEstado = UsuarioDTO & { estado?: EstadoUsuario };
 
 @Component({
@@ -135,8 +136,10 @@ export class InicioComponent {
   >();
 
   public aiPanelOpen = false;
-  public aiQuote = ''; // texto seleccionado/citado
-  public aiQuestion = '¿Es esto verdad?'; // pregunta por defecto
+  /** Texto resaltado para la IA */
+  public aiQuote = '';
+  /** Pregunta por defecto para la IA */
+  public aiQuestion = '¿Es esto verdad?';
   public aiLoading = false;
   public aiError: string | null = null;
   public remoteHasVideo = false;
@@ -247,15 +250,23 @@ export class InicioComponent {
 
   public busquedaChat: string = '';
 
+  public bloqueadosIds = new Set<number>();
+  public meHanBloqueadoIds = new Set<number>();
+
   // ==========
   // CONSTRUCTOR
   // ==========
-  constructor(
+  /**
+   * Constructor: inyecta todos los servicios necesarios.
+   * Además, configura el cierre de conexión si el usuario cierra la ventana.
+   */
+  public constructor(
     private chatService: ChatService,
     private wsService: WebSocketService,
     private mensajeriaService: MensajeriaService,
     private ngZone: NgZone,
     private cdr: ChangeDetectorRef,
+    private cryptoService: CryptoService,
     private authService: AuthService,
     private notificationService: NotificationService,
     private groupInviteService: GroupInviteService
@@ -268,6 +279,11 @@ export class InicioComponent {
   // ==========
   // LIFECYCLE (públicos)
   // ==========
+
+  /**
+   * Método de ciclo de vida de Angular que se ejecuta al iniciar el componente.
+   * Se encarga de cargar el perfil, inicializar WebSockets y obtener datos iniciales.
+   */
   public ngOnInit(): void {
     const id = localStorage.getItem('usuarioId');
     this.resetEdicion();
@@ -280,6 +296,23 @@ export class InicioComponent {
     }
 
     this.usuarioActualId = parseInt(id, 10);
+
+    // Recuperar bloqueados cacheados
+    const cachedBloqueados = localStorage.getItem('bloqueadosIds');
+    if (cachedBloqueados) {
+      try {
+        this.bloqueadosIds = new Set(JSON.parse(cachedBloqueados) as number[]);
+      } catch (e) {}
+    }
+
+    // Recuperar quién nos bloqueó
+    const cachedMeHanBloqueado = localStorage.getItem('meHanBloqueadoIds');
+    if (cachedMeHanBloqueado) {
+      try {
+        this.meHanBloqueadoIds = new Set(JSON.parse(cachedMeHanBloqueado) as number[]);
+      } catch (e) {}
+    }
+
     // 🔐 Inicializa claves locales y publica bundle (si no existe)
 
     // Contador unseen inicial
@@ -298,7 +331,7 @@ export class InicioComponent {
     this.wsService.conectar(() => {
       // 2) Esperar a conexión para inicializar resto
       this.wsService.esperarConexion(() => {
-        console.log('✅ WebSocket conectado, inicializando funciones');
+        // console.log('✅ WebSocket conectado, inicializando funciones');
         this.wsService.enviarEstadoConectado();
         this.prepararSuscripcionesWebRTC();
         // 📞 Llamadas: invitaciones entrantes (cuando me llaman)
@@ -475,6 +508,9 @@ export class InicioComponent {
         this.wsService.suscribirseAChat(
           this.usuarioActualId,
           async (mensaje) => {
+            // NOTE: decrypting before entering ngZone run to keep it linear
+            mensaje.contenido = await this.decryptContenido(mensaje.contenido, mensaje.emisorId, mensaje.receptorId);
+
             this.ngZone.run(async () => {
               const esDelChatActual =
                 this.chatActual && mensaje.chatId === this.chatActual.id;
@@ -694,6 +730,19 @@ export class InicioComponent {
           }
         );
 
+        // 🚫 Bloqueos
+        this.wsService.suscribirseABloqueos(this.usuarioActualId, (payload) => {
+          this.ngZone.run(() => {
+            if (payload.type === 'BLOCKED') {
+              this.meHanBloqueadoIds.add(payload.blockerId);
+            } else if (payload.type === 'UNBLOCKED') {
+              this.meHanBloqueadoIds.delete(payload.blockerId);
+            }
+            this.updateCachedMeHanBloqueado();
+            this.cdr.markForCheck();
+          });
+        });
+
         // Grupos: mensajes entrantes
         // (me suscribo por cada grupo tras cargar los chats)
         this.listarTodosLosChats();
@@ -714,6 +763,10 @@ export class InicioComponent {
   // PUBLIC METHODS (usados desde template o públicamente)
   // ==========
 
+  /**
+   * Obtiene la lista de todos los chats (individuales y grupales) del usuario actual desde el backend.
+   * También se suscribe a los estados de conexión de los otros usuarios y a los mensajes de los grupos.
+   */
   public listarTodosLosChats(): void {
     const usuarioId = this.usuarioActualId;
 
@@ -791,11 +844,36 @@ export class InicioComponent {
             error: (err) => console.error('❌ Error estados:', err),
           });
         }
+
+        // 🔐 Descifrar los previews de manera asíncrona tras la carga inicial
+        for (let chat of this.chats) {
+          if (chat.ultimaMensaje) {
+            let msgStr = chat.ultimaMensaje;
+            let prf = '';
+            let jsonStr = msgStr;
+            const match = msgStr.match(/^([^:]+:\s)(.*)/);
+            if (match) {
+              prf = match[1];
+              jsonStr = match[2];
+            }
+            if (jsonStr.startsWith('{') && jsonStr.includes('"type":"E2E"')) {
+              this.decryptPreviewString(jsonStr).then((decrypted: string) => {
+                let trunc = decrypted.length > 60 ? decrypted.substring(0, 59) + '…' : decrypted;
+                chat.ultimaMensaje = prf + trunc;
+                this.cdr.markForCheck();
+              });
+            }
+          }
+        }
       },
       error: (err) => console.error('❌ Error chats:', err),
     });
   }
 
+  /**
+   * Carga y muestra los mensajes de un chat específico cuando el usuario hace clic en él.
+   * @param chat El chat (individual o grupal) seleccionado en la barra lateral.
+   */
   public mostrarMensajes(chat: any): void {
     this.chatSeleccionadoId = chat.id;
     this.chatActual = chat;
@@ -826,8 +904,14 @@ export class InicioComponent {
         : this.chatService.listarMensajesPorChat(chat.id);
 
       fuente$.subscribe({
-        next: (mensajes: any[]) => {
-          this.mensajesSeleccionados = mensajes || [];
+        next: async (mensajes: any[]) => {
+          let lista = mensajes || [];
+          if (!chat.esGrupo) {
+            for (let m of lista) {
+              m.contenido = await this.decryptContenido(m.contenido, m.emisorId, m.receptorId);
+            }
+          }
+          this.mensajesSeleccionados = lista;
 
           // Marcar como leídos (solo individuales)
           if (!chat.esGrupo) {
@@ -933,6 +1017,29 @@ export class InicioComponent {
     }
   }
 
+  private async decryptContenido(contenido: string, emisorId: number, receptorId: number): Promise<string> {
+  return decryptContenidoE2E(
+    contenido,
+    emisorId,
+    receptorId,
+    this.usuarioActualId,
+    this.cryptoService
+  );
+}
+
+private async decryptPreviewString(contenido: string): Promise<string> {
+  return decryptPreviewStringE2E(
+    contenido,
+    this.usuarioActualId,
+    this.cryptoService
+  );
+}
+
+
+  /**
+   * Toma el texto escrito en el input, lo cifra si es un chat individual,
+   * y lo envía al backend mediante WebSockets.
+   */
   public async enviarMensaje(): Promise<void> {
     if (!this.mensajeNuevo?.trim() || !this.chatActual) return;
     if (this.haSalidoDelGrupo) return; // ← bloquea si estás fuera
@@ -970,9 +1077,54 @@ export class InicioComponent {
     const receptorId = this.chatActual?.receptor?.id;
     if (!receptorId) return;
 
-    const sendToExisting = (chatId: number) => {
+    const sendToExisting = async (chatId: number) => {
+      let finalContenido = contenido;
+
+      try {
+        // Encriptación Híbrida E2E
+        const receptorDTO = await this.authService.getById(receptorId).toPromise();
+
+        const receptorPubKeyBase64 = receptorDTO?.publicKey;
+        const emisorPrivKeyBase64 = localStorage.getItem(`privateKey_${this.usuarioActualId}`);
+        const emisorPubKeyBase64 = localStorage.getItem(`publicKey_${this.usuarioActualId}`);
+
+        if (receptorPubKeyBase64 && emisorPrivKeyBase64 && emisorPubKeyBase64) {
+          // Generar llave AES aleatoria
+          const aesKey = await this.cryptoService.generateAESKey();
+
+          // Cifrar el mensaje con AES
+          const { iv, ciphertext } = await this.cryptoService.encryptAES(contenido, aesKey);
+
+          // Exportar la llave AES para cifrarla asimétricamente
+          const aesKeyRawBase64 = await this.cryptoService.exportAESKey(aesKey);
+
+          // Cifrar la AES para el receptor
+          const receptorRsaKey = await this.cryptoService.importPublicKey(receptorPubKeyBase64);
+          const aesReceptorEncrypted = await this.cryptoService.encryptRSA(aesKeyRawBase64, receptorRsaKey);
+
+          // Cifrar la AES para el emisor (para poder leer nuestro propio historial)
+          const emisorRsaKey = await this.cryptoService.importPublicKey(emisorPubKeyBase64);
+          const aesEmisorEncrypted = await this.cryptoService.encryptRSA(aesKeyRawBase64, emisorRsaKey);
+
+          const e2ePayload = {
+            type: "E2E",
+            iv: iv,
+            ciphertext: ciphertext,
+            forEmisor: aesEmisorEncrypted,
+            forReceptor: aesReceptorEncrypted
+          };
+
+          finalContenido = JSON.stringify(e2ePayload);
+          // console.log("Mensaje cifrado a enviar:", e2ePayload);
+        } else {
+          console.warn("No se pudo cifrar E2E por falta de claves (Se enviará en texto plano).");
+        }
+      } catch (err) {
+        console.error("Error cifrando mensaje E2E", err);
+      }
+
       const mensaje: any = {
-        contenido,
+        contenido: finalContenido,
         emisorId: myId,
         receptorId,
         activo: true,
@@ -983,7 +1135,9 @@ export class InicioComponent {
       const chatItem =
         (this.chats || []).find((c: any) => Number(c.id) === chatId) ||
         this.chatActual;
-      const pseudo = { ...mensaje };
+
+      // En la vista local mostramos el mensaje en texto plano para el preview
+      const pseudo = { ...mensaje, contenido: contenido };
       const preview = buildPreviewFromMessage(pseudo, chatItem as any, myId);
       this.chats = updateChatPreview(this.chats || [], chatId, preview);
 
@@ -996,7 +1150,7 @@ export class InicioComponent {
 
     // Ya existe el chat → enviar directamente
     if (this.chatActual.id) {
-      sendToExisting(Number(this.chatActual.id));
+      await sendToExisting(Number(this.chatActual.id));
       return;
     }
 
@@ -1067,7 +1221,10 @@ export class InicioComponent {
     });
   }
 
-  // Guarda selección cuando sueltas el ratón sobre el texto de un mensaje
+  /**
+   * Captura el texto seleccionado con el ratón por el usuario sobre un mensaje.
+   * Se usa para pre-llenar la consulta de la Inteligencia Artificial (IA).
+   */
   public onMessageMouseUp(mensaje: MensajeDTO, _host?: HTMLElement): void {
     const sel = window.getSelection?.();
     const text = sel && sel.rangeCount > 0 ? sel.toString().trim() : '';
@@ -1081,7 +1238,9 @@ export class InicioComponent {
     }
   }
 
-  // Abre panel IA desde el menú del mensaje
+  /**
+   * Abre el panel auxiliar de la Inteligencia Artificial al hacer clic en las opciones del mensaje.
+   */
   public openAiPanelFromMessage(mensaje: MensajeDTO): void {
     if (!this.orEmpty(this.aiQuote) && (mensaje.tipo || 'TEXT') === 'TEXT') {
       this.aiQuote = mensaje.contenido || '';
@@ -1091,7 +1250,9 @@ export class InicioComponent {
     this.aiPanelOpen = true;
   }
 
-  // Cierra panel IA
+  /**
+   * Cierra el panel de consulta de la Inteligencia Artificial.
+   */
   public cancelAiPanel(): void {
     this.aiPanelOpen = false;
     this.aiError = null;
@@ -1100,7 +1261,10 @@ export class InicioComponent {
     // this.aiQuestion = '¿Es esto verdad?';
   }
 
-  /** onChange del input de búsqueda (topbar) */
+  /**
+   * Se ejecuta cuando el usuario escribe en la barra de búsqueda superior.
+   * Llama a la API para buscar usuarios por nombre o correo.
+   */
   public onTopbarSearch(ev: Event): void {
     const value = (ev.target as HTMLInputElement)?.value ?? '';
     this.topbarQuery = value.trim();
@@ -1127,23 +1291,33 @@ export class InicioComponent {
     });
   }
 
-  /** Cierra el panel de resultados */
+  /**
+   * Oculta los resultados de la búsqueda superior.
+   */
   public closeTopbarResults(): void {
     this.topbarOpen = false;
   }
 
-  /** Fallback de avatar */
+  /**
+   * Retorna la foto de perfil del usuario o una imagen por defecto genérica.
+   */
   public avatarOrDefaultUser(u?: { foto?: string | null }): string {
     return u?.foto || 'assets/usuario.png';
   }
 
-  /** Nombre completo seguro */
+  /**
+   * Concatena el nombre y apellido del usuario, eliminando espacios vacíos.
+   */
   public nombreCompleto(u: UsuarioDTO): string {
     const nombre = u?.nombre?.trim() ?? '';
     const apellido = (u as any)?.apellido?.trim?.() ?? ''; // por si tu DTO trae apellido
     return (nombre + ' ' + apellido).trim();
   }
 
+  /**
+   * Inicia el flujo de chat cuando se selecciona un usuario en el buscador superior.
+   * Si ya hay chat, lo abre. Si no, crea una visualización temporal antes del primer mensaje.
+   */
   public onTopbarResultClick(u: UsuarioDTO): void {
     // 1) Cierra el panel y limpia estado del buscador
     this.topbarOpen = false;
@@ -1202,6 +1376,9 @@ export class InicioComponent {
     }
   }
 
+  /**
+   * Notifica por WebSockets que el usuario actual está "Escribiendo...".
+   */
   public notificarEscribiendo(): void {
     if (!this.chatActual) return;
     if (this.haSalidoDelGrupo) return;
@@ -1234,6 +1411,9 @@ export class InicioComponent {
     }
   }
 
+  /**
+   * Cambia el estatus global del usuario (Conectado, Ausente, Desconectado) y notifica a la red.
+   */
   public cambiarEstado(
     nuevoEstado: 'Conectado' | 'Ausente' | 'Desconectado'
   ): void {
@@ -1248,10 +1428,13 @@ export class InicioComponent {
       });
 
       this.estadoActual = nuevoEstado;
-      console.log(`🔁 Estado cambiado a: ${nuevoEstado}`);
+      // console.log(`🔁 Estado cambiado a: ${nuevoEstado}`);
     }
   }
 
+  /**
+   * Realiza un borrado lógico (invisible) de un mensaje del chat para todos.
+   */
   public eliminarMensaje(mensaje: MensajeDTO): void {
     if (!mensaje.id) return;
 
@@ -1267,6 +1450,9 @@ export class InicioComponent {
     this.wsService.enviarEliminarMensaje(mensaje);
   }
 
+  /**
+   * Muestra/Oculta el desplegable superior lateral de notificaciones e invitaciones y las marca como vistas.
+   */
   public togglePanelNotificaciones(): void {
     this.panelNotificacionesAbierto = !this.panelNotificacionesAbierto;
 
@@ -1281,6 +1467,9 @@ export class InicioComponent {
     }
   }
 
+  /**
+   * Se une a un grupo al que el usuario fue invitado.
+   */
   public aceptarInvitacion(inv: GroupInviteWS): void {
     this.groupInviteService
       .accept(inv.inviteId, this.usuarioActualId)
@@ -1297,6 +1486,9 @@ export class InicioComponent {
       });
   }
 
+  /**
+   * Rechaza una invitación a un grupo.
+   */
   public rechazarInvitacion(inv: GroupInviteWS): void {
     this.groupInviteService
       .decline(inv.inviteId, this.usuarioActualId)
@@ -1312,6 +1504,9 @@ export class InicioComponent {
       });
   }
 
+  /**
+   * Limpia y esconde notificaciones marcándolas como procesadas.
+   */
   public descartarRespuesta(resp: GroupInviteResponseWS): void {
     const before = this.notifItems.length;
     this.notifItems = this.notifItems.filter(
@@ -1340,24 +1535,39 @@ export class InicioComponent {
     return formatPreviewText(chat?.ultimaMensaje);
   }
 
+  /**
+   * Une los nombres de los miembros de un grupo en una sola línea de texto.
+   */
   public getMiembrosLinea(
     usuarios: Array<{ nombre: string; apellido?: string }> = []
   ): string {
     return joinMembersLine(usuarios);
   }
 
+  /**
+   * Asigna un color aleatorio (basado en el ID) para el avatar o nombre del usuario.
+   */
   public getNameColor(userId: number): string {
     return colorForUserId(userId);
   }
 
+  /**
+   * Busca el nombre completo de un usuario en la lista de chats usando su ID.
+   */
   public obtenerNombrePorId(userId: number): string | undefined {
     return getNombrePorId(this.chats, userId);
   }
 
+  /**
+   * Devuelve la imagen de perfil genérica en caso de que el usuario no tenga foto.
+   */
   public getAvatarFallback(_userId: number): string {
     return 'assets/usuario.png';
   }
 
+  /**
+   * Intenta agregar a un nuevo usuario a un grupo existente (Falta integrar API).
+   */
   public agregarUsuarioAlGrupo(u: {
     id: number;
     nombre: string;
@@ -1365,11 +1575,14 @@ export class InicioComponent {
   }): void {
     if (!this.chatActual?.esGrupo) return;
     // TODO: usar servicio real cuando esté listo
-    console.log('➕ Añadir al grupo', this.chatActual.id, '→ usuario', u.id);
+    // console.log('➕ Añadir al grupo', this.chatActual.id, '→ usuario', u.id);
   }
 
   // === Selección/creación de grupos (UI) ===
 
+  /**
+   * Filtra los usuarios disponibles para agregar a un grupo según la búsqueda y excluye los ya seleccionados.
+   */
   public get usuariosFiltrados() {
     const q = (this.busquedaUsuario || '').toLowerCase().trim();
     const selIds = new Set(this.nuevoGrupo.seleccionados.map((s) => s.id));
@@ -1380,10 +1593,16 @@ export class InicioComponent {
       );
   }
 
+  /**
+   * Comprueba si un usuario ya está en la lista de invitados para el nuevo grupo.
+   */
   public isSeleccionado(u: { id: number }): boolean {
     return this.nuevoGrupo.seleccionados.some((s) => s.id === u.id);
   }
 
+  /**
+   * Agrega o quita a un usuario de la lista de seleccionados al crear un nuevo grupo.
+   */
   public toggleUsuario(u: {
     id: number;
     nombre: string;
@@ -1399,12 +1618,18 @@ export class InicioComponent {
     }
   }
 
+  /**
+   * Quita a un usuario específico de la lista de seleccionados para el nuevo grupo.
+   */
   public removeSeleccionado(u: { id: number }): void {
     this.nuevoGrupo.seleccionados = this.nuevoGrupo.seleccionados.filter(
       (s) => s.id !== u.id
     );
   }
 
+  /**
+   * Previsualiza la foto que el usuario ha elegido como imagen para el nuevo grupo.
+   */
   public onGroupImageSelected(evt: Event): void {
     const input = evt.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -1417,6 +1642,9 @@ export class InicioComponent {
     reader.readAsDataURL(file);
   }
 
+  /**
+   * Recoge los datos del formulario local y crea el chat grupal desde la interfaz antigua (usado por modal propio).
+   */
   public crearGrupo(): void {
     const dto = {
       nombreGrupo: this.nuevoGrupo.nombre,
@@ -1434,6 +1662,9 @@ export class InicioComponent {
     });
   }
 
+  /**
+   * Delega la creación de un nuevo grupo al backend usando los datos del componente Modal.
+   */
   public onCrearGrupo(dto: ChatGrupalCreateDTO): void {
     this.chatService.crearChatGrupal(dto as any).subscribe({
       next: () => {
@@ -1446,6 +1677,9 @@ export class InicioComponent {
 
   // === Audio: handlers públicos para el template ===
 
+  /**
+   * Inicia o detiene (y envía) la grabación del mensaje de voz.
+   */
   public toggleRecording(): void {
     if (this.recording) {
       this.stopRecordingAndSend();
@@ -1454,27 +1688,42 @@ export class InicioComponent {
     }
   }
 
+  /**
+   * Envia inmediatamente el audio actual que se está grabando al hacer clic derecho o usar atajos.
+   */
   public onSendAudioClick(ev: MouseEvent): void {
     ev.preventDefault();
     ev.stopPropagation();
     this.stopRecordingAndSend();
   }
 
+  /**
+   * Convierte milisegundos en formato mm:ss (minutos y segundos) usando la función externa.
+   */
   public formatDur(ms?: number | null): string {
     return formatDuration(ms);
   }
 
+  /**
+   * Construye la URL correcta y accesible para que el navegador reproduzca un audio del servidor.
+   */
   public getAudioSrc(m: MensajeDTO): string {
     const url = m.audioUrl || m.audioDataUrl || '';
     return resolveMediaUrl(url, environment.backendBaseUrl);
   }
 
+  /**
+   * Calcula el porcentaje (0 a 100) de progreso para la barra visual del audio reproducido.
+   */
   public progressPercent(m: MensajeDTO): number {
     const id = Number(m.id);
     const st = this.audioStates.get(id);
     return clampPercent(st?.current ?? 0, st?.duration ?? 0);
   }
 
+  /**
+   * Evento que se dispara cuando el audio se carga en el navegador para saber su duración total.
+   */
   public onAudioLoadedMetadata(m: MensajeDTO, audio: HTMLAudioElement): void {
     const id = Number(m.id);
     const d = isFinite(audio.duration)
@@ -1490,6 +1739,9 @@ export class InicioComponent {
     });
   }
 
+  /**
+   * Evento que se dispara cada segundo mientras el audio se reproduce para actualizar la barra de progreso.
+   */
   public onAudioTimeUpdate(m: MensajeDTO, audio: HTMLAudioElement): void {
     const id = Number(m.id);
     const st =
@@ -1498,6 +1750,9 @@ export class InicioComponent {
     this.audioStates.set(id, { ...st, current: Math.floor(audio.currentTime) });
   }
 
+  /**
+   * Detiene visualmente la reproducción cuando el audio termina por completo.
+   */
   public onAudioEnded(m: MensajeDTO): void {
     const id = Number(m.id);
     const st =
@@ -1507,6 +1762,9 @@ export class InicioComponent {
     if (this.currentPlayingId === id) this.currentPlayingId = null;
   }
 
+  /**
+   * Intercambia el estado Play/Pausa al hacer clic en un mensaje de voz y pausa cualquier otro audio sonando.
+   */
   public togglePlay(m: MensajeDTO, audio: HTMLAudioElement): void {
     if (!m.id) return;
     const id = Number(m.id);
@@ -1544,16 +1802,25 @@ export class InicioComponent {
     }
   }
 
+  /**
+   * Analiza si el resumen del último mensaje es verdaderamente un mensaje de voz o texto escrito.
+   */
   public isAudioPreviewChat(chat: any): boolean {
     return isAudioPreviewText(chat?.ultimaMensaje);
   }
 
+  /**
+   * Obtiene la duración en texto `mm:ss` del preview (vista previa) del audio del último mensaje.
+   */
   public audioPreviewTime(chat: any): string {
     const durMs =
       chat?.ultimaAudioDurMs ?? parseAudioDurationMs(chat?.ultimaMensaje);
     return formatDuration(durMs);
   }
 
+  /**
+   * Obtiene la cantidad bruta de segundos de duración del preview del audio del chat.
+   */
   public audioPreviewSeconds(chat: any): number {
     const t = String(this.audioPreviewTime(chat) || '');
     const m = /(\d{1,2}):(\d{2})/.exec(t);
@@ -1563,9 +1830,15 @@ export class InicioComponent {
     return Math.max(0, min * 60 + sec);
   }
 
+  /**
+   * Retorna el título descriptivo para el mensaje de audio en la barra lateral.
+   */
   public audioPreviewLabel = (chat: any) =>
     chat?.__ultimaLabel ?? parseAudioPreviewText(chat?.ultimaMensaje).label;
 
+  /**
+   * Se ejecuta al escribir en el buscador lateral para filtrar chats por nombre.
+   */
   public onSearchChange(ev: Event): void {
     const value = (ev.target as HTMLInputElement).value || '';
     this.busquedaChat = value.trim();
@@ -1575,6 +1848,9 @@ export class InicioComponent {
   //  - Coincidencias arriba (empieza por > contiene)
   //  - Luego el resto (sin coincidencia), conservando orden original
   //  - Empates: más no leídos primero y, luego, más reciente
+  /**
+   * Devuelve la lista ordenada localmente de los chats según su coincidencia de búsqueda, mensajes sin leer y fecha.
+   */
   public get chatsFiltrados(): any[] {
     const q = this._norm(this.busquedaChat);
     if (!q) return this.chats;
@@ -1610,7 +1886,9 @@ export class InicioComponent {
   // PRIVATE METHODS (helpers internos)
   // ==========
 
-  // normaliza para búsqueda: minúsculas + sin acentos
+  /**
+   * Limpia strings eliminando acentos, espacios o mayúsculas para facilitar búsquedas sin errores.
+   */
   private _norm(s: string): string {
     return (s || '')
       .toLowerCase()
@@ -1618,13 +1896,18 @@ export class InicioComponent {
       .replace(/[\u0300-\u036f]/g, ''); // quita diacríticos
   }
 
-  // compara fechas en orden descendente (más nueva primero)
+  /**
+   * Ordena y decide qué fecha es más reciente entre dos valores de tiempo. (A versus B).
+   */
   private _compareFechaDesc(a: any, b: any): number {
     const ta = a ? new Date(a).getTime() : 0;
     const tb = b ? new Date(b).getTime() : 0;
     return tb - ta;
   }
 
+  /**
+   * Obtiene la foto de perfil real del usuario utilizando el endpoint backend con su ID guardado en localStorage.
+   */
   private cargarPerfil(): void {
     const idStr = localStorage.getItem('usuarioId');
     if (!idStr) return;
@@ -1642,6 +1925,9 @@ export class InicioComponent {
     });
   }
 
+  /**
+   * Programa un reloj para cambiar de "Conectado" a "Ausente" si la persona no mueve el ratón en 20 minutos.
+   */
   private inicializarDeteccionInactividad(): void {
     const eventos = ['mousemove', 'keydown', 'click', 'scroll'];
 
@@ -1662,6 +1948,9 @@ export class InicioComponent {
     resetTimer();
   }
 
+  /**
+   * Muestra texto parpadeante simulando que la Inteligencia Artificial "está pensando" y procesando respuesta.
+   */
   private startAiWaitingAnimation(): void {
     this.aiWaitDots = 0;
     this.mensajeNuevo = 'Esperando a IA';
@@ -1674,6 +1963,9 @@ export class InicioComponent {
     }, 400);
   }
 
+  /**
+   * Detiene el texto parpadeante de procesamiento de la Inteligencia Artificial.
+   */
   private stopAiWaitingAnimation(): void {
     if (this.aiWaitTicker) {
       clearInterval(this.aiWaitTicker);
@@ -1681,6 +1973,9 @@ export class InicioComponent {
     }
   }
 
+  /**
+   * Fuerza la barra de desplazamiento a ubicarse en el mensaje más reciente hasta abajo.
+   */
   private scrollAlFinal(): void {
     try {
       setTimeout(() => {
@@ -1692,7 +1987,9 @@ export class InicioComponent {
     }
   }
 
-  /** B acepta la llamada entrante */
+  /**
+   * El usuario cliquea "Contestar" al popup verde de llamada, validando permisos de micrófono/cámara y conectándolo.
+   */
   public async aceptarLlamada(): Promise<void> {
     if (!this.ultimaInvite) return;
 
@@ -1725,7 +2022,9 @@ export class InicioComponent {
     );
   }
 
-  /** B rechaza la llamada entrante */
+  /**
+   * El usuario rechaza la llamada entrante actual. Notifica al emisor que colgamos o cancelamos.
+   */
   public rechazarLlamada(): void {
     if (!this.ultimaInvite) return;
     this.wsService.responderLlamada(
@@ -1739,7 +2038,9 @@ export class InicioComponent {
     this.currentCallId = undefined;
   }
 
-  /** Colgar desde cualquiera de los dos */
+  /**
+   * Termina la videollamada actual, cortando la conexión tanto si fuiste el creador como si fuiste el invitado.
+   */
   public colgar(): void {
     const callId = this.currentCallId ?? this.ultimaInvite?.callId;
     if (callId) {
@@ -1748,6 +2049,9 @@ export class InicioComponent {
     this.cerrarLlamadaLocal();
   }
 
+  /**
+   * Limpia y apaga recursos locales de una llamada finalizada (cierra la cámara, micrófono y conexión remota).
+   */
   private cerrarLlamadaLocal(): void {
     try {
       this.localStream?.getTracks().forEach((t) => t.stop());
@@ -1783,23 +2087,33 @@ export class InicioComponent {
     ],
   };
 
+  /**
+   * Devuelve el nombre visible de la otra persona en la videollamada.
+   */
   public get remoteDisplayName(): string {
     const n = (this.chatActual?.receptor?.nombre || '').trim();
     const a = (this.chatActual?.receptor?.apellido || '').trim();
     const full = `${n} ${a}`.trim();
     return full || 'La otra persona';
   }
+  /**
+   * Devuelve la foto de la otra persona en la videollamada para mostrar su recuadro.
+   */
   public get remoteAvatarUrl(): string | null {
     const url = this.chatActual?.receptor?.foto?.trim();
     return url && url.length > 0 ? url : null;
   }
 
-  // ¿tengo cámara local activa?
+  /**
+   * Comprueba si el usuario local tiene su cámara encendida actualmente enviando señal de vídeo.
+   */
   public get hasLocalVideo(): boolean {
     return !!this.localStream?.getVideoTracks()?.length;
   }
 
-  // --- Encender/apagar cámara local dinámicamente ---
+  /**
+   * Pide permiso al usuario para encender la cámara web y comienza a transmitir el vídeo al otro contacto.
+   */
   private async enableLocalCamera(): Promise<void> {
     try {
       // solo vídeo (dejamos el audio actual intacto)
@@ -1828,6 +2142,9 @@ export class InicioComponent {
     }
   }
 
+  /**
+   * Detiene la cámara web local y deja de enviar señal de vídeo, pero mantiene el audio activo.
+   */
   private disableLocalCamera(): void {
     try {
       // 1) corta envío WebRTC
@@ -1851,7 +2168,9 @@ export class InicioComponent {
     }
   }
 
-  // Recalcula si hay vídeo remoto "vivo"
+  /**
+   * Verifica contínuamente si la otra persona está enviando vídeo y actualiza la ventana visual del chat.
+   */
   private updateRemoteVideoPresence(): void {
     const has = !!this.remoteStream
       ?.getVideoTracks()
@@ -1860,7 +2179,9 @@ export class InicioComponent {
     this.cdr.markForCheck();
   }
 
-  // ========== SUSCRIPCIONES WEBRTC en ngOnInit ==========
+  /**
+   * Prepara los eventos de red necesarios para poder recibir o realizar llamadas (WebRTC).
+   */
   private prepararSuscripcionesWebRTC(): void {
     // OFERTA entrante (inicial o de renegociación)
     this.wsService.suscribirseASdpOffer(this.usuarioActualId, async (offer) => {
@@ -1889,6 +2210,9 @@ export class InicioComponent {
     });
   }
 
+  /**
+   * Procesa internamente una invitación oculta de sistema cuando otro usuario te está llamando, negociando red.
+   */
   private async _handleRemoteOffer(offer: {
     callId: string;
     fromUserId: number;
@@ -1912,7 +2236,9 @@ export class InicioComponent {
     await this.iniciarPeerComoCallee(offer);
   }
 
-  // ========== LADO CALLER ==========
+  /**
+   * Comienza a llamar a otro usuario del chat pulsando el botón de videollamada.
+   */
   public async iniciarVideollamada(chatId?: number): Promise<void> {
     if (!this.chatActual || this.chatActual.esGrupo) return;
 
@@ -1938,7 +2264,9 @@ export class InicioComponent {
     this.wsService.iniciarLlamada(callerId, calleeId, chatId);
   }
 
-  // Llamar tras recibir ACCEPTED (soy A)
+  /**
+   * Interno: Una vez el otro acepta, crea la conexión definitiva desde tu lado para enviar audio y esperar vídeo.
+   */
   private async iniciarPeerComoCaller(
     callId: string,
     toUserId: number
@@ -1963,7 +2291,9 @@ export class InicioComponent {
     this.cdr.markForCheck();
   }
 
-  // ========== LADO CALLEE ==========
+  /**
+   * Interno: Te unes a una videollamada como invitado contestando con tu configuración de audio.
+   */
   private async iniciarPeerComoCallee(offer: {
     callId: string;
     fromUserId: number;
@@ -1998,7 +2328,9 @@ export class InicioComponent {
     this.cdr.markForCheck();
   }
 
-  // ========== COMÚN ==========
+  /**
+   * Verifica que estás en una página segura (HTTPS) y pide permisos básicos de micrófono al navegador.
+   */
   private async prepararMediosLocales(): Promise<void> {
     // HTTPS requisito (salvo localhost)
     if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
@@ -2030,6 +2362,9 @@ export class InicioComponent {
     this.cdr.markForCheck();
   }
 
+  /**
+   * Recupera el nombre completo seguro (sin nulos) del compañero de chat.
+   */
   public get peerDisplayName(): string {
     const n = this.chatActual?.receptor?.nombre || '';
     const a = this.chatActual?.receptor?.apellido || '';
@@ -2043,6 +2378,9 @@ export class InicioComponent {
     return f && !f.toLowerCase().includes('assets/usuario.png') ? f : null;
   }
 
+  /**
+   * Configura las reglas iniciales y los receptores de conexión WebRTC para conectar el video de otra persona directamente.
+   */
   private crearPeerHandlers(
     callId: string,
     fromUserId: number,
@@ -2135,6 +2473,9 @@ export class InicioComponent {
     };
   }
 
+  /**
+   * Adjunta funciones extra a la pista de vídeo de la otra persona para manejar cuando se apaga cámara o falla la app.
+   */
   private _wireRemoteVideoTrack(track: MediaStreamTrack) {
     track.onended = () => {
       this._purgeDeadRemoteVideoTracks();
@@ -2150,6 +2491,9 @@ export class InicioComponent {
     };
   }
 
+  /**
+   * Limpia y desecha internamente las pistas de vídeo ajenas que ya estén inservibles ("ended").
+   */
   private _purgeDeadRemoteVideoTracks() {
     if (!this.remoteStream) return;
     this.remoteStream.getVideoTracks().forEach((t) => {
@@ -2161,6 +2505,9 @@ export class InicioComponent {
     });
   }
 
+  /**
+   * Cortocircuita los permisos si la red a red falla y nos vemos obligados a "colgar" o limpiar el estado.
+   */
   private _teardownRemoteVideo(msg: string) {
     try {
       this.remoteStream?.getTracks().forEach((t) => t.stop());
@@ -2172,6 +2519,9 @@ export class InicioComponent {
     setTimeout(() => this.cerrarLlamadaLocal(), 1500);
   }
 
+  /**
+   * Helper que muestra un estado dinámico superpuesto en el chat y posiblemente cierra la llamada automáticamente en X tiempo.
+   */
   private showRemoteStatus(
     message: string,
     cls: 'is-ringing' | 'is-ended' | 'is-error',
@@ -2185,7 +2535,9 @@ export class InicioComponent {
     }
   }
 
-  // Cuando recibes CALL_ANSWER accepted=true (yo soy A)
+  /**
+   * Actuar automáticamente con nuestra señal interna WebRTC en el momento en el que el segundo usuario clica en aceptar.
+   */
   private async onAnswerAccepted(
     callId: string,
     calleeId: number
@@ -2193,7 +2545,9 @@ export class InicioComponent {
     await this.iniciarPeerComoCaller(callId, calleeId);
   }
 
-  // ========== Botones UI ==========
+  /**
+   * Silencia o desactiva interactivamente el micrófono local para que la otra parte no te escuche.
+   */
   public toggleMute(): void {
     if (!this.localStream) return;
     this.isMuted = !this.isMuted;
@@ -2202,6 +2556,9 @@ export class InicioComponent {
       .forEach((t) => (t.enabled = !this.isMuted));
   }
 
+  /**
+   * Interrumpe en tiempo real las transmisiones que captan imagen de tu webcam o pide permisos para enviarlo de nuevo.
+   */
   public async toggleCam(): Promise<void> {
     // Encender
     if (this.camOff) {
@@ -2223,6 +2580,9 @@ export class InicioComponent {
     this.cdr.markForCheck();
   }
 
+  /**
+   * Substituye activamente la pista de grabación de tu cámara en la conexión global sin tirar la llamada en curso.
+   */
   private async replaceLocalVideoTrack(
     track: MediaStreamTrack | null
   ): Promise<void> {
@@ -2262,6 +2622,9 @@ export class InicioComponent {
     }
   }
 
+  /**
+   * Actualiza tu interfaz individual quitando el mensaje "x" (pasando a activo: false) sin recargar toda la página desde 0.
+   */
   private aplicarEliminacionEnUI(mensaje: MensajeDTO): void {
     const deletedId = Number(mensaje.id);
     const chatId = (mensaje as any).chatId;
@@ -2332,6 +2695,9 @@ export class InicioComponent {
     this.refrescarPreviewDesdeServidor(Number(chatId));
   }
 
+  /**
+   * Habla con los servidores de mensajería backend para refrescar y actualizar el resumen de "Último mensaje de chat"
+   */
   private refrescarPreviewDesdeServidor(chatId: number): void {
     this.chatService.listarMensajesPorChat(chatId).subscribe({
       next: (mensajes) => {
@@ -2360,12 +2726,18 @@ export class InicioComponent {
     });
   }
 
+  /**
+   * Comprueba si el receptor en internet al otro lado del cable, tiene la cámara encendida, enviando video, y sin mutear.
+   */
   public get hasRemoteVideoActive(): boolean {
     const vs = this.remoteStream?.getVideoTracks() ?? [];
     // vídeo “vivo”: no terminado y no muted
     return vs.some((t) => t.readyState === 'live' && !t.muted);
   }
 
+  /**
+   * Carga de manera retroactiva con el backend si hay invitaciones que han llegado mientras estábamos desconectados.
+   */
   private syncNotifsFromServer(): void {
     this.notificationService.list(this.usuarioActualId).subscribe({
       next: (rows) => {
@@ -2400,7 +2772,9 @@ export class InicioComponent {
     });
   }
 
-  /** Enriquecer chat con nombre+apellido y foto del peer desde el backend */
+  /**
+   * Complementa y "embellece" localmente listados de un chat para obtener nombres/fotos reales desde la base de datos backend.
+   */
   private enrichPeerFromServer(peerId: number, chatId: number): void {
     if (!peerId || this.enrichedUsers.has(peerId)) return;
     this.enrichedUsers.add(peerId);
@@ -2451,6 +2825,9 @@ export class InicioComponent {
     });
   }
 
+  /**
+   * Reacciona cuando ocurre un evento con mensajes grupales por socket. Sincroniza interfaz o incrementa contador si es pasivo.
+   */
   private handleMensajeGrupal(mensaje: any): void {
     // Si no estoy en ese grupo → solo preview/contadores
     if (!this.chatActual || this.chatActual.id !== mensaje.chatId) {
@@ -2503,6 +2880,9 @@ export class InicioComponent {
     this.cdr.markForCheck();
   }
 
+  /**
+   * Actualiza repetitivamente los colorines verdes y grises del listado superior (barra de estado/búsqueda).
+   */
   private fetchEstadosForTopbarResults(): void {
     // Asegura que siempre sea number
     const myId: number = Number.isFinite(this.usuarioActualId)
@@ -2548,6 +2928,9 @@ export class InicioComponent {
     }
   }
 
+  /**
+   * Pregunta a tu buscador (Chrome/Firefox/Edge) el mejor formato web compatible para codificar notas de audio. (webm/ogg).
+   */
   private pickSupportedMime(): string | undefined {
     const MediaRec: any = (window as any).MediaRecorder;
     if (!MediaRec) return undefined;
@@ -2560,6 +2943,9 @@ export class InicioComponent {
     return candidates.find((t) => MediaRec.isTypeSupported?.(t));
   }
 
+  /**
+   * Activa el micrófono en directo tras un permiso del usuario, y comienza cronómetro de grabación de la nota de voz.
+   */
   public async startRecording(): Promise<void> {
     if (!this.recorderSupported) {
       alert('Tu navegador no soporta grabación de audio.');
@@ -2598,11 +2984,17 @@ export class InicioComponent {
     }
   }
 
+  /**
+   * Homogeniza un estado ajeno de string en un Enum estándar interno de tipos válidos para que TypeScript no se queje.
+   */
   private toEstado(s: string): EstadoUsuario {
     if (s === 'Conectado' || s === 'Ausente') return s;
     return 'Desconectado';
   }
 
+  /**
+   * Pausa/detiene en seco la grabación web y envía al servidor en forma de Blob todo lo guardado de la nota de voz.
+   */
   public async stopRecordingAndSend(): Promise<void> {
     if (!this.mediaRecorder) return;
     const mr = this.mediaRecorder;
@@ -2637,6 +3029,9 @@ export class InicioComponent {
     });
   }
 
+  /**
+   * Anula o tira a la basura la nota de audio de voz que estás grabando sin enviarla en ningún caso a los chats.
+   */
   public async cancelRecording(): Promise<void> {
     if (this.mediaRecorder) {
       await new Promise<void>((resolve) => {
@@ -2655,6 +3050,9 @@ export class InicioComponent {
     this.recordElapsedMs = 0;
   }
 
+  /**
+   * Rescata localmente quién demonios eres (cargado de Memoria y Backend). En caso de no existir o caducar explota hacia Log-in.
+   */
   private getMyUserId(): number {
     if (Number.isFinite(this.usuarioActualId)) return this.usuarioActualId;
     const raw = localStorage.getItem('usuarioId');
@@ -2664,9 +3062,34 @@ export class InicioComponent {
       throw new Error('No hay sesión iniciada');
     }
     this.usuarioActualId = parsed;
-    return parsed;
+
+    // Recupera la lista de bloqueados inicial desde la sesión si existe
+    const cachedBloqueados = localStorage.getItem('bloqueadosIds');
+    if (cachedBloqueados) {
+      try {
+        const arr = JSON.parse(cachedBloqueados) as number[];
+        this.bloqueadosIds = new Set(arr);
+      } catch (e) {
+        // failed to parse
+      }
+    }
+
+    const cachedMeHanBloqueado = localStorage.getItem('meHanBloqueadoIds');
+    if (cachedMeHanBloqueado) {
+      try {
+        const arr = JSON.parse(cachedMeHanBloqueado) as number[];
+        this.meHanBloqueadoIds = new Set(arr);
+      } catch (e) {
+        // failed to parse
+      }
+    }
+
+    return this.usuarioActualId;
   }
 
+  /**
+   * Detiene el reloj con forma visual ascendente (timer) que aparece localmente sobre el boton al iniciar audios de micrófono.
+   */
   private clearRecordTicker(): void {
     if (this.recordTicker) {
       clearInterval(this.recordTicker);
@@ -2674,6 +3097,9 @@ export class InicioComponent {
     }
   }
 
+  /**
+   * Envía físicamente (post a sockets) la info codificada del audio subido con existo como mensaje de base de datos.
+   */
   private enviarMensajeVozUrl(
     audioUrl: string,
     audioMime: string,
@@ -2709,6 +3135,9 @@ export class InicioComponent {
       : this.wsService.enviarMensajeIndividual(mensaje);
   }
 
+  /**
+   * Forzador imperativo de navegador (Vanilla): Localiza todo elemento web "<audio>" y lo detiene drásticamente.
+   */
   private pauseAllAudios(): void {
     const audios = document.querySelectorAll<HTMLAudioElement>('audio');
     audios.forEach((a) => {
@@ -2724,6 +3153,9 @@ export class InicioComponent {
     this.currentPlayingId = null;
   }
 
+  /**
+   * Oculta el popup modal global de UI Bootstrap (El que usas en Crear grupo), limpiando a la vez datos temporales.
+   */
   private cerrarYResetModal(): void {
     const el = document.getElementById('crearGrupoModal');
     if (el && typeof bootstrap !== 'undefined') {
@@ -2735,15 +3167,23 @@ export class InicioComponent {
     this.busquedaUsuario = '';
   }
 
-  toggleMenuOpciones(): void {
+  /**
+   * Despliega la cabecera visual de "Mute", "Vaciar chat", y etc para el contacto / chat actual.
+   */
+  public toggleMenuOpciones(): void {
     this.mostrarMenuOpciones = !this.mostrarMenuOpciones;
   }
 
-  cerrarMenuOpciones(): void {
+  /**
+   * Encoge/Ocullta el overlay menú.
+   */
+  public cerrarMenuOpciones(): void {
     this.mostrarMenuOpciones = false;
   }
 
-  // ----- Salir del grupo -----
+  /**
+   * Ejecutada por confirmación manual. Envía salida técnica, borra grupo y oculta todo referennce localizando IDs obsoletass.
+   */
   public salirDelGrupo(): void {
     if (
       !this.chatActual ||
@@ -2795,10 +3235,16 @@ export class InicioComponent {
     });
   }
 
+  /**
+   * Rescata los IDs marcados permanentemente de localstorage de las invitaciones ya pasadas con botones declinar o aceptar.
+   */
   private getHandledInviteIds(): Set<number> {
     const raw = localStorage.getItem(this.HANDLED_INVITES_KEY);
     return new Set<number>(raw ? JSON.parse(raw) : []);
   }
+  /**
+   * Memoriza persistemente un ID de invitación procesada de usuario al rechazar / Aceptar
+   */
   private addHandledInviteId(id: number): void {
     const set = this.getHandledInviteIds();
     set.add(Number(id));
@@ -2808,9 +3254,10 @@ export class InicioComponent {
     );
   }
 
-  // ----- Envío / typing -----
-  /** Unifica la gestión del keydown para bloquear cuando ha salido */
-  onKeydown(evt: KeyboardEvent): void {
+  /**
+   * Evento nativo de escritura dentro del campo `textarea`. Envía a webSockets avisos de que un individuo teclea.
+   */
+  public onKeydown(evt: any): void {
     if (this.haSalidoDelGrupo) {
       evt.preventDefault();
       return;
@@ -2819,7 +3266,10 @@ export class InicioComponent {
     this.notificarEscribiendo();
   }
 
-  onEnter(evt: KeyboardEvent): void {
+  /**
+   * Evento enter sin shift, hace override global sobre envio visual de un salto y simula clicks del enviar forma.
+   */
+  public onEnter(evt: any): void {
     if (this.haSalidoDelGrupo) {
       evt.preventDefault();
       return;
@@ -2828,9 +3278,92 @@ export class InicioComponent {
     evt.preventDefault();
   }
 
-  resetEdicion(): void {
+  /**
+   * Reestablece/limpia todo input temporal falso, notificaciones locales a vacías en cabios globales de vistas
+   */
+  public resetEdicion(): void {
     this.haSalidoDelGrupo = false;
     this.mensajeNuevo = '';
     this.mostrarMenuOpciones = false;
+  }
+
+  /**
+   * Detecta y protege con deshabilitado nativo general inputs UI si los IDS del individuo remoto encajan con los locales de bloqueo.
+   */
+  public get chatEstaBloqueado(): boolean {
+    if (!this.chatActual || this.chatActual.esGrupo) return false;
+    const peerId = this.chatActual.receptor?.id;
+    if (!peerId) return false;
+    return this.bloqueadosIds.has(peerId) || this.meHanBloqueadoIds.has(peerId);
+  }
+
+  /**
+   * Informa a la interface sobre quién disparó unilateralmente el estado del bloqueo activo. (Retornando TRUE).
+   */
+  public get yoLoBloquee(): boolean {
+    if (!this.chatActual || this.chatActual.esGrupo) return false;
+    const peerId = this.chatActual.receptor?.id;
+    if (!peerId) return false;
+
+    // Devolvemos true si el servidor o localStorage confirma que el ID está bloqueado por nosotros
+    return this.bloqueadosIds.has(peerId);
+  }
+
+  /**
+   * Invierte asimétricamente al individuo activo según su estado cacheado (Si es target bloquéndolo/ o a la inversa desbloquearlo).
+   */
+  public toggleBloquearUsuario(): void {
+    console.log("toggleBloquearUsuario() accionado.");
+    if (!this.chatActual || this.chatActual.esGrupo) {
+       console.log("Bloqueo abortado: No hay chat actual o es un grupo.");
+       return;
+    }
+    const peerId = this.chatActual.receptor?.id;
+    if (!peerId) {
+       console.log("Bloqueo abortado: No hay ID de receptor.");
+       return;
+    }
+
+    console.log("Intentando accionar contra peerId:", peerId);
+
+    if (this.bloqueadosIds.has(peerId)) {
+      console.log("Usuario ya está en nuestra lista bloqueadosIds. Procediendo a Desbloquear...");
+      this.authService.desbloquearUsuario(peerId).subscribe({
+        next: () => {
+          console.log("Desbloqueo exitoso en backend.");
+          this.bloqueadosIds.delete(peerId);
+          this.updateCachedBloqueados();
+          this.cdr.markForCheck();
+        },
+        error: (err) => alert("Error al desbloquear usuario")
+      });
+    } else {
+      console.log("Usuario NO está en bloqueadosIds. Procediendo a Bloquear...");
+      this.authService.bloquearUsuario(peerId).subscribe({
+        next: () => {
+          console.log("Bloqueo exitoso en backend.");
+          this.bloqueadosIds.add(peerId);
+          this.updateCachedBloqueados();
+          this.cdr.markForCheck();
+        },
+        error: (err) => alert("Error al bloquear usuario")
+      });
+    }
+    // Cierra el menú al accionar
+    this.cerrarMenuOpciones();
+  }
+
+  /**
+   * Guarda de manera imperativa en caché física (localstorage) cada modificador y estado local en Array bloqueos
+   */
+  private updateCachedBloqueados(): void {
+    localStorage.setItem('bloqueadosIds', JSON.stringify(Array.from(this.bloqueadosIds)));
+  }
+
+  /**
+   * Guarda de manera perenne cada aviso que hemos pillado del websocket entrante cuando A NOSOTROS nos bloquean.
+   */
+  private updateCachedMeHanBloqueado(): void {
+    localStorage.setItem('meHanBloqueadoIds', JSON.stringify(Array.from(this.meHanBloqueadoIds)));
   }
 }

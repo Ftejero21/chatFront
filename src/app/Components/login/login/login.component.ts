@@ -1,6 +1,8 @@
-import { Component, ElementRef, ViewChild } from '@angular/core';
+import { Component, ElementRef, OnInit, ViewChild } from '@angular/core';
 import { AuthService } from '../../../Service/auth/auth.service';
+import Swal from 'sweetalert2';
 
+import { CryptoService } from '../../../Service/crypto/crypto.service';
 import { Router } from '@angular/router';
 import { UsuarioDTO } from '../../../Interface/UsuarioDTO';
 import { LoginRequestDTO } from '../../../Interface/LoginRequestDTO ';
@@ -20,9 +22,11 @@ interface ToastItem {
   templateUrl: './login.component.html',
   styleUrl: './login.component.css',
 })
-export class LoginComponent {
+export class LoginComponent implements OnInit {
   toasts: ToastItem[] = [];
   login: LoginRequestDTO = { email: '', password: '' };
+  rememberMe: boolean = false;
+  showResetPasswordModal: boolean = false;
 
   // --- Registro (DTO limpio, sin File) ---
   registro: UsuarioDTO = {
@@ -42,8 +46,23 @@ export class LoginComponent {
 
   constructor(
     private authService: AuthService,
+    private cryptoService: CryptoService,
     private router: Router
   ) {}
+
+  ngOnInit(): void {
+    // Si ya existe sesión activa y el usuario quiso ser recordado, redirige automático.
+    const hasToken = !!localStorage.getItem('token');
+    const isRemembered = localStorage.getItem('rememberMe') === 'true';
+
+    if (hasToken && isRemembered) {
+      this.router.navigate(['/inicio']);
+    } else if (hasToken && !isRemembered) {
+      // Si no marcó recuérdame y aterriza en login, limpiamos su sesión temporal.
+      localStorage.removeItem('token');
+      localStorage.removeItem('usuarioId');
+    }
+  }
 
   // Cambio de tab con reseteo del uploader al pasar a login
   switchTo(login: boolean): void {
@@ -53,16 +72,51 @@ export class LoginComponent {
 
   iniciarSesion(): void {
     this.authService.login(this.login).subscribe({
-      next: async (usuario) => {
+      next: async (response) => {
+        const usuario = response.usuario;
+        localStorage.setItem('token', response.token);
         localStorage.setItem('usuarioId', String(usuario.id));
+        localStorage.setItem('rememberMe', String(this.rememberMe));
+        
         if (usuario.foto) localStorage.setItem('usuarioFoto', usuario.foto);
-        this.showToast(
-          'Sesión iniciada correctamente',
-          'success',
-          'Éxito',
-          2000
-        );
-        this.router.navigate(['/inicio']);
+        if (usuario.bloqueadosIds) localStorage.setItem('bloqueadosIds', JSON.stringify(usuario.bloqueadosIds));
+        if (usuario.meHanBloqueadoIds) localStorage.setItem('meHanBloqueadoIds', JSON.stringify(usuario.meHanBloqueadoIds));
+        
+        // E2E KEY GENERATION
+        try {
+          let pubBase64 = localStorage.getItem(`publicKey_${usuario.id}`);
+          let privBase64 = localStorage.getItem(`privateKey_${usuario.id}`);
+
+          if (!pubBase64 || !privBase64) {
+            const keys = await this.cryptoService.generateKeyPair();
+            privBase64 = await this.cryptoService.exportPrivateKey(keys.privateKey);
+            pubBase64 = await this.cryptoService.exportPublicKey(keys.publicKey);
+            localStorage.setItem(`privateKey_${usuario.id}`, privBase64);
+            localStorage.setItem(`publicKey_${usuario.id}`, pubBase64);
+          }
+          
+          this.authService.updatePublicKey(usuario.id!, pubBase64).subscribe({
+            next: () => {
+              this.showToast('Sesión iniciada correctamente (Claves E2E listas)', 'success', 'Éxito', 2000);
+              
+              // Verificamos si tiene el rol ADMIN para mandarlo al dashboard, o usuario normal al chat
+              const isAdmin = usuario.roles && usuario.roles.includes('ADMIN');
+              if (isAdmin) {
+                this.router.navigate(['/administracion']);
+              } else {
+                this.router.navigate(['/inicio']);
+              }
+            },
+            error: (err) => {
+               console.error('Error subiendo public key', err);
+               this.showToast('Sesión iniciada, pero falló E2E', 'warning', 'Aviso');
+               this.router.navigate(['/inicio']);
+            }
+          });
+        } catch(e) {
+          console.error("Error criptográfico", e);
+          this.router.navigate(['/inicio']);
+        }
       },
       error: (err) => {
         const code = err?.error?.code as string | undefined;
@@ -70,6 +124,13 @@ export class LoginComponent {
           this.showToast('Email incorrecto', 'danger', 'Error');
         } else if (code === 'PASSWORD_INCORRECTA') {
           this.showToast('Contraseña incorrecta', 'danger', 'Error');
+        } else if (code === 'USUARIO_INACTIVO') {
+          Swal.fire({
+            title: 'Cuenta Inhabilitada',
+            text: err?.error?.mensaje || 'Un administrador ha inhabilitado tu cuenta. No puedes acceder.',
+            icon: 'error',
+            confirmButtonColor: '#ef4444'
+          });
         } else {
           this.showToast('No se pudo iniciar sesión', 'warning', 'Aviso');
         }
@@ -84,9 +145,39 @@ export class LoginComponent {
     }
 
     this.authService.registro(payload).subscribe({
-      next: (usuario: any) => {
+      next: async (response: any) => {
+        const usuario = response.usuario || response; // Fallback por si acaso
+        if (response.token) {
+           localStorage.setItem('token', response.token);
+        }
         localStorage.setItem('usuarioId', String(usuario.id));
-        this.router.navigate(['/inicio']);
+        if (usuario.bloqueadosIds) localStorage.setItem('bloqueadosIds', JSON.stringify(usuario.bloqueadosIds));
+        if (usuario.meHanBloqueadoIds) localStorage.setItem('meHanBloqueadoIds', JSON.stringify(usuario.meHanBloqueadoIds));
+        
+        // E2E KEY GENERATION ON REGISTER
+        try {
+          let pubBase64 = localStorage.getItem(`publicKey_${usuario.id}`);
+          let privBase64 = localStorage.getItem(`privateKey_${usuario.id}`);
+
+          if (!pubBase64 || !privBase64) {
+            const keys = await this.cryptoService.generateKeyPair();
+            privBase64 = await this.cryptoService.exportPrivateKey(keys.privateKey);
+            pubBase64 = await this.cryptoService.exportPublicKey(keys.publicKey);
+            localStorage.setItem(`privateKey_${usuario.id}`, privBase64);
+            localStorage.setItem(`publicKey_${usuario.id}`, pubBase64);
+          }
+          
+          this.authService.updatePublicKey(usuario.id!, pubBase64).subscribe({
+            next: () => this.router.navigate(['/inicio']),
+            error: (err) => {
+              console.error('Error subiendo public key', err);
+              this.router.navigate(['/inicio']);
+            }
+          });
+        } catch(e) {
+          console.error("Error generacion llaves", e);
+          this.router.navigate(['/inicio']);
+        }
       },
       error: (err) => console.error('❌ Error al registrar:', err),
     });

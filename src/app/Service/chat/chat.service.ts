@@ -23,6 +23,10 @@ export class ChatService {
     return this.http.post<ChatIndividualDTO>(`${this.baseUrl}/individual`, dto);
   }
 
+  listarConversacionesAdmin(usuarioId: number): Observable<any[]> {
+    return this.http.get<any[]>(`${this.baseUrl}/admin/usuario/${usuarioId}/chats`);
+  }
+
   crearChatGrupal(dto: ChatGrupalDTO): Observable<ChatGrupalDTO> {
     return this.http.post<ChatGrupalDTO>(`${this.baseUrl}/grupal`, dto);
   }

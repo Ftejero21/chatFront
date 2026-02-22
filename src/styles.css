@@ -1,5 +1,124 @@
-*{
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+/* Popup general */
+.swal-ban-popup {
+  border-radius: 18px !important;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.2) !important;
+  border: 1px solid #e2e8f0 !important;
+  overflow: hidden !important;
+}
+
+/* Contenedor HTML */
+.swal-ban-html {
+  margin: 0 !important;
+  padding: 0 !important;
+  text-align: left !important;
+}
+
+/* Header grande con fondo */
+.swal-ban-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+  border: 1px solid #fca5a5;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.swal-ban-header-icon {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ef4444;
+  color: white;
+  border-radius: 999px;
+  font-size: 1.1rem;
+  box-shadow: 0 8px 20px rgba(239, 68, 68, 0.25);
+}
+
+.swal-ban-header-text h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #7f1d1d;
+  line-height: 1.1;
+}
+
+.swal-ban-header-text p {
+  margin: 4px 0 0 0;
+  font-size: 0.88rem;
+  color: #991b1b;
+}
+
+/* Texto debajo del header */
+.swal-ban-body {
+  margin-bottom: 8px;
+}
+
+.swal-ban-label {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.swal-ban-helper {
+  margin: 0;
+  font-size: 0.83rem;
+  color: #64748b;
+}
+
+/* Textarea */
+.swal-ban-textarea {
+  min-height: 120px !important;
+  border-radius: 12px !important;
+  border: 1px solid #cbd5e1 !important;
+  padding: 12px 14px !important;
+  font-size: 0.95rem !important;
+  line-height: 1.4 !important;
+  color: #0f172a !important;
+  box-shadow: none !important;
+  resize: vertical !important;
+  transition: all 0.2s ease !important;
+  margin-top: 8px !important;
+}
+
+.swal-ban-textarea:focus {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12) !important;
+}
+
+/* Botones */
+.swal-ban-actions {
+  margin-top: 14px !important;
+}
+
+.swal-ban-confirm,
+.swal-ban-cancel {
+  border-radius: 10px !important;
+  padding: 0.58rem 1rem !important;
+  font-size: 0.9rem !important;
+  font-weight: 700 !important;
+}
+
+.swal-ban-confirm {
+  box-shadow: 0 6px 18px rgba(239, 68, 68, 0.25) !important;
+}
+
+.swal-ban-cancel {
+  box-shadow: 0 6px 18px rgba(100, 116, 139, 0.15) !important;
 }

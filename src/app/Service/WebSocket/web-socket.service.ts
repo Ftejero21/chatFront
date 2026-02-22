@@ -49,13 +49,21 @@ export class WebSocketService {
       reconnectDelay: 5000,
       heartbeatIncoming: 4000,
       heartbeatOutgoing: 4000,
-      debug: (msg) => console.log('📡 WebSocket:', msg),
+      connectHeaders: {
+        Authorization: `Bearer ${localStorage.getItem('token')}`
+      },
+      // debug: (msg) => console.log('📡 WebSocket:', msg),
     });
   }
 
   conectar(onConnected: () => void): void {
+    // Set connectHeaders dynamically right before connecting to catch the latest token
+    this.stompClient.connectHeaders = {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+      usuarioId: localStorage.getItem('usuarioId') || ''
+    };
+
     this.stompClient.onConnect = () => {
-      console.log('🟢 Conectado a WebSocket');
       onConnected();
     };
 
@@ -126,6 +134,38 @@ export class WebSocketService {
           handler(payload as NotificationWS);
         } catch (e) {
           console.error('❌ Error parseando notificación WS:', e);
+        }
+      });
+    });
+  }
+
+  suscribirseABloqueos(
+    userId: number,
+    handler: (payload: { blockerId: number; type: 'BLOCKED' | 'UNBLOCKED' }) => void
+  ): void {
+    this.esperarConexion(() => {
+      this.stompClient.subscribe(`/topic/user/${userId}/bloqueos`, (msg) => {
+        try {
+          const payload = JSON.parse(msg.body);
+          handler(payload);
+        } catch (e) {
+          console.error('❌ Error parseando actualización de bloqueo WS:', e);
+        }
+      });
+    });
+  }
+
+  suscribirseABaneos(
+    userId: number,
+    handler: (payload: any) => void
+  ): void {
+    this.esperarConexion(() => {
+      this.stompClient.subscribe(`/user/queue/baneos`, (msg) => {
+        try {
+          const payload = JSON.parse(msg.body);
+          handler(payload);
+        } catch (e) {
+          console.error('❌ Error parseando baneo WS:', e);
         }
       });
     });
@@ -302,7 +342,6 @@ export class WebSocketService {
   desconectar(): void {
     if (this.stompClient && this.stompClient.connected) {
       this.stompClient.deactivate();
-      console.log('🔌 Desconectado de WebSocket');
     }
   }
 
@@ -500,14 +539,9 @@ export class WebSocketService {
     callback: (mensajeId: number) => void
   ): void {
     this.stompClient?.subscribe(`/topic/leido.${usuarioId}`, (message) => {
-      console.log('📡 🔔 Mensaje WebSocket recibido en /topic/leido:', message); // 👈 LOG COMPLETO
-
       try {
         const body = JSON.parse(message.body);
         const mensajeId = body.mensajeId;
-
-        console.log('📥 Evento de mensaje leído recibido:', mensajeId);
-
         callback(mensajeId);
       } catch (e) {
         console.error(
