@@ -39,7 +39,7 @@
       </div>
 
       <div class="topbar__right">
-        <div class="notif-wrapper" [class.open]="panelNotificacionesAbierto">
+        <div #notifWrapper class="notif-wrapper" [class.open]="panelNotificacionesAbierto">
           <button class="topbar__btn notif-btn" title="Notificaciones" aria-label="Notificaciones"
             (click)="togglePanelNotificaciones()">
             <i class="fas fa-bell"></i>
@@ -65,9 +65,57 @@
           </div>
         </div>
         <button class="topbar__btn" title="Ajustes"><i class="fas fa-cog"></i></button>
-        <img [src]="usuarioFotoUrl || '/assets/usuario.png'" alt="Perfil" class="topbar__avatar" />
+        <div class="topbar-profile-wrapper" (click)="$event.stopPropagation()">
+          <button class="topbar__avatar-btn" type="button" (click)="toggleTopbarProfileMenu($event)">
+            <img *ngIf="usuarioFotoUrl; else topbarAvatarFallback" [src]="usuarioFotoUrl" alt="Perfil" class="topbar__avatar" />
+            <ng-template #topbarAvatarFallback>
+              <span class="topbar__avatar-fallback">{{ usuarioIniciales }}</span>
+            </ng-template>
+          </button>
+          <div class="topbar-profile-menu" *ngIf="showTopbarProfileMenu">
+            <button type="button" class="topbar-profile-item" (click)="openProfileView($event)">
+              <i class="bi bi-person-circle"></i>
+              Ver mi perfil
+            </button>
+            <button type="button" class="topbar-profile-item" (click)="closeProfileView()">
+              <i class="bi bi-chat-dots"></i>
+              Volver a chats
+            </button>
+            <button type="button" class="topbar-profile-item topbar-profile-item--danger" (click)="logoutFromTopbar($event)">
+              <i class="bi bi-box-arrow-right"></i>
+              Cerrar sesión
+            </button>
+          </div>
+        </div>
       </div>
     </header>
+    <div class="toast-container position-fixed top-0 start-0 p-3" style="z-index: 1080;">
+      <div
+        *ngFor="let t of toasts"
+        class="toast show align-items-center text-white border-0 mb-2"
+        role="alert"
+        aria-live="assertive"
+        aria-atomic="true"
+        [ngClass]="{
+          'bg-danger': t.variant === 'danger',
+          'bg-success': t.variant === 'success',
+          'bg-warning text-dark': t.variant === 'warning',
+          'bg-info': t.variant === 'info'
+        }"
+      >
+        <div class="d-flex">
+          <div class="toast-body">
+            <strong *ngIf="t.title">{{ t.title }}:</strong> {{ t.message }}
+          </div>
+          <button
+            type="button"
+            class="btn-close btn-close-white me-2 m-auto"
+            aria-label="Close"
+            (click)="dismissToast(t.id)"
+          ></button>
+        </div>
+      </div>
+    </div>
 
     <div class="cuerpoChat" [class.modo-chat-movil]="chatSeleccionadoId !== null">
 
@@ -78,7 +126,10 @@
           <i class="fas fa-star icono-barra"></i>
         </div>
         <div class="usuario-config">
-          <img [src]="usuarioFotoUrl || '/assets/usuario.png'" alt="Perfil" class="topbar__avatar" />
+          <img *ngIf="usuarioFotoUrl; else sideAvatarFallback" [src]="usuarioFotoUrl" alt="Perfil" class="topbar__avatar" />
+          <ng-template #sideAvatarFallback>
+            <span class="topbar__avatar-fallback">{{ usuarioIniciales }}</span>
+          </ng-template>
           <i class="fas fa-cog icono-barra"></i>
         </div>
       </div>
@@ -99,10 +150,51 @@
           <input type="text" placeholder="Buscar personas..." class="input-busqueda" [value]="busquedaChat"
             (input)="onSearchChange($event)" />
         </div>
-
+        <div class="chat-filters">
+          <button
+            type="button"
+            class="chat-filter-btn"
+            [class.is-active]="isChatListFilterActive('TODOS')"
+            (click)="setChatListFilter('TODOS')">
+            Todos
+          </button>
+          <button
+            type="button"
+            class="chat-filter-btn"
+            [class.is-active]="isChatListFilterActive('LEIDOS')"
+            (click)="setChatListFilter('LEIDOS')">
+            Leidos
+          </button>
+          <button
+            type="button"
+            class="chat-filter-btn"
+            [class.is-active]="isChatListFilterActive('NO_LEIDOS')"
+            (click)="setChatListFilter('NO_LEIDOS')">
+            No leidos
+          </button>
+          <button
+            type="button"
+            class="chat-filter-btn"
+            [class.is-active]="isChatListFilterActive('GRUPOS')"
+            (click)="setChatListFilter('GRUPOS')">
+            Grupos
+          </button>
+        </div>
         <div class="chat-scroll">
           <div *ngFor="let chat of chatsFiltrados" class="chat-item" [class.chat-item--unread]="chat.unreadCount > 0"
-            [class.chat-item--group]="chat.esGrupo" (click)="mostrarMensajes(chat)">
+            [class.chat-item--group]="chat.esGrupo"
+            [class.chat-item--selected]="chat.id === chatSeleccionadoId"
+            [class.chat-item--forward-mode]="forwardModalOpen"
+            (click)="onChatItemClick(chat)">
+
+            <label *ngIf="forwardModalOpen" class="forward-chat-check" (click)="$event.stopPropagation()">
+              <input
+                type="checkbox"
+                [checked]="isForwardChatSelected(chat.id)"
+                (change)="toggleForwardChat(chat.id, $event)"
+                [disabled]="forwardingInProgress"
+              />
+            </label>
 
             <div class="foto-con-estado">
               <img [src]="chat.foto" alt="Foto" class="foto-perfil" />
@@ -140,7 +232,7 @@
                 </ng-container>
 
                 <ng-template #ultimoMensaje>
-                  <ng-container *ngIf="isAudioPreviewChat(chat); else textoPrev">
+                  <ng-container *ngIf="isAudioPreviewChat(chat); else noAudioPrev">
                     <span class="preview-audio compact">
                       <span *ngIf="audioPreviewLabel(chat) === 'Tú'" class="me-label">Tú:</span>
                       <i class="fas fa-microphone" aria-hidden="true"></i>
@@ -149,6 +241,28 @@
                     </span>
                     <span *ngIf="chat.unreadCount > 0" class="badge-inline">{{ chat.unreadCount }}</span>
                   </ng-container>
+
+                  <ng-template #noAudioPrev>
+                    <ng-container *ngIf="isImagePreviewChat(chat); else textoPrev">
+                      <span class="preview-line preview-line--image">
+                        <span *ngIf="imagePreviewSenderLabel(chat) as sender" class="preview-image-sender">
+                          {{ sender }}:
+                        </span>
+                        <ng-container *ngIf="chatImagePreviewSrc(chat) as imageThumb; else imageThumbFallback">
+                          <img class="preview-image-thumb" [src]="imageThumb" [alt]="chatImagePreviewAlt(chat)" />
+                        </ng-container>
+                        <ng-template #imageThumbFallback>
+                          <span class="preview-image-thumb preview-image-thumb--fallback" aria-hidden="true">
+                            <i class="bi bi-image"></i>
+                          </span>
+                        </ng-template>
+                        <span *ngIf="imagePreviewCaption(chat) as caption" class="preview-text">
+                          <span class="preview-caption-chip">“{{ caption }}”</span>
+                        </span>
+                        <span *ngIf="chat.unreadCount > 0" class="badge-inline">{{ chat.unreadCount }}</span>
+                      </span>
+                    </ng-container>
+                  </ng-template>
 
                   <ng-template #textoPrev>
                     <span class="preview-line">
@@ -163,7 +277,7 @@
         </div>
       </div>
 
-      <div class="zonaMensajes">
+      <div class="zonaMensajes" *ngIf="activeMainView === 'chat'; else perfilView">
         <div *ngIf="chatSeleccionadoId !== null" class="encabezado-chat-mensajes">
 
           <button class="btn-back-mobile" (click)="chatSeleccionadoId = null">
@@ -205,10 +319,12 @@
           </div>
 
           <div class="header-actions">
-            <button *ngIf="chatActual?.esGrupo" class="btn-icon header-add-user" type="button" data-bs-toggle="collapse"
-              [attr.data-bs-target]="'#addUserPanel-'+chatActual?.id" aria-expanded="false"
-              [attr.aria-controls]="'addUserPanel-'+chatActual?.id" title="Añadir personas al grupo">
-              <i class="bi bi-person-plus"></i>
+            <button *ngIf="chatActual?.esGrupo" class="btn-icon header-add-user" type="button"
+              [attr.aria-expanded]="showGroupInfoPanel"
+              [disabled]="haSalidoDelGrupo"
+              [attr.title]="haSalidoDelGrupo ? 'No disponible: ya no eres miembro del grupo' : 'Info. del grupo'"
+              (click)="toggleGroupInfoPanel($event)">
+              <i class="bi bi-info-circle"></i>
             </button>
             <button *ngIf="chatActual && !chatActual.esGrupo" class="btn-icon header-video-call me-2" type="button"
               title="Iniciar videollamada" aria-label="Iniciar videollamada"
@@ -217,60 +333,45 @@
             </button>
             <i class="fas fa-ellipsis-v icono-opciones-chat" (click)="toggleMenuOpciones()"></i>
             <div class="dropdown-opciones" *ngIf="mostrarMenuOpciones" (mouseleave)="cerrarMenuOpciones()">
-              <button class="dropdown-item dropdown-item--salir" *ngIf="chatActual?.esGrupo"
-                (mousedown)="salirDelGrupo(); $event.stopPropagation()">
-                <span class="icono-salir" aria-hidden="true">🚪</span>
-                Salir del grupo
-              </button>
-              <button class="dropdown-item" *ngIf="chatActual && !chatActual.esGrupo"
-                (mousedown)="toggleBloquearUsuario(); $event.stopPropagation()">
-                <span class="icono-bloquear" aria-hidden="true">🚫</span>
-                {{ yoLoBloquee ? 'Desbloquear usuario' : 'Bloquear usuario' }}
-              </button>
+              <div class="dropdown-actions-box">
+                <button class="dropdown-item dropdown-item--buscar"
+                  (mousedown)="toggleMessageSearchPanel($event); $event.stopPropagation()">
+                  <span class="icono-buscar" aria-hidden="true"><i class="bi bi-search"></i></span>
+                  Buscar mensajes
+                </button>
+                <button *ngIf="chatActual?.esGrupo" class="dropdown-item dropdown-item--salir"
+                  (mousedown)="salirDelGrupo(); $event.stopPropagation()">
+                  <span class="icono-salir" aria-hidden="true"><i class="bi bi-box-arrow-right"></i></span>
+                  Salir del grupo
+                </button>
+                <button class="dropdown-item" *ngIf="chatActual && !chatActual.esGrupo"
+                  [ngClass]="yoLoBloquee ? 'dropdown-item--desbloquear' : 'dropdown-item--bloquear'"
+                  (mousedown)="toggleBloquearUsuario(); $event.stopPropagation()">
+                  <span class="icono-bloquear" aria-hidden="true"><i class="bi bi-slash-circle"></i></span>
+                  {{ yoLoBloquee ? 'Desbloquear usuario' : 'Bloquear usuario' }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
-
-        <div *ngIf="chatActual?.esGrupo" class="collapse add-user-panel" [id]="'addUserPanel-'+chatActual?.id">
-          <div *ngFor="let u of candidatosAgregar" class="add-user-item">
-            <img [src]="u.foto || 'assets/usuario.png'" class="add-user-avatar" alt="Avatar" />
-            <div class="add-user-content">
-              <div class="add-user-name">{{ u.nombre }} {{ u.apellido }}</div>
-              <hr class="add-user-sep" />
-              <button type="button" class="btn-add-user" (click)="agregarUsuarioAlGrupo(u)">
-                <i class="bi bi-person-plus"></i> Añadir usuario al grupo
-              </button>
-            </div>
-          </div>
-          <div *ngIf="candidatosAgregar?.length === 0" class="add-user-empty">
-            <i class="bi bi-people"></i>
-            <span>No hay usuarios sugeridos</span>
-          </div>
-        </div>
-        <div *ngIf="chatActual?.esGrupo" class="collapse add-user-panel" [id]="'addUserPanel-'+chatActual?.id">
-          <div class="group-users-list">
-            <div *ngFor="let u of chatActual?.usuarios" class="group-user-row">
-              <img [src]="u.foto || 'assets/usuario.png'" alt="Avatar" class="group-user-avatar" />
-              <div class="group-user-name">{{ u.nombre }} {{ u.apellido }}</div>
-            </div>
-          </div>
-          <div class="text-sep">
-            <hr>
-          </div>
-          <button type="button" class="btn-add-users">Agregar usuarios</button>
-        </div>
-
-        <div class="cuerpo-mensajes" #contenedorMensajes>
+        <div class="cuerpo-mensajes" #contenedorMensajes (scroll)="onMessagesScroll()">
           <div *ngIf="chatSeleccionadoId === null" class="placeholder-chat">
             <i class="bi bi-chat-dots-fill"></i>
             <h3>TejeChat</h3>
             <p>Selecciona un chat para comenzar</p>
           </div>
 
-          <div *ngIf="chatSeleccionadoId !== null && mensajesSeleccionados.length === 0" class="placeholder-chat">
+          <div *ngIf="chatSeleccionadoId !== null && mensajesSeleccionados.length === 0 && !showGroupHistoryUnavailableNotice" class="placeholder-chat">
             <i class="bi bi-inbox"></i>
             <h3>No hay mensajes</h3>
             <p>Envía un mensaje para iniciar la conversación</p>
+          </div>
+
+          <div *ngIf="chatSeleccionadoId !== null && showGroupHistoryUnavailableNotice" class="mensaje-row mensaje-row--system">
+            <div class="mensaje-system-card">
+              <i class="bi bi-shield-lock" aria-hidden="true"></i>
+              <span>{{ groupHistoryUnavailableText }}</span>
+            </div>
           </div>
 
           <div *ngIf="showCallUI" class="call-overlay">
@@ -323,9 +424,24 @@
           </div>
 
           <div *ngIf="mensajesSeleccionados.length > 0" class="mensaje">
-            <ng-container *ngFor="let mensaje of mensajesSeleccionados; trackBy: trackMensaje">
-              <div class="mensaje-row" [class.es-propio]="mensaje.emisorId === usuarioActualId"
-                [class.es-otro]="mensaje.emisorId !== usuarioActualId">
+            <ng-container *ngFor="let mensaje of mensajesSeleccionados; let i = index; trackBy: trackMensaje">
+              <div *ngIf="shouldShowDateSeparator(i)" class="message-day-separator">
+                {{ getDateSeparatorLabel(mensaje) }}
+              </div>
+              <div *ngIf="isSystemMessage(mensaje)" class="mensaje-row mensaje-row--system">
+                <div class="mensaje-system-card">
+                  <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
+                  <span>{{ mensaje.contenido }}</span>
+                </div>
+              </div>
+              <div
+                *ngIf="!isSystemMessage(mensaje)"
+                class="mensaje-row"
+                [class.es-propio]="mensaje.emisorId === usuarioActualId"
+                [class.es-otro]="mensaje.emisorId !== usuarioActualId"
+                [class.has-reaction]="!!incomingQuickReaction(mensaje)"
+                [class.mensaje-row--search-target]="mensaje.id === highlightedMessageId"
+                [attr.data-message-id]="mensaje.id ?? null">
 
                 <img *ngIf="chatActual?.esGrupo && mensaje.emisorId !== usuarioActualId" class="msg-avatar-left"
                   [src]="mensaje.emisorFoto || getAvatarFallback(mensaje.emisorId)" alt="Avatar emisor" />
@@ -339,7 +455,10 @@
                     {{ mensaje.emisorApellido || '' }}
                   </div>
 
-                  <span class="contenido-mensaje" [class.mensaje-eliminado]="mensaje.activo === false">
+                  <span class="contenido-mensaje" [class.mensaje-eliminado]="mensaje.activo === false" [class.contenido-mensaje--reenviado]="mensaje.reenviado">
+                    <span *ngIf="mensaje.reenviado" class="msg-forwarded-label">
+                      <i class="bi bi-reply-fill"></i> Reenviado
+                    </span>
                     <ng-container *ngIf="mensaje.activo === false; else contenidoNormal">
                       <i class="bi bi-slash-circle" aria-hidden="true"></i>
                       {{ mensaje.emisorId === usuarioActualId ? 'Eliminaste este mensaje.' : 'Este mensaje ha sido
@@ -347,51 +466,161 @@
                     </ng-container>
 
                     <ng-template #contenidoNormal>
-                      <ng-container *ngIf="(mensaje.tipo || 'TEXT') === 'AUDIO'; else contenidoTexto">
-                        <div class="audio-bubble" [class.mine]="mensaje.emisorId === usuarioActualId">
-                          <button class="audio-play"
-                            [attr.aria-label]="(audioStates.get(mensaje.id!)?.playing ? 'Pausar' : 'Reproducir') + ' audio'"
-                            (click)="togglePlay(mensaje, audioRef)">
-                            <i class="fas"
-                              [ngClass]="audioStates.get(mensaje.id!)?.playing ? 'fa-pause' : 'fa-play'"></i>
-                          </button>
-                          <div class="audio-wave">
-                            <div class="audio-track">
-                              <div class="audio-progress" [style.width.%]="progressPercent(mensaje)"></div>
+                      <span *ngIf="mensaje.replyToMessageId" class="msg-reply-ref">
+                        <span class="msg-reply-ref__author">{{ getReplyAuthorLabel(mensaje) }}</span>
+                        <span class="msg-reply-ref__text">{{ getReplySnippet(mensaje) }}</span>
+                      </span>
+                      <ng-container *ngIf="(mensaje.tipo || 'TEXT') === 'AUDIO'; else contenidoNoAudio">
+                        <ng-container *ngIf="getAudioSrc(mensaje) as audioSrc; else audioCipherMissing">
+                          <div class="audio-bubble" [class.mine]="mensaje.emisorId === usuarioActualId">
+                            <button class="audio-play"
+                              [attr.aria-label]="(audioStates.get(mensaje.id!)?.playing ? 'Pausar' : 'Reproducir') + ' audio'"
+                              (click)="togglePlay(mensaje, audioRef)">
+                              <i class="fas"
+                                [ngClass]="audioStates.get(mensaje.id!)?.playing ? 'fa-pause' : 'fa-play'"></i>
+                            </button>
+                            <div class="audio-wave">
+                              <div class="audio-track">
+                                <div class="audio-progress" [style.width.%]="progressPercent(mensaje)"></div>
+                              </div>
+                              <div class="audio-time">
+                                {{ formatDur(audioStates.get(mensaje.id!)?.current) || formatDur(mensaje.audioDuracionMs)
+                                }}
+                              </div>
                             </div>
-                            <div class="audio-time">
-                              {{ formatDur(audioStates.get(mensaje.id!)?.current) || formatDur(mensaje.audioDuracionMs)
-                              }}
-                            </div>
+                            <audio #audioRef [src]="audioSrc"
+                              (loadedmetadata)="onAudioLoadedMetadata(mensaje, audioRef)"
+                              (timeupdate)="onAudioTimeUpdate(mensaje, audioRef)" (ended)="onAudioEnded(mensaje)"></audio>
                           </div>
-                          <audio #audioRef [src]="getAudioSrc(mensaje)"
-                            (loadedmetadata)="onAudioLoadedMetadata(mensaje, audioRef)"
-                            (timeupdate)="onAudioTimeUpdate(mensaje, audioRef)" (ended)="onAudioEnded(mensaje)"></audio>
-                        </div>
+                        </ng-container>
+                        <ng-template #audioCipherMissing>
+                          <span class="msg-text-inline">[Mensaje de voz cifrado]</span>
+                        </ng-template>
                       </ng-container>
 
-                      <ng-template #contenidoTexto>
-                        <span (mouseup)="onMessageMouseUp(mensaje, textHost)" #textHost>
-                          {{ mensaje.contenido }}
-                        </span>
+                      <ng-template #contenidoNoAudio>
+                        <ng-container *ngIf="(mensaje.tipo || 'TEXT') === 'IMAGE'; else contenidoTexto">
+                          <span class="msg-image-inline-wrap">
+                            <ng-container *ngIf="getImageSrc(mensaje) as imageSrc; else imageCipherMissing">
+                              <span class="image-bubble" [class.mine]="mensaje.emisorId === usuarioActualId">
+                                <img class="msg-image" [src]="imageSrc" [alt]="getImageAlt(mensaje)" />
+                                <span *ngIf="mensaje.contenido" class="msg-image-caption">
+                                  {{ mensaje.contenido }}
+                                </span>
+                              </span>
+                            </ng-container>
+                            <ng-template #imageCipherMissing>
+                              <span class="msg-text-inline">[Imagen cifrada]</span>
+                            </ng-template>
+                            <span class="msg-meta-inline msg-meta-inline--image">
+                              <span class="msg-time">{{ formatMensajeHora(mensaje) }}</span>
+                              <i
+                                *ngIf="mensaje.emisorId === usuarioActualId"
+                                class="bi bi-check2-all double-check"
+                                [ngClass]="mensaje.leido ? 'leido' : 'no-leido'"
+                              ></i>
+                            </span>
+                          </span>
+                        </ng-container>
+
+                        <ng-template #contenidoTexto>
+                          <span class="msg-text-inline">
+                            <span (mouseup)="onMessageMouseUp(mensaje, textHost)" #textHost>
+                              {{ mensaje.contenido }}
+                            </span>
+                            <span class="msg-meta-inline msg-meta-inline--end">
+                              <span class="msg-time">{{ formatMensajeHora(mensaje) }}</span>
+                              <i
+                                *ngIf="mensaje.emisorId === usuarioActualId"
+                                class="bi bi-check2-all double-check"
+                                [ngClass]="mensaje.leido ? 'leido' : 'no-leido'"
+                              ></i>
+                            </span>
+                          </span>
+                        </ng-template>
                       </ng-template>
+                      <span class="msg-meta-inline" *ngIf="(mensaje.tipo || 'TEXT') !== 'TEXT' && (mensaje.tipo || 'TEXT') !== 'IMAGE'">
+                        <span class="msg-time">{{ formatMensajeHora(mensaje) }}</span>
+                        <i
+                          *ngIf="mensaje.emisorId === usuarioActualId"
+                          class="bi bi-check2-all double-check"
+                          [ngClass]="mensaje.leido ? 'leido' : 'no-leido'"
+                        ></i>
+                      </span>
                     </ng-template>
                   </span>
 
-                  <i *ngIf="mensaje.emisorId === usuarioActualId" class="bi bi-check2-all double-check"
-                    [ngClass]="mensaje.leido ? 'leido' : 'no-leido'"></i>
-
-                  <div *ngIf="mensaje.emisorId === usuarioActualId && mensaje.activo" class="menu-opciones">
-                    <i class="bi bi-three-dots-vertical" role="button" data-bs-toggle="collapse"
-                      [attr.data-bs-target]="'#opciones-' + mensaje.id" aria-expanded="false"
-                      [attr.aria-controls]="'opciones-' + mensaje.id"></i>
-                    <div class="collapse opciones-collapse" [attr.id]="'opciones-' + mensaje.id">
-                      <button type="button" class="btn-opcion-eliminar" (click)="eliminarMensaje(mensaje)">
+                  <div
+                    *ngIf="mensaje.activo"
+                    class="menu-opciones"
+                    [class.menu-opciones--open]="openMensajeMenuId === mensaje.id"
+                  >
+                    <button
+                      type="button"
+                      class="btn-menu-mensaje"
+                      [class.btn-menu-mensaje--open]="openMensajeMenuId === mensaje.id"
+                      aria-label="Abrir opciones del mensaje"
+                      [attr.aria-expanded]="openMensajeMenuId === mensaje.id"
+                      (click)="toggleMensajeMenu(mensaje, $event)"
+                    >
+                      <i class="bi bi-three-dots-vertical"></i>
+                    </button>
+                    <div class="opciones-collapse" *ngIf="openMensajeMenuId === mensaje.id" (click)="$event.stopPropagation()">
+                      <button type="button" class="btn-opcion-responder" (click)="responderMensaje(mensaje, $event)">
+                        <i class="bi bi-reply"></i> Responder
+                      </button>
+                      <button
+                        *ngIf="mensaje.emisorId === usuarioActualId"
+                        type="button"
+                        class="btn-opcion-reenviar"
+                        (click)="abrirModalReenvio(mensaje, $event)"
+                      >
+                        <i class="bi bi-reply-fill"></i> Reenviar
+                      </button>
+                      <button
+                        *ngIf="mensaje.emisorId === usuarioActualId"
+                        type="button"
+                        class="btn-opcion-eliminar"
+                        (click)="eliminarMensaje(mensaje); $event.stopPropagation()"
+                      >
                         <i class="bi bi-trash"></i> Eliminar
                       </button>
                     </div>
                   </div>
 
+                  <div *ngIf="incomingQuickReaction(mensaje) as reaction" class="msg-reaction-row">
+                    <span class="msg-reaction-pill">{{ reaction }}</span>
+                  </div>
+
+                </div>
+
+                <div
+                  *ngIf="canToggleIncomingQuickReaction(mensaje)"
+                  class="msg-reaction-box"
+                  (click)="$event.stopPropagation()"
+                >
+                  <button
+                    type="button"
+                    class="btn-msg-react"
+                    [attr.aria-label]="'Reaccionar al mensaje'"
+                    [attr.aria-expanded]="isIncomingReactionPickerOpen(mensaje)"
+                    (click)="toggleIncomingReactionPicker(mensaje, $event)"
+                  >
+                    <i class="bi bi-emoji-smile"></i>
+                  </button>
+                  <div
+                    *ngIf="isIncomingReactionPickerOpen(mensaje)"
+                    class="msg-reaction-picker"
+                  >
+                    <button
+                      type="button"
+                      class="msg-reaction-option"
+                      *ngFor="let emoji of incomingReactionChoices"
+                      (click)="applyIncomingQuickReaction(mensaje, emoji, $event)"
+                    >
+                      {{ emoji }}
+                    </button>
+                  </div>
                 </div>
               </div>
             </ng-container>
@@ -408,53 +637,208 @@
         </div>
 
         <div *ngIf="chatSeleccionadoId !== null" class="entrada-mensaje">
-          <ng-container *ngIf="!recording; else grabandoUI">
-            <textarea [(ngModel)]="mensajeNuevo" (keydown)="onKeydown($event)" (keydown.enter)="onEnter($event)"
-              [placeholder]="chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario.' : 'Estás bloqueado por este usuario.') : 'Escribe un mensaje...'"
-              class="input-mensaje" [disabled]="chatEstaBloqueado" [readonly]="haSalidoDelGrupo"
-              [class.input-mensaje--loading]="aiLoading"
-              [class.input-mensaje--salido]="haSalidoDelGrupo || chatEstaBloqueado"
-              [title]="chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : ''">
-            </textarea>
-            <button class="btn-mic"
-              [title]="chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : 'Grabar audio'"
-              (click)="startRecording()" [disabled]="haSalidoDelGrupo || chatEstaBloqueado"
-              [class.btn-disabled-block]="chatEstaBloqueado">
-              <i class="fas fa-microphone"></i>
-            </button>
-            <button class="btn-enviar"
-              [title]="chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : 'Enviar mensaje'"
-              (click)="enviarMensaje()" [disabled]="aiLoading || chatEstaBloqueado || haSalidoDelGrupo"
-              [class.btn-disabled-block]="chatEstaBloqueado">
-              <i class="fas fa-paper-plane"></i>
-            </button>
-          </ng-container>
-
-          <ng-template #grabandoUI>
-            <div class="rec-wrapper">
-              <button class="btn-mic recording" disabled title="Grabando…">
-                <span class="rec-dot" aria-hidden="true"></span>
-                <i class="fas fa-microphone"></i>
-              </button>
-              <div class="rec-visual" aria-live="polite">
-                <div class="rec-wave" aria-hidden="true">
-                  <span class="bar" *ngFor="let _ of recBars; trackBy: trackIndex"></span>
-                </div>
-                <span class="rec-timer">{{ formatDur(recordElapsedMs) }}</span>
-              </div>
-              <button class="btn-send-audio" title="Enviar audio" (click)="stopRecordingAndSend()">
+          <div *ngIf="forwardModalOpen; else composeMode" class="forward-bottom-actions">
+            <div class="forward-target-count">Chats seleccionados: {{ forwardSelectedChatIds.size }}</div>
+            <div class="forward-inline-actions">
+              <button
+                type="button"
+                class="btn-forward-send"
+                (click)="confirmarReenvioMensaje()"
+                [disabled]="forwardingInProgress || forwardSelectedChatIds.size === 0"
+              >
                 <i class="fas fa-paper-plane"></i>
+                {{ forwardingInProgress ? 'Reenviando...' : 'Reenviar' }}
               </button>
-              <button class="btn-cancel-rec" title="Cancelar grabación" (click)="cancelRecording()">
-                <i class="fas fa-times"></i>
+              <button
+                type="button"
+                class="btn-forward-cancel-x"
+                (click)="cerrarModalReenvio()"
+                [disabled]="forwardingInProgress"
+                title="Cancelar reenvío"
+                aria-label="Cancelar reenvío"
+              >
+                <i class="bi bi-x-lg"></i>
               </button>
             </div>
+          </div>
+
+          <ng-template #composeMode>
+            <div *ngIf="mensajeRespuestaObjetivo" class="reply-compose-banner">
+              <div class="reply-compose-banner__meta">
+                <span class="reply-compose-banner__label">Respondiendo a {{ mensajeRespuestaObjetivo.emisorId === usuarioActualId ? 'Tú' : (mensajeRespuestaObjetivo.emisorNombre || obtenerNombrePorId(mensajeRespuestaObjetivo.emisorId) || 'Usuario') }}</span>
+                <span class="reply-compose-banner__text">
+                  {{ (mensajeRespuestaObjetivo.tipo || 'TEXT') === 'AUDIO' ? 'Mensaje de voz' : mensajeRespuestaObjetivo.contenido }}
+                </span>
+              </div>
+              <button
+                type="button"
+                class="reply-compose-banner__close"
+                (click)="cancelarRespuestaMensaje()"
+                title="Cancelar respuesta"
+                aria-label="Cancelar respuesta"
+              >
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </div>
+
+            <div *ngIf="pendingAttachmentFile" class="attachment-preview">
+              <button
+                type="button"
+                class="attachment-preview__remove"
+                title="Quitar adjunto"
+                aria-label="Quitar adjunto"
+                (click)="clearPendingAttachment()"
+              >
+                <i class="bi bi-x-lg"></i>
+              </button>
+              <ng-container *ngIf="pendingAttachmentIsImage && pendingAttachmentPreviewUrl; else genericAttachmentCard">
+                <img
+                  class="attachment-preview__image"
+                  [src]="pendingAttachmentPreviewUrl"
+                  [alt]="pendingAttachmentFile.name"
+                />
+                <div class="attachment-preview__caption">
+                  {{ pendingAttachmentFile.name }} · {{ formatAttachmentSize(pendingAttachmentFile.size) }}
+                </div>
+              </ng-container>
+              <ng-template #genericAttachmentCard>
+                <div class="attachment-preview__file-card">
+                  <i class="bi bi-file-earmark"></i>
+                  <div class="attachment-preview__meta">
+                    <div class="attachment-preview__name">{{ pendingAttachmentFile.name }}</div>
+                    <div class="attachment-preview__size">{{ formatAttachmentSize(pendingAttachmentFile.size) }}</div>
+                  </div>
+                </div>
+              </ng-template>
+            </div>
+
+            <div *ngIf="!recording; else grabandoUI" class="compose-row">
+              <button
+                type="button"
+                class="btn-attach"
+                [disabled]="attachmentUploading || haSalidoDelGrupo || chatEstaBloqueado || noGroupRecipientsForSend"
+                [title]="attachmentUploading ? 'Subiendo archivo...' : 'Adjuntar archivo'"
+                aria-label="Adjuntar archivo"
+                (click)="openAttachmentPicker($event)"
+              >
+                <i class="bi bi-paperclip"></i>
+              </button>
+              <input
+                #attachmentInput
+                type="file"
+                class="attachment-input-hidden"
+                (change)="onAttachmentSelected($event)"
+                accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar"
+              />
+
+              <div #emojiAnchor class="emoji-anchor">
+                <button
+                  type="button"
+                  class="btn-emoji"
+                  [class.btn-emoji--active]="showEmojiPicker"
+                  [disabled]="haSalidoDelGrupo || chatEstaBloqueado"
+                  [title]="haSalidoDelGrupo || chatEstaBloqueado ? 'No disponible' : 'Abrir emoticonos'"
+                  aria-label="Abrir emoticonos"
+                  (click)="toggleEmojiPicker($event)"
+                >
+                  <i class="bi bi-emoji-smile"></i>
+                </button>
+                <app-emoji-picker
+                  *ngIf="showEmojiPickerMounted"
+                  class="emoji-picker-pop"
+                  [class.is-open]="showEmojiPicker"
+                  (emojiSelect)="onEmojiSelected($event)"
+                ></app-emoji-picker>
+              </div>
+
+              <textarea #messageInput [(ngModel)]="mensajeNuevo" (keydown)="onKeydown($event)" (keydown.enter)="onEnter($event)"
+                (click)="onMessageInputSelectionChange()" (keyup)="onMessageInputSelectionChange()"
+                (select)="onMessageInputSelectionChange()" (focus)="onMessageInputSelectionChange()"
+                [placeholder]="chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario.' : 'Estás bloqueado por este usuario.') : 'Escribe un mensaje...'"
+                class="input-mensaje" [disabled]="chatEstaBloqueado" [readonly]="haSalidoDelGrupo"
+                [class.input-mensaje--loading]="aiLoading"
+                [class.input-mensaje--salido]="haSalidoDelGrupo || chatEstaBloqueado"
+                [class.input-mensaje--replying]="!!mensajeRespuestaObjetivo"
+                [title]="chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : '')">
+              </textarea>
+              <button class="btn-mic"
+                [title]="chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Grabar audio')"
+                (click)="startRecording()" [disabled]="haSalidoDelGrupo || chatEstaBloqueado || noGroupRecipientsForSend"
+                [class.btn-disabled-block]="chatEstaBloqueado">
+                <i class="fas fa-microphone"></i>
+              </button>
+              <button class="btn-enviar"
+                [title]="chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Enviar mensaje')"
+                (click)="enviarMensajeDesdeComposer()" [disabled]="attachmentUploading || aiLoading || chatEstaBloqueado || haSalidoDelGrupo || noGroupRecipientsForSend"
+                [class.btn-disabled-block]="chatEstaBloqueado">
+                <i class="fas fa-paper-plane"></i>
+              </button>
+            </div>
+
+            <ng-template #grabandoUI>
+              <div class="rec-wrapper">
+                <button class="btn-mic recording" disabled title="Grabando...">
+                  <span class="rec-dot" aria-hidden="true"></span>
+                  <i class="fas fa-microphone"></i>
+                </button>
+                <div class="rec-visual" aria-live="polite">
+                  <div class="rec-wave" aria-hidden="true">
+                    <span class="bar" *ngFor="let _ of recBars; trackBy: trackIndex"></span>
+                  </div>
+                  <span class="rec-timer">{{ formatDur(recordElapsedMs) }}</span>
+                </div>
+                <button class="btn-send-audio" title="Enviar audio" (click)="stopRecordingAndSend()">
+                  <i class="fas fa-paper-plane"></i>
+                </button>
+                <button class="btn-cancel-rec" title="Cancelar grabación" (click)="cancelRecording()">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+            </ng-template>
           </ng-template>
         </div>
       </div>
+      <ng-template #perfilView>
+        <div class="zonaMensajes zonaMensajes--perfil">
+          <app-perfil-usuario
+            [usuario]="perfilUsuario"
+            [fotoUrl]="usuarioFotoUrl || ''"
+            [passwordCodeRequested]="profilePasswordCodeRequested"
+            [saving]="profileSaving"
+            [codeTimeLeftSec]="profileCodeTimeLeftSec"
+            (close)="closeProfileView()"
+            (save)="onPerfilSave($event)"
+            (confirmPassword)="onPerfilConfirmPassword($event)">
+          </app-perfil-usuario>
+        </div>
+      </ng-template>
+
+      <app-group-info-panel
+        *ngIf="activeMainView === 'chat' && chatActual?.esGrupo && showGroupInfoPanelMounted"
+        class="group-info-col"
+        [class.is-open]="showGroupInfoPanel"
+        [group]="chatActual"
+        [currentUserId]="usuarioActualId"
+        (closePanel)="closeGroupInfoPanel()"
+        (leaveGroup)="onLeaveGroupFromInfoPanel()">
+      </app-group-info-panel>
+
+      <app-message-search-panel
+        *ngIf="activeMainView === 'chat' && chatActual && showMessageSearchPanelMounted"
+        class="message-search-col"
+        [class.is-open]="showMessageSearchPanel"
+        [chat]="chatActual"
+        [messages]="mensajesSeleccionados"
+        [currentUserId]="usuarioActualId"
+        (openMessage)="onMessageSearchResultSelect($event)"
+        (closePanel)="closeMessageSearchPanel()">
+      </app-message-search-panel>
     </div>
   </div>
 </div>
 
 <app-crear-grupo-modal #crearGrupoModal [currentUserId]="usuarioActualId"
   (create)="onCrearGrupo($event)"></app-crear-grupo-modal>
+
+
+

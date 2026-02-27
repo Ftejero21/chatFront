@@ -1,0 +1,118 @@
+<section class="perfil-layout">
+  <div class="perfil-hero">
+    <div class="perfil-hero__avatar-wrap perfil-avatar-wrap">
+      <label class="perfil-avatar-uploader" for="perfilAvatarInput" tabindex="0" role="button" aria-label="Cambiar foto de perfil">
+        <img *ngIf="hasPhoto; else perfilAvatarFallback" [src]="model.foto" alt="Foto de perfil" class="perfil-hero__avatar" />
+        <ng-template #perfilAvatarFallback>
+          <span class="perfil-hero__avatar-fallback">{{ usuarioIniciales }}</span>
+        </ng-template>
+      </label>
+      <div class="perfil-avatar-actions">
+        <button type="button" class="perfil-avatar-btn" title="Cambiar imagen" (click)="openAvatarPicker()" aria-label="Cambiar imagen">
+          <i class="fas fa-camera"></i>
+        </button>
+        <button type="button" class="perfil-avatar-btn danger" title="Quitar imagen" (click)="clearAvatar()" aria-label="Quitar imagen">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <input #perfilAvatarInput id="perfilAvatarInput" type="file" accept="image/*" (change)="onAvatarSelected($event)" hidden />
+    </div>
+    <div class="perfil-hero__meta">
+      <p class="perfil-hero__tag">Mi perfil</p>
+      <h2 class="perfil-hero__title">{{ usuario?.nombre }} {{ usuario?.apellido }}</h2>
+      <p class="perfil-hero__subtitle">Actualiza tus datos de cuenta y seguridad.</p>
+      <div class="perfil-hero__chips">
+        <span class="perfil-chip">ID: {{ usuario?.id ?? '-' }}</span>
+        <span class="perfil-chip">Estado: {{ usuario?.activo ? 'Activo' : 'Inactivo' }}</span>
+        <span class="perfil-chip">Rol: {{ (usuario?.roles && usuario?.roles?.length) ? usuario?.roles?.[0] : 'USER' }}</span>
+      </div>
+    </div>
+  </div>
+
+  <form class="perfil-card" (ngSubmit)="onGuardar()">
+    <div class="perfil-grid">
+      <label class="perfil-field">
+        <span>Nombre</span>
+        <input type="text" [(ngModel)]="model.nombre" name="perfilNombre" required />
+      </label>
+
+      <label class="perfil-field">
+        <span>Apellidos</span>
+        <input type="text" [(ngModel)]="model.apellido" name="perfilApellido" required />
+      </label>
+    </div>
+
+    <label class="perfil-field">
+      <span>Email</span>
+      <input type="email" [(ngModel)]="model.email" name="perfilEmail" required />
+    </label>
+
+    <div class="perfil-separator"></div>
+
+    <h3 class="perfil-section-title">Cambiar contraseña</h3>
+
+    <label class="perfil-field perfil-field--password">
+      <span>Contraseña actual</span>
+      <div class="perfil-input-wrap">
+        <input [type]="showPasswordActual ? 'text' : 'password'" [(ngModel)]="model.passwordActual" name="perfilPasswordActual" />
+        <button type="button" class="perfil-eye" [class.is-visible]="showPasswordActual" (click)="togglePasswordActual()">
+          <i [class]="showPasswordActual ? 'bi bi-eye' : 'bi bi-eye-slash'"></i>
+        </button>
+      </div>
+    </label>
+
+    <div class="perfil-grid">
+      <label class="perfil-field perfil-field--password">
+        <span>Nueva contraseña</span>
+        <div class="perfil-input-wrap">
+          <input [type]="showNuevaPassword ? 'text' : 'password'" [(ngModel)]="model.nuevaPassword" name="perfilNuevaPassword" />
+          <button type="button" class="perfil-eye" [class.is-visible]="showNuevaPassword" (click)="toggleNuevaPassword()">
+            <i [class]="showNuevaPassword ? 'bi bi-eye' : 'bi bi-eye-slash'"></i>
+          </button>
+        </div>
+      </label>
+
+      <label class="perfil-field perfil-field--password">
+        <span>Repetir nueva contraseña</span>
+        <div class="perfil-input-wrap">
+          <input [type]="showRepetirPassword ? 'text' : 'password'" [(ngModel)]="model.repetirNuevaPassword" name="perfilRepetirNuevaPassword" />
+          <button type="button" class="perfil-eye" [class.is-visible]="showRepetirPassword" (click)="toggleRepetirPassword()">
+            <i [class]="showRepetirPassword ? 'bi bi-eye' : 'bi bi-eye-slash'"></i>
+          </button>
+        </div>
+      </label>
+    </div>
+
+    <label class="perfil-field" *ngIf="passwordCodeRequested">
+      <span>Código de verificación</span>
+      <input type="text" [(ngModel)]="model.verificationCode" name="perfilVerificationCode" maxlength="6" placeholder="Código enviado por email" />
+    </label>
+
+    <div class="perfil-actions">
+      <button type="button" class="perfil-btn perfil-btn--ghost" (click)="onCancelar()" [disabled]="saving">Volver a chats</button>
+      <button type="submit" class="perfil-btn perfil-btn--primary" [disabled]="saving">
+        Guardar cambios
+      </button>
+      <button
+        *ngIf="passwordCodeRequested && canResendCode"
+        type="submit"
+        class="perfil-btn perfil-btn--ghost"
+        [disabled]="saving"
+      >
+        Reenviar código
+      </button>
+      <button
+        *ngIf="passwordCodeRequested"
+        type="button"
+        class="perfil-btn perfil-btn--primary"
+        [disabled]="saving || !model.verificationCode || !model.nuevaPassword || !model.repetirNuevaPassword"
+        (click)="onConfirmPassword()"
+      >
+        Actualizar contraseña
+      </button>
+    </div>
+    <p class="perfil-code-timer" *ngIf="passwordCodeRequested && !canResendCode">
+      Código enviado. Podrás reenviar en {{ codeTimerLabel }}.
+    </p>
+  </form>
+</section>

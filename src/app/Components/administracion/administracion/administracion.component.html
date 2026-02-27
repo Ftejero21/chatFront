@@ -1,4 +1,4 @@
-<div class="flex min-h-screen w-full relative bg-[#f0f9ff] overflow-x-hidden">
+﻿<div class="flex min-h-screen w-full relative bg-[#f0f9ff] overflow-x-hidden">
 
 
     <div class="md:hidden fixed top-4 right-4 z-50">
@@ -58,12 +58,15 @@
 
         <div class="glass-card p-4 mt-auto bg-white/50">
             <div class="flex items-center space-x-3">
-                <div
-                    class="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center font-bold text-white border-2 border-emerald-100">
-                    AD</div>
+                <div *ngIf="!adminFotoUrl"
+                    class="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center font-bold text-white border-2 border-emerald-100 uppercase">
+                    {{ adminIniciales }}
+                </div>
+                <img *ngIf="adminFotoUrl" [src]="adminFotoUrl"
+                    class="w-10 h-10 rounded-full object-cover border-2 border-emerald-100" alt="Foto admin">
                 <div class="min-w-0">
                     <p class="text-sm font-bold text-slate-800 leading-none truncate">Admin</p>
-                    <p class="text-[10px] text-slate-500 mt-1 uppercase">Super User</p>
+                    <p class="text-[10px] text-slate-500 mt-1 uppercase truncate">{{ adminNombreCompleto }}</p>
                 </div>
             </div>
         </div>
@@ -76,13 +79,21 @@
                 <h2 class="text-3xl font-extrabold tracking-tight text-slate-900">Panel de Control</h2>
                 <p class="text-slate-500 text-sm">{{ headerSubtitle }}</p>
             </div>
-            <div class="flex flex-wrap gap-3 w-full lg:w-auto" [class.hidden-view]="!isDashboardView">
+            <div class="flex flex-wrap gap-3 w-full lg:w-auto items-center">
+                <div class="flex flex-wrap gap-3 w-full lg:w-auto" [class.hidden-view]="!isDashboardView">
+                    <button
+                        class="flex-1 lg:flex-none bg-white border border-slate-200 px-6 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+                        Descargar Reporte
+                    </button>
+                    <button class="flex-[2] lg:flex-none gradient-btn px-8 py-2.5 rounded-xl text-sm font-bold text-white">
+                        + Nuevo Usuario
+                    </button>
+                </div>
                 <button
-                    class="flex-1 lg:flex-none bg-white border border-slate-200 px-6 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
-                    Descargar Reporte
-                </button>
-                <button class="flex-[2] lg:flex-none gradient-btn px-8 py-2.5 rounded-xl text-sm font-bold text-white">
-                    + Nuevo Usuario
+                    type="button"
+                    (click)="logoutFromAdmin()"
+                    class="flex-1 lg:flex-none px-6 py-2.5 rounded-xl text-sm font-bold text-rose-600 bg-white border border-rose-200 hover:bg-rose-50 transition-colors">
+                    Cerrar sesión
                 </button>
             </div>
         </header>
@@ -139,9 +150,9 @@
             </div>
         </div>
 
-        <section class="glass-card overflow-hidden w-full" [class.hidden-view]="!isDashboardView">
+        <section class="glass-card overflow-hidden w-full flex flex-col" [class.hidden-view]="!isDashboardView">
             <div
-                class="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4 bg-white/30">
+                class="p-4 md:p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4 bg-white/30">
                 <h3 class="text-lg font-bold text-slate-800">Usuarios Recientes</h3>
                 <div class="relative w-full sm:w-80">
                     <input type="text" placeholder="Buscar usuario..." (input)="onSearchChange($event)"
@@ -149,45 +160,63 @@
                 </div>
             </div>
             <div class="overflow-x-auto w-full">
-                <table class="w-full text-left border-collapse min-w-[800px]">
+                <table class="w-full text-left border-collapse min-w-full admin-users-table">
                     <thead>
                         <tr class="text-slate-400 text-[10px] uppercase tracking-widest bg-slate-50/50">
-                            <th class="px-6 py-4 font-bold">Usuario</th>
-                            <th class="px-6 py-4 font-bold">Estado</th>
-                            <th class="px-6 py-4 font-bold">Rol</th>
-                            <th class="px-6 py-4 font-bold text-right">Acciones</th>
+                            <th class="px-6 py-3 font-bold">Usuario</th>
+                            <th class="px-6 py-3 font-bold">Estado</th>
+                            <th class="px-6 py-3 font-bold">Rol</th>
+                            <th class="px-6 py-3 font-bold text-right">Acciones</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
-                        <tr *ngIf="usuariosMostrados.length === 0">
+                        <tr *ngIf="loadingUsuarios">
+                            <td colspan="4" class="px-6 py-6">
+                                <div class="admin-users-loader" aria-live="polite" aria-busy="true">
+                                    <div class="admin-users-loader-top">
+                                        <span class="admin-users-loader-spinner" aria-hidden="true"></span>
+                                        <div>
+                                            <p class="admin-users-loader-title">Cargando usuarios</p>
+                                            <p class="admin-users-loader-subtitle">Preparando la página actual del listado...</p>
+                                        </div>
+                                    </div>
+                                    <div class="admin-users-loader-skeleton">
+                                        <span class="admin-skeleton-line admin-skeleton-line--lg"></span>
+                                        <span class="admin-skeleton-line admin-skeleton-line--md"></span>
+                                        <span class="admin-skeleton-line admin-skeleton-line--sm"></span>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr *ngIf="!loadingUsuarios && totalElements === 0">
                             <td colspan="4" class="px-6 py-8 text-center text-slate-400 text-sm">
                                 No se encontraron usuarios.
                             </td>
                         </tr>
-                        <tr *ngFor="let user of usuariosMostrados" class="hover:bg-blue-50/30 transition-colors">
-                            <td class="px-6 py-4">
+                        <tr *ngFor="let user of (loadingUsuarios ? [] : usuariosMostrados)" class="hover:bg-blue-50/30 transition-colors">
+                            <td class="px-6 py-3">
                                 <div class="flex items-center space-x-3">
                                     <div *ngIf="!user.foto"
-                                        class="w-10 h-10 rounded-full bg-gradient-to-tr from-emerald-400 to-blue-500 flex items-center justify-center text-white font-bold text-xs shadow-sm shrink-0 uppercase">
+                                        class="w-9 h-9 rounded-full bg-gradient-to-tr from-emerald-400 to-blue-500 flex items-center justify-center text-white font-bold text-xs shadow-sm shrink-0 uppercase">
                                         {{ user.nombre.substring(0,2) }}
                                     </div>
                                     <img *ngIf="user.foto" [src]="user.foto"
-                                        class="w-10 h-10 rounded-full object-cover shadow-sm shrink-0" alt="Avatar">
+                                        class="w-9 h-9 rounded-full object-cover shadow-sm shrink-0" alt="Avatar">
                                     <div class="min-w-0 flex-1">
                                         <p class="text-sm font-bold text-slate-700 truncate">{{ user.nombre }}</p>
                                         <p class="text-xs text-slate-400 truncate">{{ user.email }}</p>
                                     </div>
                                 </div>
                             </td>
-                            <td class="px-6 py-4">
+                            <td class="px-6 py-3">
                                 <span
                                     [ngClass]="user.activo ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'"
                                     class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase">
                                     {{ user.activo ? 'Activo' : 'Inactivo' }}
                                 </span>
                             </td>
-                            <td class="px-6 py-4 text-sm text-slate-500">{{ getRoleName(user.roles) }}</td>
-                            <td class="px-6 py-4 text-right space-x-4 whitespace-nowrap overflow-x-auto">
+                            <td class="px-6 py-3 text-sm text-slate-500">{{ getRoleName(user.roles) }}</td>
+                            <td class="px-6 py-3 text-right space-x-4 whitespace-nowrap overflow-x-auto">
                                 <button (click)="showConversations(user)"
                                     class="text-emerald-600 hover:text-emerald-700 font-bold text-xs underline decoration-2 underline-offset-4">Conversaciones</button>
                                 <button
@@ -203,6 +232,32 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <div class="admin-pagination-wrap" *ngIf="!loadingUsuarios && totalElements > 0 && (!busquedaTerm || !busquedaTerm.trim())">
+                <div class="admin-pagination-meta">
+                    Página {{ currentPage + 1 }} de {{ totalPages }}
+                    <span class="admin-pagination-dot">•</span>
+                    {{ totalElements }} usuarios
+                </div>
+                <div class="admin-pagination-actions">
+                    <button
+                        type="button"
+                        class="admin-page-btn"
+                        [disabled]="currentPage <= 0 || loadingUsuarios"
+                        (click)="prevUsuariosPage()"
+                    >
+                        Anterior
+                    </button>
+                    <button
+                        type="button"
+                        class="admin-page-btn admin-page-btn--primary"
+                        [disabled]="isLastPage || loadingUsuarios"
+                        (click)="nextUsuariosPage()"
+                    >
+                        Siguiente
+                    </button>
+                </div>
             </div>
         </section>
 
@@ -237,7 +292,10 @@
       <!-- Listado -->
       <div *ngIf="!loadingConversations && userChats?.length" class="space-y-4">
         <div *ngFor="let chat of userChats" class="glass-card overflow-hidden w-full">
-          <div class="p-6 hover:bg-emerald-50/30 transition-colors border-b border-slate-100">
+          <div
+            class="p-6 hover:bg-emerald-50/30 transition-colors border-b border-slate-100 cursor-pointer"
+            (click)="openChatDetail(chat)"
+          >
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
 
               <div class="flex items-center space-x-4">
@@ -283,9 +341,181 @@
             </div>
 
             <!-- Último mensaje (si viene en el DTO) -->
-            <div *ngIf="chat.ultimoMensaje" class="mt-4 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
-              <p class="text-xs text-slate-500 mb-1">Último mensaje</p>
-              <p class="text-sm text-slate-700 truncate">{{ chat.ultimoMensaje }}</p>
+            <div class="mt-4 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+              <div class="flex items-center justify-between gap-2 mb-1">
+                <p class="text-xs text-slate-500">Último mensaje</p>
+                <div class="flex items-center gap-2 text-[10px] text-slate-400">
+                  <span *ngIf="chat.ultimoMensajeTipo" class="px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-500 font-semibold">
+                    {{ chat.ultimoMensajeTipo }}
+                  </span>
+                  <span *ngIf="(chat.ultimoMensajeFecha || chat.fechaUltimoMensaje)">
+                    {{ (chat.ultimoMensajeFecha || chat.fechaUltimoMensaje) | date:'dd/MM/yyyy HH:mm' }}
+                  </span>
+                </div>
+              </div>
+              <ng-container *ngIf="isAdminAudioPreviewChat(chat); else adminNoAudioPrev">
+                <span class="preview-audio compact">
+                  <span *ngIf="adminAudioPreviewLabel(chat)" class="me-label">{{ adminAudioPreviewLabel(chat) }}:</span>
+                  <i class="fas fa-microphone" aria-hidden="true"></i>
+                  <span class="sep">•</span>
+                  <span class="time">{{ adminAudioPreviewTime(chat) }}</span>
+                </span>
+              </ng-container>
+
+              <ng-template #adminNoAudioPrev>
+                <ng-container *ngIf="isAdminImagePreviewChat(chat); else adminTextPrev">
+                  <span class="preview-line preview-line--image">
+                    <span *ngIf="adminImagePreviewSenderLabel(chat) as sender" class="preview-image-sender">
+                      {{ sender }}:
+                    </span>
+                    <ng-container *ngIf="adminImagePreviewSrc(chat) as imageThumb; else adminImageThumbFallback">
+                      <img class="preview-image-thumb" [src]="imageThumb" [alt]="adminImagePreviewAlt(chat)" />
+                    </ng-container>
+                    <ng-template #adminImageThumbFallback>
+                      <span class="preview-image-thumb preview-image-thumb--fallback" aria-hidden="true">
+                        <i class="bi bi-image"></i>
+                      </span>
+                    </ng-template>
+                    <span *ngIf="adminImagePreviewCaption(chat) as caption" class="preview-text">
+                      <span class="preview-caption-chip">“{{ caption }}”</span>
+                    </span>
+                  </span>
+                </ng-container>
+              </ng-template>
+
+              <ng-template #adminTextPrev>
+                <p class="text-sm text-slate-700 truncate">
+                  {{ chat.ultimoMensajePreview || chat.ultimoMensajeTexto || chat.ultimoMensaje || 'Sin datos' }}
+                </p>
+              </ng-template>
+            </div>
+          </div>
+
+          <div *ngIf="selectedChat?.id === chat.id" class="border-t border-slate-100">
+            <div class="p-4 md:p-5 bg-white/70 flex items-center justify-between gap-3">
+              <div>
+                <h4 class="font-bold text-slate-800">
+                  Chat:
+                  {{ chat.nombreChat || chat.nombre || ('#' + (chat.id || '---')) }}
+                </h4>
+                <p class="text-xs text-slate-500 mt-1">
+                  Mensajes obtenidos desde endpoint
+                  {{ selectedChatMessagesSource === 'group' ? 'grupal' : 'admin' }}
+                  del chat seleccionado.
+                </p>
+              </div>
+
+              <button
+                (click)="closeChatDetail()"
+                class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div class="p-4 md:p-6 max-h-[60vh] overflow-y-auto bg-slate-50/40 space-y-3">
+              <div *ngIf="loadingChatMessages" class="text-sm text-slate-500">
+                Cargando mensajes del chat...
+              </div>
+
+              <ng-container *ngIf="!loadingChatMessages">
+                <div
+                  *ngFor="let msg of selectedChatMensajes"
+                  class="flex"
+                  [class.justify-end]="msg.isFromInspectedUser"
+                  [class.justify-start]="!msg.isFromInspectedUser"
+                >
+                  <div
+                    class="max-w-[85%] rounded-2xl px-4 py-3 border shadow-sm"
+                    [ngClass]="msg.activo === 0
+                      ? 'bg-rose-50 border-rose-200 text-rose-700'
+                      : (msg.isFromInspectedUser
+                        ? 'bg-emerald-50 border-emerald-100 text-slate-800'
+                        : 'bg-white border-slate-200 text-slate-700')"
+                  >
+                    <div class="flex items-center justify-between gap-3 mb-1">
+                      <p class="text-[11px] uppercase tracking-wide font-semibold text-slate-500">
+                        {{ msg.senderFullName || msg.senderName || 'Usuario' }}
+                      </p>
+                      <p class="text-[10px] text-slate-400 whitespace-nowrap">
+                        {{ msg.createdAt ? (msg.createdAt | date:'dd/MM/yyyy HH:mm') : 'Sin fecha' }}
+                      </p>
+                    </div>
+                    <div
+                      *ngIf="msg.replyToMessageId"
+                      class="mb-2 rounded-lg border-l-4 border-sky-300 bg-sky-50/70 px-3 py-2"
+                    >
+                      <p class="text-[10px] font-bold uppercase tracking-wide text-sky-700">
+                        Respuesta a {{ (msg.replyAuthorName === 'Tú') ? 'ti' : (msg.replyAuthorName || ('mensaje #' + msg.replyToMessageId)) }}
+                      </p>
+                      <p class="text-[12px] text-slate-700 mt-1 break-words">
+                        {{ msg.replySnippet || ('Mensaje #' + msg.replyToMessageId) }}
+                      </p>
+                    </div>
+                    <p *ngIf="msg.activo === 0" class="text-[11px] text-rose-700 font-bold mt-1">
+                      [Mensaje eliminado por el usuario]
+                    </p>
+                    <span *ngIf="msg.reenviado" class="admin-forwarded-label">
+                      <i class="bi bi-reply-fill"></i> Reenviado
+                    </span>
+                    <ng-container *ngIf="isImageMessage(msg); else adminNotImageMsg">
+                      <div *ngIf="getAdminImageSrc(msg) as imageSrc; else adminImageMissing" class="mt-2 admin-image-wrap">
+                        <img class="admin-image" [src]="imageSrc" [alt]="getAdminImageAlt(msg)" />
+                        <p *ngIf="getAdminImageCaption(msg)" class="text-sm whitespace-pre-wrap break-words mt-2">
+                          {{ getAdminImageCaption(msg) }}
+                        </p>
+                      </div>
+                      <ng-template #adminImageMissing>
+                        <p class="text-sm whitespace-pre-wrap break-words mt-1">{{ getAdminImageCaption(msg) || 'Imagen (no disponible)' }}</p>
+                      </ng-template>
+                    </ng-container>
+                    <ng-template #adminNotImageMsg>
+                      <ng-container *ngIf="isAudioMessage(msg); else adminMsgText">
+                        <div *ngIf="getAdminAudioSrc(msg) as audioSrc; else adminAudioMissing" class="mt-2">
+                          <div class="audio-bubble" [class.mine]="msg.isFromInspectedUser">
+                            <button
+                              class="audio-play"
+                              [attr.aria-label]="(getAdminAudioState(msg)?.playing ? 'Pausar' : 'Reproducir') + ' audio'"
+                              (click)="toggleAdminPlay(msg, adminAudioRef)"
+                            >
+                              <i
+                                class="fas"
+                                [ngClass]="getAdminAudioState(msg)?.playing ? 'fa-pause' : 'fa-play'"
+                              ></i>
+                            </button>
+                            <div class="audio-wave">
+                              <div class="audio-track">
+                                <div class="audio-progress" [style.width.%]="adminProgressPercent(msg)"></div>
+                              </div>
+                              <div class="audio-time">
+                                {{ adminFormatDur(getAdminAudioState(msg)?.current || msg.audioDuracionMs) }}
+                              </div>
+                            </div>
+                            <audio
+                              #adminAudioRef
+                              [src]="audioSrc"
+                              preload="none"
+                              (loadedmetadata)="onAdminAudioLoadedMetadata(msg, adminAudioRef)"
+                              (timeupdate)="onAdminAudioTimeUpdate(msg, adminAudioRef)"
+                              (ended)="onAdminAudioEnded(msg)"
+                            ></audio>
+                          </div>
+                        </div>
+                        <ng-template #adminAudioMissing>
+                          <p class="text-sm whitespace-pre-wrap break-words mt-1">{{ msg.text || 'Mensaje de voz (audio no disponible)' }}</p>
+                        </ng-template>
+                      </ng-container>
+                    </ng-template>
+                    <ng-template #adminMsgText>
+                      <p class="text-sm whitespace-pre-wrap break-words mt-1">{{ msg.text }}</p>
+                    </ng-template>
+                  </div>
+                </div>
+              </ng-container>
+
+              <div *ngIf="!loadingChatMessages && !selectedChatMensajes?.length" class="text-sm text-slate-500">
+                Este chat no trae mensajes en el payload actual.
+              </div>
             </div>
           </div>
         </div>
@@ -293,3 +523,5 @@
   </section>
     </main>
 </div>
+
+

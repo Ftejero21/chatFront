@@ -6,6 +6,7 @@ import { NotificationWS } from '../../Interface/NotificationWS';
 import { CallEndWS } from '../../Interface/CallEndWS';
 import { CallAnswerWS } from '../../Interface/CallAnswerWS';
 import { CallInviteWS } from '../../Interface/CallInviteWS';
+import { MensajeReaccionDTO } from '../../Interface/MensajeReaccionDTO';
 
 type SdpOfferDTO = {
   callId: string;
@@ -38,6 +39,7 @@ export class WebSocketService {
   private subsTypingGrupales = new Map<number, StompSubscription>();
   private subsCallInvite?: StompSubscription;
   private subsCallAnswer?: StompSubscription;
+  private subsUserErrors?: StompSubscription;
   private subsOffer?: StompSubscription;
   private subsAnswer?: StompSubscription;
   private subsIce?: StompSubscription;
@@ -64,6 +66,11 @@ export class WebSocketService {
     };
 
     this.stompClient.onConnect = () => {
+      console.log('[WS] connected', {
+        socketUrl: this.socketUrl,
+        usuarioId: localStorage.getItem('usuarioId'),
+        hasToken: !!localStorage.getItem('token'),
+      });
       onConnected();
     };
 
@@ -166,6 +173,25 @@ export class WebSocketService {
           handler(payload);
         } catch (e) {
           console.error('❌ Error parseando baneo WS:', e);
+        }
+      });
+    });
+  }
+
+  suscribirseAErroresUsuario(handler: (payload: any) => void): void {
+    this.esperarConexion(() => {
+      if (this.subsUserErrors) {
+        try {
+          this.subsUserErrors.unsubscribe();
+        } catch {}
+        this.subsUserErrors = undefined;
+      }
+      this.subsUserErrors = this.stompClient.subscribe(`/user/queue/errors`, (msg) => {
+        try {
+          const payload = JSON.parse(msg.body);
+          handler(payload);
+        } catch (e) {
+          console.error('❌ Error parseando /user/queue/errors:', e);
         }
       });
     });
@@ -339,9 +365,13 @@ export class WebSocketService {
     }
   }
 
-  desconectar(): void {
+  async desconectar(): Promise<void> {
     if (this.stompClient && this.stompClient.connected) {
-      this.stompClient.deactivate();
+      try {
+        await this.stompClient.deactivate();
+      } catch (e) {
+        console.warn('[WS] error al desconectar', e);
+      }
     }
   }
 
@@ -375,15 +405,16 @@ export class WebSocketService {
   suscribirseAEstado(
     usuarioId: number,
     callback: (estado: string) => void
-  ): void {
-    this.stompClient.subscribe(`/topic/estado.${usuarioId}`, (message) => {
+  ): StompSubscription | null {
+    if (!this.stompClient?.connected) return null;
+    return this.stompClient.subscribe(`/topic/estado.${usuarioId}`, (message) => {
       const estado = message.body;
       callback(estado);
     });
   }
 
-  enviarEstadoDesconectado(): void {
-    const usuarioId = Number(localStorage.getItem('usuarioId'));
+  enviarEstadoDesconectado(usuarioIdParam?: number): void {
+    const usuarioId = this.resolveUsuarioId(usuarioIdParam);
     if (this.stompClient?.connected && usuarioId) {
       const dto = {
         usuarioId: usuarioId,
@@ -394,6 +425,50 @@ export class WebSocketService {
         body: JSON.stringify(dto),
       });
     }
+  }
+
+  async enviarEstadoDesconectadoConFlush(
+    usuarioIdParam?: number,
+    timeoutMs = 250
+  ): Promise<void> {
+    const usuarioId = this.resolveUsuarioId(usuarioIdParam);
+    if (!this.stompClient?.connected || !usuarioId) return;
+
+    const dto = {
+      usuarioId,
+      estado: 'Desconectado',
+    };
+    const receiptId = `estado-disconnect-${usuarioId}-${Date.now()}`;
+
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+
+      try {
+        this.stompClient.watchForReceipt(receiptId, done);
+        this.stompClient.publish({
+          destination: '/app/estado',
+          body: JSON.stringify(dto),
+          headers: { receipt: receiptId },
+        });
+        setTimeout(done, Math.max(50, timeoutMs));
+      } catch (e) {
+        console.warn('[WS] error al publicar estado desconectado', e);
+        done();
+      }
+    });
+  }
+
+  private resolveUsuarioId(usuarioIdParam?: number): number {
+    const fromParam = Number(usuarioIdParam);
+    if (Number.isFinite(fromParam) && fromParam > 0) return fromParam;
+    const fromStorage = Number(localStorage.getItem('usuarioId'));
+    if (Number.isFinite(fromStorage) && fromStorage > 0) return fromStorage;
+    return 0;
   }
 
   /** Enviar OFERTA SDP (caller -> callee) */
@@ -475,20 +550,26 @@ export class WebSocketService {
   }
 
   public enviarEliminarMensaje(mensaje: MensajeDTO): void {
-    if (this.stompClient?.connected) {
-      this.stompClient.publish({
-        destination: '/app/chat.eliminar',
-        body: JSON.stringify(mensaje),
-      });
+    if (!this.stompClient?.connected) {
+      console.warn('WS no conectado. No se pudo enviar chat.eliminar');
+      return;
     }
+
+    console.log('[WS] publish /app/chat.eliminar', mensaje);
+    this.stompClient.publish({
+      destination: '/app/chat.eliminar',
+      body: JSON.stringify(mensaje),
+    });
   }
 
   public suscribirseAEliminarMensaje(
     usuarioId: number,
     callback: (mensaje: MensajeDTO) => void
   ): void {
+    console.log('[WS] subscribe', `/topic/chat.${usuarioId}`, '(eliminar)');
     this.stompClient.subscribe(`/topic/chat.${usuarioId}`, (frame) => {
       const mensaje = JSON.parse(frame.body) as MensajeDTO;
+      console.log('[WS] recv /topic/chat.* (eliminar check)', mensaje);
 
       // ✅ SOLO si es realmente un eliminado:
       if (mensaje && mensaje.id && mensaje.activo === false) {
@@ -498,6 +579,7 @@ export class WebSocketService {
   }
 
   marcarMensajesComoLeidos(ids: number[]): void {
+    console.log('[WS] publish /app/mensajes.marcarLeidos', ids);
     this.stompClient?.publish({
       destination: '/app/mensajes.marcarLeidos',
       body: JSON.stringify(ids),
@@ -538,10 +620,12 @@ export class WebSocketService {
     usuarioId: number,
     callback: (mensajeId: number) => void
   ): void {
+    console.log('[WS] subscribe', `/topic/leido.${usuarioId}`);
     this.stompClient?.subscribe(`/topic/leido.${usuarioId}`, (message) => {
       try {
         const body = JSON.parse(message.body);
         const mensajeId = body.mensajeId;
+        console.log('[WS] recv /topic/leido.*', body);
         callback(mensajeId);
       } catch (e) {
         console.error(
@@ -553,13 +637,40 @@ export class WebSocketService {
     });
   }
 
+  public enviarReaccionMensaje(payload: MensajeReaccionDTO): void {
+    if (!this.stompClient?.connected) {
+      console.warn('WS no conectado. No se pudo enviar chat.reaccion');
+      return;
+    }
+    this.stompClient.publish({
+      destination: '/app/chat.reaccion',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public suscribirseAReacciones(
+    usuarioId: number,
+    callback: (payload: MensajeReaccionDTO) => void
+  ): void {
+    if (!this.stompClient?.connected) return;
+    this.stompClient.subscribe(`/topic/chat.reaccion.${usuarioId}`, (message) => {
+      try {
+        callback(JSON.parse(message.body) as MensajeReaccionDTO);
+      } catch (e) {
+        console.error('❌ Error parseando reacción WS:', e);
+      }
+    });
+  }
+
   suscribirseAChat(
     receptorId: number,
     callback: (mensaje: MensajeDTO) => void
   ): void {
     if (this.stompClient.connected) {
+      console.log('[WS] subscribe', `/topic/chat.${receptorId}`, '(mensajes)');
       this.stompClient.subscribe(`/topic/chat.${receptorId}`, (message) => {
         const mensajeRecibido: MensajeDTO = JSON.parse(message.body);
+        console.log('[WS] recv /topic/chat.* (mensaje)', mensajeRecibido);
         callback(mensajeRecibido);
       });
     } else {

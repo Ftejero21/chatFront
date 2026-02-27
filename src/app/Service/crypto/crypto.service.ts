@@ -139,6 +139,26 @@ export class CryptoService {
     };
   }
 
+  async encryptAESBinary(
+    data: ArrayBuffer | Uint8Array,
+    key: CryptoKey
+  ): Promise<{ iv: string; ciphertext: ArrayBuffer }> {
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const bytes =
+      data instanceof Uint8Array
+        ? data
+        : new Uint8Array(data);
+    const ciphertext = await window.crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      bytes
+    );
+    return {
+      iv: this.bufferToBase64(iv.buffer),
+      ciphertext,
+    };
+  }
+
   async decryptAES(base64Ciphertext: string, base64Iv: string, key: CryptoKey): Promise<string> {
     const ciphertext = this.base64ToBuffer(base64Ciphertext);
     const ivBuffer = this.base64ToBuffer(base64Iv);
@@ -148,6 +168,23 @@ export class CryptoService {
       ciphertext
     );
     return new TextDecoder().decode(decrypted);
+  }
+
+  async decryptAESBinary(
+    ciphertext: ArrayBuffer | Uint8Array,
+    base64Iv: string,
+    key: CryptoKey
+  ): Promise<ArrayBuffer> {
+    const ivBuffer = this.base64ToBuffer(base64Iv);
+    const bytes =
+      ciphertext instanceof Uint8Array
+        ? ciphertext
+        : new Uint8Array(ciphertext);
+    return await window.crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: new Uint8Array(ivBuffer) },
+      key,
+      bytes
+    );
   }
 
   // --- UTILS ---

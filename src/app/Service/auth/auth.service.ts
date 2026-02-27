@@ -7,6 +7,9 @@ import { UsuarioDTO } from '../../Interface/UsuarioDTO';
 import { AuthRespuestaDTO } from '../../Interface/AuthRespuestaDTO';
 import { environment } from '../../environments';
 import { DashboardStatsDTO } from '../../Interface/DashboardStatsDTO';
+import { PageResponse } from '../../Interface/PageResponse';
+import { UserE2EStateDTO } from '../../Interface/UserE2EStateDTO';
+import { UserE2ERekeyRequestDTO } from '../../Interface/UserE2ERekeyRequestDTO';
 
 import { PreKeyBundleDTO, UploadBundleDTO } from '../../Interface/UploadBundleDTO';
 
@@ -52,6 +55,14 @@ export class AuthService {
     return this.http.put<void>(`${this.baseUrl}/${id}/public-key`, { publicKey });
   }
 
+  getE2EState(userId: number): Observable<UserE2EStateDTO> {
+    return this.http.get<UserE2EStateDTO>(`${this.baseUrl}/${userId}/e2e/state`);
+  }
+
+  rekeyE2E(userId: number, dto: UserE2ERekeyRequestDTO): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/${userId}/e2e/rekey`, dto);
+  }
+
   uploadPreKeyBundle(
     userId: number,
     bundle: UploadBundleDTO
@@ -66,6 +77,10 @@ export class AuthService {
     return this.http.get<PreKeyBundleDTO>(
       `${environment.backendBaseUrl}/api/keys/${userId}/bundle`
     );
+  }
+
+  getAuditPublicKey(): Observable<any> {
+    return this.http.get<any>(`${environment.backendBaseUrl}/api/keys/audit-public`);
   }
 
   bloquearUsuario(bloqueadoId: number): Observable<void> {
@@ -88,8 +103,11 @@ export class AuthService {
     return this.http.get<DashboardStatsDTO>(`${this.baseUrl}/admin/dashboard-stats`);
   }
 
-  getUsuariosRecientes(): Observable<UsuarioDTO[]> {
-    return this.http.get<UsuarioDTO[]>(`${this.baseUrl}/admin/recientes`);
+  getUsuariosRecientes(page: number = 0, size: number = 10): Observable<PageResponse<UsuarioDTO>> {
+    const params = new HttpParams()
+      .set('page', String(page))
+      .set('size', String(size));
+    return this.http.get<PageResponse<UsuarioDTO>>(`${this.baseUrl}/admin/recientes`, { params });
   }
 
   banearUsuario(id: number, motivo: string): Observable<any> {
@@ -98,5 +116,17 @@ export class AuthService {
 
   desbanearUsuario(id: number): Observable<any> {
     return this.http.post(`${this.baseUrl}/admin/${id}/unban`, {});
+  }
+
+  solicitarCodigoCambioPasswordPerfil(): Observable<{ mensaje: string }> {
+    return this.http.post<{ mensaje: string }>(`${this.baseUrl}/perfil/password/solicitar-codigo`, {});
+  }
+
+  cambiarPasswordPerfil(code: string, newPassword: string): Observable<{ mensaje: string }> {
+    return this.http.post<{ mensaje: string }>(`${this.baseUrl}/perfil/password/cambiar`, { code, newPassword });
+  }
+
+  actualizarPerfil(payload: { nombre: string; apellido: string; foto: string }): Observable<UsuarioDTO> {
+    return this.http.put<UsuarioDTO>(`${this.baseUrl}/perfil`, payload);
   }
 }

@@ -22,6 +22,91 @@ export const DEFAULT_NAME_PALETTE = [
   '#84CC16',
 ] as const;
 
+export interface E2EDebugContext {
+  chatId?: number;
+  mensajeId?: number;
+  source?: string;
+}
+
+function isE2EDebugEnabled(): boolean {
+  try {
+    // Por defecto activado. Para silenciar: localStorage.setItem('debugE2E', '0')
+    return localStorage.getItem('debugE2E') !== '0';
+  } catch {
+    return true;
+  }
+}
+
+function errorToString(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}`;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function e2eLog(
+  level: 'log' | 'warn' | 'error',
+  stage: string,
+  ctx?: E2EDebugContext,
+  data?: Record<string, unknown>
+): void {
+  if (!isE2EDebugEnabled()) return;
+  const payload = {
+    chatId: Number.isFinite(Number(ctx?.chatId)) ? Number(ctx?.chatId) : null,
+    mensajeId: Number.isFinite(Number(ctx?.mensajeId))
+      ? Number(ctx?.mensajeId)
+      : null,
+    source: ctx?.source || 'unknown',
+    ...(data || {}),
+  };
+  if (level === 'log') console.log(`[E2E][${stage}]`, payload);
+  else if (level === 'warn') console.warn(`[E2E][${stage}]`, payload);
+  else console.error(`[E2E][${stage}]`, payload);
+}
+
+function parsePossiblySerializedE2EPayload(raw: string): any | null {
+  let candidate = String(raw || '').trim();
+  if (!candidate) return null;
+
+  for (let i = 0; i < 4; i++) {
+    if (!candidate) return null;
+
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object') return parsed;
+      if (typeof parsed === 'string') {
+        candidate = parsed.trim();
+        continue;
+      }
+      return null;
+    } catch {
+      // seguimos con normalizaciones
+    }
+
+    const quoted =
+      (candidate.startsWith('"') && candidate.endsWith('"')) ||
+      (candidate.startsWith("'") && candidate.endsWith("'"));
+    if (quoted) {
+      candidate = candidate.slice(1, -1).trim();
+      continue;
+    }
+
+    if (candidate.includes('\\"')) {
+      const unescaped = candidate.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+      if (unescaped !== candidate) {
+        candidate = unescaped.trim();
+        continue;
+      }
+    }
+
+    break;
+  }
+
+  return null;
+}
+
 
 
 /**
@@ -29,81 +114,306 @@ export const DEFAULT_NAME_PALETTE = [
  * Devuelve el texto claro o un mensaje de error si faltan claves.
  */
 export async function decryptContenidoE2E(
-  contenido: string,
+  contenido: unknown,
   emisorId: number,
   receptorId: number,
   usuarioActualId: number,
-  cryptoService: CryptoService
+  cryptoService: CryptoService,
+  debugContext?: E2EDebugContext
 ): Promise<string> {
   try {
-    if (contenido && contenido.startsWith('{') && contenido.includes('"type":"E2E"')) {
-      const payload = JSON.parse(contenido);
+    let payload: any = null;
+    let rawString = '';
 
-      if (payload.type === 'E2E') {
-        const privKeyBase64 = localStorage.getItem(`privateKey_${usuarioActualId}`);
-        if (!privKeyBase64) return '🔒 [Mensaje Cifrado - Sin clave privada local]';
+    if (typeof contenido === 'string') {
+      rawString = contenido;
+      payload = parsePossiblySerializedE2EPayload(contenido);
+      if (!payload) return contenido;
+    } else if (contenido && typeof contenido === 'object') {
+      payload = contenido;
+      rawString = JSON.stringify(contenido);
+    } else {
+      return String(contenido ?? '');
+    }
 
-        const myPrivKey = await cryptoService.importPrivateKey(privKeyBase64);
+    if (payload?.type === 'E2E' || payload?.type === 'E2E_GROUP') {
+      const privKeyBase64 = localStorage.getItem(`privateKey_${usuarioActualId}`);
+      const isSender = String(emisorId) === String(usuarioActualId);
+      const recMap =
+        payload?.type === 'E2E_GROUP' && payload?.forReceptores
+          ? payload.forReceptores
+          : {};
+      const recKeys = Object.keys(recMap || {});
 
-        const isSender = String(emisorId) === String(usuarioActualId);
-        const aesEncryptedBase64 = isSender ? payload.forEmisor : payload.forReceptor;
+      e2eLog('log', 'decrypt-start', debugContext, {
+        payloadType: payload?.type,
+        emisorId: Number(emisorId),
+        receptorId: Number(receptorId),
+        usuarioActualId: Number(usuarioActualId),
+        isSender,
+        hasForEmisor: typeof payload?.forEmisor === 'string',
+        hasForReceptor: typeof payload?.forReceptor === 'string',
+        forReceptoresCount: recKeys.length,
+        hasCiphertext: typeof payload?.ciphertext === 'string',
+        hasIv: typeof payload?.iv === 'string',
+      });
 
-        if (!aesEncryptedBase64) {
-          return '🔒 [Mensaje Cifrado - Llave no disponible para este usuario]';
+      if (!privKeyBase64) {
+        e2eLog('warn', 'decrypt-no-private-key', debugContext, {
+          usuarioActualId: Number(usuarioActualId),
+        });
+        return '[Mensaje Cifrado - Sin clave privada local]';
+      }
+
+      const myPrivKey = await cryptoService.importPrivateKey(privKeyBase64);
+
+      let aesEncryptedBase64: string | undefined;
+      if (isSender) {
+        aesEncryptedBase64 = payload.forEmisor;
+      } else if (payload.type === 'E2E_GROUP') {
+        const forReceptores = payload.forReceptores || {};
+        const direct =
+          forReceptores[String(usuarioActualId)] ??
+          forReceptores[usuarioActualId] ??
+          payload.forReceptor;
+        if (direct) {
+          const directSource =
+            forReceptores[String(usuarioActualId)] != null
+              ? 'forReceptores[string]'
+              : forReceptores[usuarioActualId] != null
+              ? 'forReceptores[number]'
+              : payload.forReceptor != null
+              ? 'forReceptor'
+              : 'unknown';
+          e2eLog('log', 'decrypt-group-direct-key', debugContext, {
+            directSource,
+          });
+          aesEncryptedBase64 = direct;
+        } else {
+          const candidates = Object.values(forReceptores);
+          e2eLog('warn', 'decrypt-group-no-direct-key', debugContext, {
+            forReceptoresCount: candidates.length,
+            forReceptoresKeys: Object.keys(forReceptores),
+          });
+          for (let i = 0; i < candidates.length; i++) {
+            const candidate = candidates[i];
+            if (typeof candidate !== 'string') continue;
+            try {
+              const maybe = await cryptoService.decryptRSA(candidate, myPrivKey);
+              if (maybe) {
+                aesEncryptedBase64 = candidate;
+                e2eLog('log', 'decrypt-group-fallback-key-ok', debugContext, {
+                  candidateIndex: i,
+                });
+                break;
+              }
+            } catch (err) {
+              e2eLog('log', 'decrypt-group-fallback-key-failed', debugContext, {
+                candidateIndex: i,
+                error: errorToString(err),
+              });
+            }
+          }
+        }
+      } else {
+        aesEncryptedBase64 = payload.forReceptor;
+      }
+
+      if (!aesEncryptedBase64) {
+        e2eLog('warn', 'decrypt-no-aes-envelope-for-user', debugContext, {
+          payloadType: payload?.type,
+          hasForEmisor: typeof payload?.forEmisor === 'string',
+          hasForReceptor: typeof payload?.forReceptor === 'string',
+          forReceptoresKeys: recKeys,
+        });
+        return '[Mensaje Cifrado - Llave no disponible para este usuario]';
+      }
+
+      try {
+        let aesRawStr = '';
+        try {
+          aesRawStr = await cryptoService.decryptRSA(aesEncryptedBase64, myPrivKey);
+        } catch (err) {
+          e2eLog('error', 'decrypt-rsa-envelope-failed', debugContext, {
+            payloadType: payload?.type,
+            error: errorToString(err),
+          });
+          return '[Error de descifrado E2E]';
         }
 
-        const aesRawStr = await cryptoService.decryptRSA(aesEncryptedBase64, myPrivKey);
-        const aesKey = await cryptoService.importAESKey(aesRawStr);
-        return await cryptoService.decryptAES(payload.ciphertext, payload.iv, aesKey);
+        let aesKey: CryptoKey;
+        try {
+          aesKey = await cryptoService.importAESKey(aesRawStr);
+        } catch (err) {
+          e2eLog('error', 'decrypt-import-aes-key-failed', debugContext, {
+            payloadType: payload?.type,
+            error: errorToString(err),
+          });
+          return '[Error de descifrado E2E]';
+        }
+
+        let plain = '';
+        try {
+          plain = await cryptoService.decryptAES(payload.ciphertext, payload.iv, aesKey);
+        } catch (err) {
+          e2eLog('error', 'decrypt-aes-content-failed', debugContext, {
+            payloadType: payload?.type,
+            hasCiphertext: typeof payload?.ciphertext === 'string',
+            hasIv: typeof payload?.iv === 'string',
+            error: errorToString(err),
+          });
+          return '[Error de descifrado E2E]';
+        }
+
+        e2eLog('log', 'decrypt-success', debugContext, {
+          payloadType: payload?.type,
+        });
+        return plain;
+      } catch (err) {
+        e2eLog('error', 'decrypt-final-step-failed', debugContext, {
+          payloadType: payload?.type,
+          error: errorToString(err),
+        });
+        return '[Error de descifrado E2E]';
       }
     }
-  } catch {
-    return '🔒 [Error de descifrado E2E]';
-  }
 
-  return contenido;
+    return rawString;
+  } catch (err) {
+    e2eLog('error', 'decrypt-unhandled-error', debugContext, {
+      error: errorToString(err),
+    });
+    return '[Error de descifrado E2E]';
+  }
 }
 
 export async function decryptPreviewStringE2E(
-  contenido: string,
+  contenido: unknown,
   usuarioActualId: number,
-  cryptoService: CryptoService
+  cryptoService: CryptoService,
+  debugContext?: E2EDebugContext
 ): Promise<string> {
   try {
-    if (!contenido || !contenido.startsWith('{') || !contenido.includes('"type":"E2E"')) {
-      return contenido;
+    let payload: any = null;
+    let rawString = '';
+
+    if (typeof contenido === 'string') {
+      rawString = contenido;
+      payload = parsePossiblySerializedE2EPayload(contenido);
+      if (!payload) return contenido;
+    } else if (contenido && typeof contenido === 'object') {
+      payload = contenido;
+      rawString = JSON.stringify(contenido);
+    } else {
+      return String(contenido ?? '');
+    }
+    const payloadType = String(payload?.type || '').trim().toUpperCase();
+    if (
+      payloadType !== 'E2E' &&
+      payloadType !== 'E2E_GROUP' &&
+      payloadType !== 'E2E_AUDIO' &&
+      payloadType !== 'E2E_GROUP_AUDIO' &&
+      payloadType !== 'E2E_IMAGE' &&
+      payloadType !== 'E2E_GROUP_IMAGE'
+    ) {
+      return rawString;
     }
 
-    const payload = JSON.parse(contenido);
-    if (payload.type !== 'E2E') return contenido;
+    if (payloadType === 'E2E_AUDIO' || payloadType === 'E2E_GROUP_AUDIO') {
+      const durMs = Number(payload?.audioDuracionMs || 0);
+      const durTxt = durMs > 0 ? ` (${formatDuration(durMs)})` : '';
+      return `Mensaje de voz${durTxt}`;
+    }
+
+    if (payloadType === 'E2E_IMAGE' || payloadType === 'E2E_GROUP_IMAGE') {
+      const privKeyBase64 = localStorage.getItem(`privateKey_${usuarioActualId}`);
+      if (!privKeyBase64) return 'Imagen';
+      const myPrivKey = await cryptoService.importPrivateKey(privKeyBase64);
+      const groupCandidates =
+        payloadType === 'E2E_GROUP_IMAGE' && payload.forReceptores
+          ? [
+              payload.forReceptores[String(usuarioActualId)],
+              payload.forReceptores[usuarioActualId],
+              ...Object.values(payload.forReceptores),
+            ]
+          : [];
+      const candidates = [
+        payload.forReceptor,
+        payload.forEmisor,
+        ...groupCandidates,
+        payload.forAdmin,
+      ];
+
+      for (const candidate of candidates) {
+        if (!candidate || typeof candidate !== 'string') continue;
+        try {
+          const aesRawStr = await cryptoService.decryptRSA(candidate, myPrivKey);
+          const aesKey = await cryptoService.importAESKey(aesRawStr);
+          if (payload?.captionCiphertext && payload?.captionIv) {
+            const caption = await cryptoService.decryptAES(
+              payload.captionCiphertext,
+              payload.captionIv,
+              aesKey
+            );
+            const cleanCaption = String(caption || '').trim();
+            if (cleanCaption) return `Imagen: ${cleanCaption}`;
+          }
+          return 'Imagen';
+        } catch {
+          // Intentamos con la siguiente llave disponible.
+        }
+      }
+      return 'Imagen';
+    }
 
     if (payload.auditStatus === 'NO_AUDITABLE') {
-      return '⚠️ [Mensaje legado no auditable]';
+      return '[Mensaje legado no auditable]';
     }
 
     const privKeyBase64 = localStorage.getItem(`privateKey_${usuarioActualId}`);
-    if (!privKeyBase64) return '🔒 [Mensaje Cifrado]';
+    if (!privKeyBase64) {
+      e2eLog('warn', 'preview-no-private-key', debugContext, {
+        usuarioActualId: Number(usuarioActualId),
+      });
+      return '[Mensaje Cifrado]';
+    }
 
     const myPrivKey = await cryptoService.importPrivateKey(privKeyBase64);
 
-    let aesRawStr: string | undefined;
-
-    for (const candidate of [payload.forAdmin, payload.forReceptor, payload.forEmisor]) {
-      if (!candidate) continue;
+    const groupCandidates =
+      payload.type === 'E2E_GROUP' && payload.forReceptores
+        ? [
+            payload.forReceptores[String(usuarioActualId)],
+            payload.forReceptores[usuarioActualId],
+            ...Object.values(payload.forReceptores),
+          ]
+        : [];
+    const candidates = [
+      payload.forReceptor,
+      payload.forEmisor,
+      ...groupCandidates,
+      payload.forAdmin,
+    ];
+    for (const candidate of candidates) {
+      if (!candidate || typeof candidate !== 'string') continue;
       try {
-        aesRawStr = await cryptoService.decryptRSA(candidate, myPrivKey);
-        if (aesRawStr) break;
+        const aesRawStr = await cryptoService.decryptRSA(candidate, myPrivKey);
+        const aesKey = await cryptoService.importAESKey(aesRawStr);
+        return await cryptoService.decryptAES(payload.ciphertext, payload.iv, aesKey);
       } catch {
         // Intentamos con la siguiente llave disponible.
       }
     }
 
-    if (!aesRawStr) return '🔒 [Mensaje Cifrado]';
-
-    const aesKey = await cryptoService.importAESKey(aesRawStr);
-    return await cryptoService.decryptAES(payload.ciphertext, payload.iv, aesKey);
-  } catch {
-    return '🔒 [Mensaje Cifrado]';
+    e2eLog('warn', 'preview-no-decryptable-envelope', debugContext, {
+      payloadType: payload?.type,
+    });
+    return '[Mensaje Cifrado]';
+  } catch (err) {
+    e2eLog('error', 'preview-decrypt-error', debugContext, {
+      error: errorToString(err),
+    });
+    return '[Mensaje Cifrado]';
   }
 }
 
@@ -112,7 +422,7 @@ export function truncate(text: string, max: number): string {
   const clean = text.trim().replace(/\s+/g, ' ');
   return clean.length <= max
     ? clean
-    : clean.slice(0, Math.max(0, max - 1)) + '…';
+    : clean.slice(0, Math.max(0, max - 3)) + '...';
 }
 
 /** 00:00 desde milisegundos */
@@ -160,7 +470,8 @@ export function resolveMediaUrl(
   backendBaseUrl?: string
 ): string {
   if (!url) return '';
-  if (/^https?:\/\//i.test(url) || url.startsWith('data:')) return url;
+  if (/^https?:\/\//i.test(url) || url.startsWith('data:') || url.startsWith('blob:')) return url;
+  if (url.startsWith('assets/') || url.startsWith('/assets/')) return url;
   const path = url.startsWith('/') ? url : `/${url}`;
   return backendBaseUrl ? `${backendBaseUrl}${path}` : path;
 }
@@ -180,9 +491,12 @@ export function isAudioPreviewText(
 ): boolean {
   if (!preview) return false;
   const t = String(preview).toLowerCase();
-  return t.includes('🎤') || t.includes('[audio]');
+  return (
+    t.includes('mensaje de voz') ||
+    t.includes('[audio]') ||
+    /\baudio\b/.test(t)
+  );
 }
-
 // Extrae duración mm:ss desde "🎤 Mensaje de voz (01:23)" → ms
 export function parseAudioDurationMs(
   preview: string | null | undefined
@@ -223,6 +537,28 @@ export function formatPreviewText(raw?: string | null): string {
   return t.replace(/^mensaje:\s*/i, '');
 }
 
+export function isSystemMessageLike(mensaje: any): boolean {
+  const tipo = String(mensaje?.tipo || '')
+    .trim()
+    .toUpperCase();
+  const systemTypes = new Set([
+    'SYSTEM',
+    'SYSTEM_MESSAGE',
+    'GROUP_EVENT',
+    'EVENT',
+    'INFO',
+  ]);
+  const eventCode = String(mensaje?.systemEvent || mensaje?.evento || '')
+    .trim()
+    .toUpperCase();
+
+  return (
+    systemTypes.has(tipo) ||
+    mensaje?.esSistema === true ||
+    eventCode === 'GROUP_MEMBER_LEFT'
+  );
+}
+
 export function joinMembersLine(
   usuarios: Array<{ nombre: string; apellido?: string }> = []
 ): string {
@@ -241,11 +577,11 @@ export function colorForUserId(
 
 export function buildTypingHeaderText(names: string[]): string {
   if (!names || names.length === 0) return '';
-  if (names.length === 1) return `${names[0]} está escribiendo…`;
-  if (names.length === 2) return `${names[0]} y ${names[1]} están escribiendo…`;
+  if (names.length === 1) return `${names[0]} est\u00e1 escribiendo...`;
+  if (names.length === 2) return `${names[0]} y ${names[1]} est\u00e1n escribiendo...`;
   return `${names[0]}, ${names[1]} y ${
     names.length - 2
-  } más están escribiendo…`;
+  } m\u00e1s est\u00e1n escribiendo...`;
 }
 
 /**
@@ -273,8 +609,8 @@ export function getNombrePorId(
 }
 
 /**
- * Construye el preview de un mensaje en función de si es grupo/individual.
- * Es pura: no muta nada; tú decides dónde la usas.
+ * Construye el preview de un mensaje en funcion de si es grupo/individual.
+ * Es pura: no muta nada; tu decides donde la usas.
  */
 export function buildPreviewFromMessage(
   mensaje: any,
@@ -282,7 +618,23 @@ export function buildPreviewFromMessage(
   usuarioActualId: number,
   maxLen = 60
 ): string {
+  if (isSystemMessageLike(mensaje)) {
+    const systemText = String(mensaje?.contenido ?? '').trim();
+    return truncate(systemText || 'Evento del grupo', maxLen);
+  }
+
   if (mensaje?.activo === false) return 'Mensaje eliminado';
+  const isImage =
+    String(mensaje?.tipo || '')
+      .trim()
+      .toUpperCase() === 'IMAGE' ||
+    !!mensaje?.imageUrl ||
+    !!mensaje?.imageDataUrl;
+  if (isImage) {
+    const caption = String(mensaje?.contenido ?? '').trim();
+    const label = caption ? `Imagen: ${caption}` : 'Imagen';
+    return truncate(label, maxLen);
+  }
   const texto = String(mensaje?.contenido ?? '').trim();
 
   if (!chatItem) return truncate(texto, maxLen);
@@ -290,7 +642,7 @@ export function buildPreviewFromMessage(
   if (chatItem.esGrupo) {
     const prefijo =
       mensaje.emisorId === usuarioActualId
-        ? 'Tú: '
+        ? 'yo: '
         : (mensaje.emisorNombre ||
             getNombrePorId([chatItem], mensaje.emisorId) ||
             'Alguien') + ': ';
@@ -302,7 +654,7 @@ export function buildPreviewFromMessage(
 }
 
 /**
- * Devuelve un nuevo array de chats con el chat `chatId` actualizado con el preview.
+ * Devuelve un nuevo array de chats con el chat chatId actualizado con el preview.
  * No hace side effects (inmutable).
  */
 export function updateChatPreview(
@@ -337,27 +689,39 @@ export function computePreviewPatch(
       mensaje.tipo.toUpperCase() === 'AUDIO') ||
     !!mensaje?.audioUrl ||
     !!mensaje?.audioDataUrl;
+  const esImagen =
+    (typeof mensaje?.tipo === 'string' &&
+      mensaje.tipo.toUpperCase() === 'IMAGE') ||
+    !!mensaje?.imageUrl ||
+    !!mensaje?.imageDataUrl;
 
-  if (mensaje?.activo === false) {
+  if (isSystemMessageLike(mensaje)) {
+    preview = String(mensaje?.contenido ?? '').trim() || 'Evento del grupo';
+  } else if (mensaje?.activo === false) {
     preview = 'Mensaje eliminado';
   } else if (chatItem && !chatItem.esGrupo) {
-    // INDIVIDUAL
     const pref = mensaje?.emisorId === usuarioActualId ? 'Tú: ' : '';
     if (esAudio) {
       const durMs = Number(mensaje?.audioDuracionMs) || 0;
       const durTxt = durMs ? ` (${formatDuration(durMs)})` : '';
-      preview = `${pref}🎤 Mensaje de voz${durTxt}`;
+      preview = `${pref}Mensaje de voz${durTxt}`;
+    } else if (esImagen) {
+      const caption = String(mensaje?.contenido || '').trim();
+      preview = `${pref}${caption ? `Imagen: ${caption}` : 'Imagen'}`.trim();
     } else {
       preview = `${pref}${String(mensaje?.contenido ?? '').trim()}`.trim();
     }
   } else {
-    // GRUPAL
+    const emisorEsActual = Number(mensaje?.emisorId) === Number(usuarioActualId);
     const emisor = String(mensaje?.emisorNombre ?? '').trim();
-    const prefix = emisor ? `${emisor}: ` : '';
+    const prefix = emisorEsActual ? 'yo: ' : emisor ? `${emisor}: ` : '';
     if (esAudio) {
       const durMs = Number(mensaje?.audioDuracionMs) || 0;
       const durTxt = durMs ? ` (${formatDuration(durMs)})` : '';
-      preview = `${prefix}🎤 Mensaje de voz${durTxt}`;
+      preview = `${prefix}Mensaje de voz${durTxt}`;
+    } else if (esImagen) {
+      const caption = String(mensaje?.contenido || '').trim();
+      preview = `${prefix}${caption ? `Imagen: ${caption}` : 'Imagen'}`;
     } else {
       preview = `${prefix}${String(mensaje?.contenido ?? '')}`;
     }
@@ -372,21 +736,20 @@ export function computePreviewPatch(
 export function parseAudioPreviewText(txt?: string): {
   isAudio: boolean;
   seconds?: number;
-  label?: string;   // <-- NUEVO
-  fromMe?: boolean; // <-- opcional
+  label?: string;
+  fromMe?: boolean;
 } {
   const s = (txt || '').trim();
   let label = '';
   let body = s;
 
-  // Extrae prefijo "X: " (máx ~30 chars para evitar matches absurdos)
   const pref = /^([^:]{1,30}):\s*/.exec(s);
   if (pref) {
-    label = pref[1].trim();      // "Tú" o "Ana"
+    label = pref[1].trim();
     body = s.slice(pref[0].length);
   }
 
-  const isAudio = /🎤\s*Mensaje de voz/i.test(body);
+  const isAudio = /Mensaje de voz/i.test(body) || /\baudio\b/i.test(body);
 
   let seconds: number | undefined;
   const tm = /\((\d{2}):(\d{2})\)/.exec(body);
@@ -396,5 +759,15 @@ export function parseAudioPreviewText(txt?: string): {
     seconds = mm * 60 + ss;
   }
 
-  return { isAudio, seconds, label: label || undefined, fromMe: label === 'Tú' };
+  return {
+    isAudio,
+    seconds,
+    label: label || undefined,
+    fromMe:
+      label.toLowerCase() === 'yo' ||
+      label.toLowerCase() === 'tú' ||
+      label.toLowerCase() === 'tu',
+  };
 }
+
+

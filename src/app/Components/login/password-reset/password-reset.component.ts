@@ -18,6 +18,8 @@ export class PasswordResetComponent {
   errorMsg = '';
   successMsg = '';
   isLoading = false;
+  showNewPassword = false;
+  showRepeatPassword = false;
 
   timeLeft = 300;
   timerInterval: any;
@@ -118,5 +120,13 @@ export class PasswordResetComponent {
 
   ngOnDestroy() {
     this.stopTimer();
+  }
+
+  toggleNewPasswordVisibility(): void {
+    this.showNewPassword = !this.showNewPassword;
+  }
+
+  toggleRepeatPasswordVisibility(): void {
+    this.showRepeatPassword = !this.showRepeatPassword;
   }
 }

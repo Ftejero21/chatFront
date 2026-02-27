@@ -1,20 +1,27 @@
-import { UsuarioDTO } from "./UsuarioDTO ";
+import { UsuarioDTO } from './UsuarioDTO';
 
-export interface ChatIndividualDTO {
+export type LastMessageTipoDTO =
+  | 'TEXT'
+  | 'AUDIO'
+  | 'IMAGE'
+  | 'VIDEO'
+  | 'FILE'
+  | 'SYSTEM';
+
+export interface ChatListItemDTO {
   id: number;
-  usuario1: UsuarioDTO;
-  usuario2: UsuarioDTO;
+  receptor?: UsuarioDTO | null;
+  nombreGrupo?: string | null;
+  fotoGrupo?: string | null;
+  foto?: string | null;
+  usuarios?: UsuarioDTO[] | null;
+  miembros?: UsuarioDTO[] | null;
+  unreadCount?: number | null;
   ultimaFecha?: string | null;
   ultimaMensaje?: string | null;
+
   ultimaMensajeId?: number | null;
-  ultimaMensajeTipo?:
-    | 'TEXT'
-    | 'AUDIO'
-    | 'IMAGE'
-    | 'VIDEO'
-    | 'FILE'
-    | 'SYSTEM'
-    | null;
+  ultimaMensajeTipo?: LastMessageTipoDTO | null;
   ultimaMensajeEmisorId?: number | null;
   ultimaMensajeRaw?: string | null;
   ultimaMensajeImageUrl?: string | null;

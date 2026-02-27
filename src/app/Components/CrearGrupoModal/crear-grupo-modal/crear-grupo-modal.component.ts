@@ -19,6 +19,8 @@ export interface ChatGrupalCreateDTO {
   usuarios: Array<{ id: number }>;
   idCreador: number;
   fotoGrupo?: string; // dataURL opcional
+  descripcion?: string;
+  visibilidad?: 'PUBLICO' | 'PRIVADO';
 }
 
 @Component({
@@ -48,6 +50,8 @@ export class CrearGrupoModalComponent implements OnInit {
   nuevoGrupo = {
     nombre: '',
     fotoDataUrl: null as string | null,
+    descripcion: '',
+    visibilidad: 'PUBLICO' as 'PUBLICO' | 'PRIVADO',
     seleccionados: [] as UsuarioDTO[],
   };
 
@@ -188,6 +192,10 @@ export class CrearGrupoModalComponent implements OnInit {
         .map((u) => ({ id: u.id! })),
       idCreador: Number(this.currentUserId),
       fotoGrupo: this.nuevoGrupo.fotoDataUrl || undefined,
+      descripcion:
+        (this.nuevoGrupo.descripcion || '').trim() ||
+        `Grupo ${nombre} creado en TejeChat.`,
+      visibilidad: this.nuevoGrupo.visibilidad || 'PUBLICO',
     };
 
     this.create.emit(dto);
@@ -195,7 +203,13 @@ export class CrearGrupoModalComponent implements OnInit {
   }
 
   private resetForm(): void {
-    this.nuevoGrupo = { nombre: '', fotoDataUrl: null, seleccionados: [] };
+    this.nuevoGrupo = {
+      nombre: '',
+      fotoDataUrl: null,
+      descripcion: '',
+      visibilidad: 'PUBLICO',
+      seleccionados: [],
+    };
     this.busquedaUsuario = '';
     if (this.fileInput?.nativeElement) {
       this.fileInput.nativeElement.value = '';

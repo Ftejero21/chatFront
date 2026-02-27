@@ -7,6 +7,7 @@ export interface UsuarioDTO {
   activo?: boolean;
   foto?:string;
   publicKey?: string;
+  hasPublicKey?: boolean;
   roles?: string[];
   bloqueadosIds?: number[];
   meHanBloqueadoIds?: number[];

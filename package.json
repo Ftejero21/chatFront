@@ -22,6 +22,8 @@
     "@tailwindcss/postcss": "^4.2.0",
     "bootstrap": "^5.3.7",
     "bootstrap-icons": "^1.13.1",
+    "emoji-picker-element": "^1.29.0",
+    "emoji-picker-element-data": "^1.8.0",
     "libsignal-protocol-typescript": "^0.0.18",
     "rxjs": "~7.8.0",
     "sockjs-client": "^1.6.1",

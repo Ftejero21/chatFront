@@ -1,4 +1,4 @@
-import { NgModule } from '@angular/core';
+import { CUSTOM_ELEMENTS_SCHEMA, NgModule } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 
 import { AppRoutingModule } from './app-routing.module';
@@ -12,6 +12,10 @@ import { MediaStreamDirective } from './shared/media-stream.directive';
 import { AuthInterceptor } from './Service/auth/auth.interceptor';
 import { PasswordResetComponent } from './Components/login/password-reset/password-reset.component';
 import { AdministracionComponent } from './Components/administracion/administracion/administracion.component';
+import { PerfilUsuarioComponent } from './Components/inicio/perfil-usuario/perfil-usuario.component';
+import { GroupInfoPanelComponent } from './Components/inicio/group-info-panel/group-info-panel.component';
+import { MessageSearchPanelComponent } from './Components/inicio/message-search-panel/message-search-panel.component';
+import { EmojiPickerComponent } from './Components/inicio/emoji-picker/emoji-picker.component';
 
 @NgModule({
   declarations: [
@@ -21,7 +25,11 @@ import { AdministracionComponent } from './Components/administracion/administrac
     CrearGrupoModalComponent,
     MediaStreamDirective,
     PasswordResetComponent,
-    AdministracionComponent
+    AdministracionComponent,
+    PerfilUsuarioComponent,
+    GroupInfoPanelComponent,
+    MessageSearchPanelComponent,
+    EmojiPickerComponent
   ],
   imports: [
     BrowserModule,
@@ -37,6 +45,7 @@ import { AdministracionComponent } from './Components/administracion/administrac
       multi: true
     }
   ],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
   bootstrap: [AppComponent]
 })
 export class AppModule { }

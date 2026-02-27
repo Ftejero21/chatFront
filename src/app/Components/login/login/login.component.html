@@ -31,7 +31,16 @@
 
       <label class="input-group">
         <i class="bi bi-lock"></i>
-        <input type="password" [(ngModel)]="login.password" name="password" placeholder="Contraseña" required />
+        <input [type]="showLoginPassword ? 'text' : 'password'" [(ngModel)]="login.password" name="password" placeholder="Contraseña" required />
+        <button
+          type="button"
+          class="password-toggle"
+          [class.is-visible]="showLoginPassword"
+          (click)="toggleLoginPasswordVisibility()"
+          [attr.aria-label]="showLoginPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+        >
+          <i [class]="showLoginPassword ? 'bi bi-eye' : 'bi bi-eye-slash'"></i>
+        </button>
       </label>
 
       <div class="form-row">
@@ -126,8 +135,17 @@
 
       <label class="input-group">
         <i class="bi bi-lock"></i>
-        <input type="password" [(ngModel)]="registro.password" name="passwordRegistro" placeholder="Contraseña"
+        <input [type]="showRegisterPassword ? 'text' : 'password'" [(ngModel)]="registro.password" name="passwordRegistro" placeholder="Contraseña"
           required />
+        <button
+          type="button"
+          class="password-toggle"
+          [class.is-visible]="showRegisterPassword"
+          (click)="toggleRegisterPasswordVisibility()"
+          [attr.aria-label]="showRegisterPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+        >
+          <i [class]="showRegisterPassword ? 'bi bi-eye' : 'bi bi-eye-slash'"></i>
+        </button>
       </label>
 
       <button type="submit" class="btn-primary">Registrarse</button>

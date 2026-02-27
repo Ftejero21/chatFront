@@ -48,6 +48,15 @@
             <div class="field-hint">
               Elegí un nombre claro. Podrás cambiarlo más tarde.
             </div>
+            <label class="form-label mt-3">Descripcion</label>
+            <textarea class="form-control" rows="3" placeholder="Descripcion del grupo"
+              [(ngModel)]="nuevoGrupo.descripcion"></textarea>
+
+            <label class="form-label mt-3">Visibilidad</label>
+            <select class="form-select" [(ngModel)]="nuevoGrupo.visibilidad">
+              <option value="PUBLICO">Publico</option>
+              <option value="PRIVADO">Privado</option>
+            </select>
           </div>
         </div>
 

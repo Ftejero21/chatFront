@@ -1,0 +1,304 @@
+<div class="group-info-panel">
+  <div class="group-info-head">
+    <div class="group-info-left">
+      <button type="button" class="group-info-close" (click)="onClose()" aria-label="Cerrar info de grupo">
+        <i class="bi bi-x-lg"></i>
+      </button>
+      <div class="group-info-title">Info. del grupo</div>
+    </div>
+    <button type="button" class="group-info-more" aria-label="Más opciones">
+      <i class="bi bi-three-dots-vertical"></i>
+    </button>
+  </div>
+
+  <div *ngIf="loadError" class="group-load-error">{{ loadError }}</div>
+  <div *ngIf="inviteSuccessMessage" class="group-load-success">{{ inviteSuccessMessage }}</div>
+
+  <div *ngIf="loading" class="group-loading">Cargando información del grupo...</div>
+
+  <div class="group-main-card">
+    <div class="group-photo-wrap group-photo-wrap--editable">
+      <img [src]="groupPhoto" alt="Foto del grupo" class="group-photo" />
+      <div class="group-photo-actions">
+        <label
+          class="group-photo-btn"
+          [class.is-disabled]="!isCurrentUserAdmin()"
+          [title]="isCurrentUserAdmin() ? 'Cambiar imagen del grupo' : adminOnlyHint"
+          for="groupPhotoInput"
+          tabindex="0"
+          role="button"
+          aria-label="Editar foto de grupo">
+          <i class="bi bi-camera-fill"></i>
+        </label>
+      </div>
+      <input
+        id="groupPhotoInput"
+        type="file"
+        accept="image/*"
+        hidden
+        [disabled]="!isCurrentUserAdmin() || savingMeta"
+        (change)="onGroupPhotoSelected($event)" />
+    </div>
+
+    <div class="group-name-row" *ngIf="!editingName; else editGroupNameTpl">
+      <h2 class="group-name" [title]="groupName">{{ groupName }}</h2>
+      <button
+        type="button"
+        class="group-edit-name"
+        [disabled]="!isCurrentUserAdmin() || savingMeta"
+        [title]="isCurrentUserAdmin() ? 'Editar nombre del grupo' : adminOnlyHint"
+        aria-label="Editar nombre"
+        (click)="startEditName()">
+        <i class="bi bi-pencil"></i>
+      </button>
+    </div>
+
+    <ng-template #editGroupNameTpl>
+      <div class="group-edit-inline">
+        <input
+          type="text"
+          class="group-edit-input"
+          maxlength="80"
+          [(ngModel)]="draftName"
+          [disabled]="savingMeta"
+          placeholder="Nombre del grupo" />
+        <button type="button" class="group-edit-action ok" [disabled]="savingMeta" (click)="saveGroupMeta()">
+          <i class="bi bi-check-lg"></i>
+        </button>
+        <button type="button" class="group-edit-action cancel" [disabled]="savingMeta" (click)="cancelEditName()">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+    </ng-template>
+
+    <div class="group-badges-row">
+      <span class="group-visibility-pill">{{ groupVisibilityLabel }}</span>
+      <span class="group-members-count">{{ memberCount }} miembros</span>
+    </div>
+  </div>
+
+  <div class="group-description-card">
+    <div class="section-label">
+      <i class="bi bi-shield-check"></i>
+      <span>Descripción del grupo</span>
+    </div>
+
+    <div class="group-description-wrap" *ngIf="!editingDescription; else editGroupDescTpl">
+      <p class="group-description" [title]="groupDescription">"{{ groupDescription }}"</p>
+      <button
+        type="button"
+        class="group-edit-description"
+        [disabled]="!isCurrentUserAdmin() || savingMeta"
+        [title]="isCurrentUserAdmin() ? 'Editar descripción del grupo' : adminOnlyHint"
+        aria-label="Editar descripción"
+        (click)="startEditDescription()">
+        <i class="bi bi-pencil"></i>
+      </button>
+    </div>
+
+    <ng-template #editGroupDescTpl>
+      <div class="group-edit-desc-block">
+        <textarea
+          class="group-edit-textarea"
+          rows="3"
+          maxlength="320"
+          [(ngModel)]="draftDescription"
+          [disabled]="savingMeta"
+          placeholder="Describe este grupo"></textarea>
+        <div class="group-edit-desc-actions">
+          <button type="button" class="group-save-btn" [disabled]="!canSaveMeta" (click)="saveGroupMeta()">Guardar</button>
+          <button type="button" class="group-cancel-btn" [disabled]="savingMeta" (click)="cancelEditDescription()">Cancelar</button>
+        </div>
+      </div>
+    </ng-template>
+
+    <div class="group-created-meta">
+      <div class="group-created-by" [title]="'Grupo creado por ' + createdByLabel">
+        <strong>Grupo creado por {{ createdByLabel }}</strong>
+      </div>
+      <div class="group-created-at" [title]="createdAtLabel">{{ createdAtLabel }}</div>
+    </div>
+  </div>
+
+  <div class="group-actions-card">
+    <button type="button" class="action-row" [class.is-open]="mediaOpen" (click)="toggleMedia()">
+      <span class="action-icon action-icon--blue"><i class="bi bi-images"></i></span>
+      <span class="action-body">
+        <span class="action-title">Archivos multimedia</span>
+        <span class="action-subtitle">{{ sharedMediaSubtitle }}</span>
+      </span>
+      <i class="bi" [ngClass]="mediaOpen ? 'bi-chevron-up' : 'bi-chevron-right'"></i>
+    </button>
+
+    <div *ngIf="mediaOpen" class="media-collapse">
+      <div *ngIf="mediaLoading" class="media-loading">Cargando audios...</div>
+      <div *ngIf="!mediaLoading && mediaError" class="media-error">{{ mediaError }}</div>
+
+      <div *ngIf="!mediaLoading && !mediaError && mediaItems.length === 0" class="media-empty">
+        No hay audios en este grupo.
+      </div>
+
+      <div *ngIf="!mediaLoading && !mediaError && mediaItems.length > 0" class="media-list">
+        <article
+          class="media-item"
+          [class.media-item--mine]="item.emisorId === currentUserId"
+          [class.media-item--other]="item.emisorId !== currentUserId"
+          *ngFor="let item of mediaItems; trackBy: trackMediaItem">
+          <header class="media-item-head">
+            <div class="media-item-sender">
+              {{ item.emisorId === currentUserId ? 'Tú' : (item.emisorNombreCompleto || ('Usuario #' + item.emisorId)) }}
+            </div>
+            <div class="media-item-meta">
+              <span *ngIf="mediaDateLabel(item)">{{ mediaDateLabel(item) }}</span>
+            </div>
+          </header>
+
+          <ng-container *ngIf="item.resolvedUrl; else mediaLockedTpl">
+            <div class="audio-bubble" [class.mine]="item.emisorId === currentUserId">
+              <button
+                class="audio-play"
+                [attr.aria-label]="(mediaAudioStates.get(item.messageId)?.playing ? 'Pausar' : 'Reproducir') + ' audio'"
+                (click)="toggleMediaAudioPlay(item, audioRef)">
+                <i class="fas" [ngClass]="mediaAudioStates.get(item.messageId)?.playing ? 'fa-pause' : 'fa-play'"></i>
+              </button>
+              <div class="audio-wave">
+                <div class="audio-track">
+                  <div class="audio-progress" [style.width.%]="mediaAudioProgressPercent(item)"></div>
+                </div>
+                <div class="audio-time">
+                  {{ mediaDurationLabel(mediaAudioStates.get(item.messageId)?.current || item.durMs) }}
+                </div>
+              </div>
+              <audio
+                #audioRef
+                [src]="item.resolvedUrl"
+                preload="none"
+                (loadedmetadata)="onMediaAudioLoadedMetadata(item, audioRef)"
+                (timeupdate)="onMediaAudioTimeUpdate(item, audioRef)"
+                (ended)="onMediaAudioEnded(item)">
+              </audio>
+            </div>
+          </ng-container>
+
+          <ng-template #mediaLockedTpl>
+            <div class="media-locked">
+              <p class="media-lock-label" *ngIf="item.decrypting">Descifrando audio...</p>
+              <p class="media-lock-label" *ngIf="!item.decrypting && item.encrypted">Esperando descifrado...</p>
+              <p *ngIf="item.decryptError" class="media-item-error">{{ item.decryptError }}</p>
+            </div>
+          </ng-template>
+        </article>
+
+        <button
+          *ngIf="mediaHasMore"
+          type="button"
+          class="media-load-more"
+          [disabled]="mediaLoadingMore"
+          (click)="loadMoreMedia()">
+          {{ mediaLoadingMore ? 'Cargando...' : 'Cargar más' }}
+        </button>
+      </div>
+    </div>
+
+    <button type="button" class="action-row">
+      <span class="action-icon action-icon--blue"><i class="bi bi-link-45deg"></i></span>
+      <span class="action-body">
+        <span class="action-title">Enlaces y documentos</span>
+        <span class="action-subtitle">{{ sharedFilesCount }} archivos</span>
+      </span>
+      <i class="bi bi-chevron-right"></i>
+    </button>
+
+    <button type="button" class="action-row" (click)="toggleMute()">
+      <span class="action-icon action-icon--green"><i class="bi bi-bell"></i></span>
+      <span class="action-body">
+        <span class="action-title">Silenciar alertas</span>
+        <span class="action-subtitle">{{ isMuted ? 'Activado' : 'Desactivado' }}</span>
+      </span>
+      <span class="action-switch" [class.is-on]="isMuted"></span>
+    </button>
+  </div>
+
+  <div class="group-members-card">
+    <div class="members-header-row">
+      <p class="members-header">Miembros del equipo</p>
+      <i class="bi bi-search members-search"></i>
+    </div>
+
+    <button
+      type="button"
+      class="invite-members-row"
+      [disabled]="!isCurrentUserAdmin() || inviteBusy"
+      [title]="isCurrentUserAdmin() ? 'Invitar a nuevos miembros' : adminOnlyHint"
+      (click)="openInvitePanel()">
+      <span class="invite-icon"><i class="bi bi-person-plus"></i></span>
+      <span class="invite-text">Invitar a nuevos miembros</span>
+    </button>
+    <p *ngIf="!isCurrentUserAdmin()" class="admin-only-note">
+      <i class="bi bi-shield-lock"></i>
+      Disponible solo para administradores del grupo
+    </p>
+
+    <div class="invite-admin-panel" *ngIf="inviteOpen && isCurrentUserAdmin()">
+      <input
+        type="text"
+        class="invite-search-input"
+        [(ngModel)]="inviteQuery"
+        [disabled]="inviteBusy"
+        placeholder="Buscar por nombre o email" />
+
+      <select
+        class="invite-select"
+        [(ngModel)]="selectedInviteUserId"
+        [disabled]="inviteBusy || inviteCandidates.length === 0">
+        <option [ngValue]="null">Selecciona usuario</option>
+        <option *ngFor="let u of inviteCandidates" [ngValue]="u.id">
+          {{ u.nombre }} {{ u.apellido }} ({{ u.email }})
+        </option>
+      </select>
+
+      <div class="invite-actions">
+        <button type="button" class="group-save-btn" [disabled]="!canSendInvite" (click)="sendInvite()">
+          {{ inviteBusy ? 'Enviando...' : 'Enviar invitación' }}
+        </button>
+        <button type="button" class="group-cancel-btn" [disabled]="inviteBusy" (click)="openInvitePanel()">Cerrar</button>
+      </div>
+    </div>
+
+    <div class="group-members-list">
+      <div class="group-member-row" *ngFor="let m of members">
+        <div class="member-avatar-wrap">
+          <img [src]="memberPhoto(m)" alt="Avatar" class="member-avatar" />
+          <span class="member-online-dot" [ngClass]="memberEstadoDotClass(m)"></span>
+        </div>
+        <div class="member-main">
+          <div class="member-top-row">
+            <div class="member-name">{{ getMemberDisplayName(m) }}</div>
+            <span *ngIf="isGroupAdmin(m)" class="member-admin-pill">Admin. del grupo</span>
+          </div>
+          <div class="member-role" [ngClass]="memberStatusClass(m)">{{ memberStatus(m) }}</div>
+        </div>
+        <button
+          *ngIf="isCurrentUserAdmin() && !isCurrentUser(m)"
+          type="button"
+          class="member-admin-action"
+          [disabled]="adminBusyUserId === m.id"
+          (click)="toggleAdmin(m)">
+          {{ isGroupAdmin(m) ? 'Quitar admin' : 'Hacer admin' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="group-footer-actions">
+    <button type="button" class="danger-row" (click)="onLeaveGroup()">
+      <i class="bi bi-box-arrow-right"></i>
+      <span>Abandonar grupo</span>
+    </button>
+    <button type="button" class="neutral-row">
+      <i class="bi bi-flag"></i>
+      <span>Informar de un problema</span>
+    </button>
+  </div>
+</div>
+

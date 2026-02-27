@@ -1,0 +1,64 @@
+<div class="message-search-panel">
+  <div class="search-head">
+    <div class="search-head-left">
+      <button type="button" class="search-close" (click)="onClose()" aria-label="Cerrar buscador">
+        <i class="bi bi-x-lg"></i>
+      </button>
+      <div class="search-title">Buscar mensajes</div>
+    </div>
+  </div>
+
+  <div class="search-meta">
+    <div class="search-chat-name">{{ chat?.nombre || chat?.nombreGrupo || 'Chat actual' }}</div>
+    <div class="search-help">Busca en la base de datos del chat.</div>
+  </div>
+
+  <div class="search-input-row">
+    <i class="bi bi-search search-input-icon"></i>
+    <input
+      type="search"
+      class="search-input"
+      [ngModel]="query"
+      (ngModelChange)="onQueryModelChange($event)"
+      placeholder="Escribe para buscar" />
+    <button
+      *ngIf="query"
+      type="button"
+      class="search-clear"
+      (click)="clearQuery()"
+      aria-label="Limpiar busqueda">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+
+  <ng-container *ngIf="showResultsCount">
+    <div class="search-results-count">
+      {{ resultCountLabel }}
+    </div>
+  </ng-container>
+
+  <div class="search-results" *ngIf="results.length > 0">
+    <button
+      type="button"
+      class="search-item"
+      *ngFor="let item of results; trackBy: trackByResultId"
+      (click)="onResultClick(item)">
+      <div class="search-item-meta">
+        <span class="search-item-author">{{ authorLabel(item) }}</span>
+        <span class="search-item-date">{{ formatDate(item.fechaEnvio) }}</span>
+      </div>
+      <div class="search-item-content" [title]="getSnippet(item)">{{ getSnippet(item) }}</div>
+    </button>
+  </div>
+
+  <button
+    *ngIf="canLoadMore"
+    type="button"
+    class="search-load-more"
+    [disabled]="loadMoreDisabled"
+    (click)="loadMore()">
+    {{ loadMoreLabel }}
+  </button>
+
+  <div *ngIf="showEmptyState" [class]="emptyStateClass">{{ emptyStateText }}</div>
+</div>

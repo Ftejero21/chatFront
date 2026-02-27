@@ -1,0 +1,14 @@
+<div
+  class="emoji-picker-card"
+  role="dialog"
+  aria-label="Selector de emoticonos"
+  (click)="$event.stopPropagation()"
+>
+  <emoji-picker
+    #nativePicker
+    class="native-emoji-picker light"
+    locale="es"
+    [attr.data-source]="emojiDataSourceEs"
+    (emoji-click)="onPickerEmojiClick($event)"
+  ></emoji-picker>
+</div>

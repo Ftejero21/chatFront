@@ -132,6 +132,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  position: relative;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -147,9 +148,47 @@
   border: none;
   outline: none;
   background: transparent;
-  width: 100%;
+  width: auto;
+  flex: 1;
+  min-width: 0;
+  padding-right: 36px;
   font-size: 15px;
   color: #0f172a;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: #64748b;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  margin-left: 0;
+  flex-shrink: 0;
+  z-index: 2;
+  transition: color 0.2s ease;
+}
+
+.password-toggle i {
+  font-size: 16px;
+  line-height: 1;
+  transition: color 0.2s ease;
+}
+
+.password-toggle:hover {
+  color: #1d4ed8;
+}
+
+.password-toggle.is-visible {
+  color: #2563eb;
 }
 .input-group:focus-within {
   border-color: #93c5fd;

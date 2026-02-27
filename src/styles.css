@@ -49,6 +49,11 @@
   box-shadow: 0 8px 20px rgba(239, 68, 68, 0.25);
 }
 
+.swal-ban-header-icon i {
+  font-size: 1rem;
+  line-height: 1;
+}
+
 .swal-ban-header-text h2 {
   margin: 0;
   font-size: 1.25rem;
@@ -66,6 +71,7 @@
 /* Texto debajo del header */
 .swal-ban-body {
   margin-bottom: 8px;
+  text-align: center;
 }
 
 .swal-ban-label {
