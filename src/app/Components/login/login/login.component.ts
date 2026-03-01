@@ -1,4 +1,4 @@
-﻿import { Component, ElementRef, OnInit, ViewChild } from '@angular/core';
+﻿import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { AuthService } from '../../../Service/auth/auth.service';
 import Swal from 'sweetalert2';
 
@@ -8,6 +8,10 @@ import { UsuarioDTO } from '../../../Interface/UsuarioDTO';
 import { LoginRequestDTO } from '../../../Interface/LoginRequestDTO ';
 import { SessionService } from '../../../Service/session/session.service';
 import { firstValueFrom } from 'rxjs';
+import {
+  RATE_LIMIT_SCOPES,
+  RateLimitService,
+} from '../../../Service/rate-limit/rate-limit.service';
 
 
 type ToastVariant = 'danger' | 'success' | 'warning' | 'info';
@@ -24,13 +28,19 @@ interface ToastItem {
   templateUrl: './login.component.html',
   styleUrl: './login.component.css',
 })
-export class LoginComponent implements OnInit {
+export class LoginComponent implements OnInit, OnDestroy {
   toasts: ToastItem[] = [];
   login: LoginRequestDTO = { email: '', password: '' };
   rememberMe: boolean = false;
   showResetPasswordModal: boolean = false;
+  showBanAppealButton: boolean = false;
+  lastBannedEmail: string = '';
   showLoginPassword: boolean = false;
   showRegisterPassword: boolean = false;
+  loginRateLimitSeconds = 0;
+  unbanAppealRateLimitSeconds = 0;
+  private loginRateLimitTimer: any = null;
+  private unbanAppealRateLimitTimer: any = null;
 
   // --- Registro (DTO limpio, sin File) ---
   registro: UsuarioDTO = {
@@ -52,7 +62,8 @@ export class LoginComponent implements OnInit {
     private authService: AuthService,
     private cryptoService: CryptoService,
     private router: Router,
-    private sessionService: SessionService
+    private sessionService: SessionService,
+    private rateLimitService: RateLimitService
   ) {}
 
   ngOnInit(): void {
@@ -73,6 +84,7 @@ export class LoginComponent implements OnInit {
     // Soporte dev: inyectar claves de auditoria desde window/global env al cargar login.
     this.persistAuditPublicKeyIfPresent(window as any, (window as any)?.__env);
     this.persistAuditPrivateKeyIfPresent(window as any, (window as any)?.__env);
+    this.syncRateLimitCooldownsFromService();
   }
 
   // Cambio de tab con reseteo del uploader al pasar a login
@@ -82,8 +94,19 @@ export class LoginComponent implements OnInit {
   }
 
   iniciarSesion(): void {
+    if (this.loginRateLimitSeconds > 0) {
+      this.showToast(
+        `Has alcanzado el límite de intentos. Reintenta en ${this.loginRateLimitSeconds}s.`,
+        'warning',
+        'Rate limit'
+      );
+      return;
+    }
+
     this.authService.login(this.login).subscribe({
       next: async (response) => {
+        this.showBanAppealButton = false;
+        this.lastBannedEmail = '';
         const usuario = response.usuario;
         localStorage.setItem('token', response.token);
         localStorage.setItem('usuarioId', String(usuario.id));
@@ -120,12 +143,29 @@ export class LoginComponent implements OnInit {
         }
       },
       error: (err) => {
+        if (this.rateLimitService.isRateLimitHttpError(err)) {
+          const fromScope = this.rateLimitService.getScopeRemainingSeconds(
+            RATE_LIMIT_SCOPES.LOGIN
+          );
+          const fromHeader = this.rateLimitService.parseRetryAfterSecondsFromHttpError(
+            err
+          );
+          const seconds = fromScope || fromHeader || 30;
+          this.rateLimitService.setScopeCooldown(RATE_LIMIT_SCOPES.LOGIN, seconds);
+          this.startLoginRateLimit(seconds > 0 ? seconds : 30);
+          return;
+        }
+
         const code = err?.error?.code as string | undefined;
         if (code === 'EMAIL_INVALIDO') {
+          this.showBanAppealButton = false;
           this.showToast('Email incorrecto', 'danger', 'Error');
         } else if (code === 'PASSWORD_INCORRECTA') {
+          this.showBanAppealButton = false;
           this.showToast('Contraseña incorrecta', 'danger', 'Error');
         } else if (code === 'USUARIO_INACTIVO') {
+          this.showBanAppealButton = true;
+          this.lastBannedEmail = String(this.login?.email || '').trim();
           Swal.fire({
             title: 'Cuenta Inhabilitada',
             text: err?.error?.mensaje || 'Un administrador ha inhabilitado tu cuenta. No puedes acceder.',
@@ -133,10 +173,119 @@ export class LoginComponent implements OnInit {
             confirmButtonColor: '#ef4444'
           });
         } else {
+          this.showBanAppealButton = false;
           this.showToast('No se pudo iniciar sesión', 'warning', 'Aviso');
         }
       },
     });
+  }
+
+  async abrirReporteDesbaneo(): Promise<void> {
+    if (this.unbanAppealRateLimitSeconds > 0) {
+      this.showToast(
+        `Debes esperar ${this.unbanAppealRateLimitSeconds}s para enviar otro reporte.`,
+        'warning',
+        'Rate limit'
+      );
+      return;
+    }
+
+    const email = String(this.lastBannedEmail || this.login?.email || '').trim();
+    if (!email) {
+      this.showToast('Ingresa tu email para poder reportar el caso.', 'warning', 'Aviso');
+      return;
+    }
+
+    const { value: motivo } = await Swal.fire({
+      title: '',
+      html: `
+        <div class="swal-ban-header">
+          <div class="swal-ban-header-icon"><i class="bi bi-exclamation-circle-fill"></i></div>
+          <div class="swal-ban-header-text">
+            <h2>Solicitar desbaneo</h2>
+            <p>Enviaremos tu reporte para revisar tu caso y restablecer acceso si aplica.</p>
+          </div>
+        </div>
+
+        <div class="swal-ban-body">
+          <label class="swal-ban-label">Cuéntanos qué pasó</label>
+          <p class="swal-ban-helper">Incluye contexto breve para que administración pueda evaluarlo.</p>
+        </div>
+      `,
+      input: 'textarea',
+      inputPlaceholder:
+        'Ej: Creo que mi cuenta fue baneada por error. Solicito revisión del caso.',
+      showCancelButton: true,
+      confirmButtonText: 'Enviar reporte',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
+      customClass: {
+        popup: 'swal-ban-popup',
+        htmlContainer: 'swal-ban-html',
+        input: 'swal-ban-textarea',
+        confirmButton: 'swal-ban-confirm',
+        cancelButton: 'swal-ban-cancel',
+        actions: 'swal-ban-actions',
+      },
+    });
+
+    if (motivo === undefined) return;
+
+    this.authService
+      .solicitarDesbaneo({
+        email,
+        motivo: String(motivo || '').trim(),
+      })
+      .subscribe({
+        next: (res) => {
+          Swal.fire({
+            icon: 'success',
+            title: 'Reporte enviado',
+            text:
+              res?.mensaje ||
+              'Tu solicitud de revisión fue enviada correctamente.',
+            confirmButtonColor: '#2563eb',
+          });
+        },
+        error: (err) => {
+          if (this.rateLimitService.isRateLimitHttpError(err)) {
+            const fromScope = this.rateLimitService.getScopeRemainingSeconds(
+              RATE_LIMIT_SCOPES.UNBAN_APPEAL
+            );
+            const fromHeader = this.rateLimitService.parseRetryAfterSecondsFromHttpError(
+              err
+            );
+            const seconds = fromScope || fromHeader || 30;
+            this.rateLimitService.setScopeCooldown(
+              RATE_LIMIT_SCOPES.UNBAN_APPEAL,
+              seconds
+            );
+            this.startUnbanAppealRateLimit(seconds > 0 ? seconds : 30);
+            return;
+          }
+
+          const status = Number(err?.status || 0);
+          if (status === 404 || status === 405) {
+            Swal.fire({
+              icon: 'info',
+              title: 'API pendiente',
+              text:
+                'La API para reportes de desbaneo aún no está disponible en backend.',
+              confirmButtonColor: '#2563eb',
+            });
+            return;
+          }
+          Swal.fire({
+            icon: 'error',
+            title: 'No se pudo enviar',
+            text:
+              err?.error?.mensaje ||
+              'No fue posible enviar el reporte de desbaneo. Intenta de nuevo.',
+            confirmButtonColor: '#ef4444',
+          });
+        },
+      });
   }
 
   registrarse(): void {
@@ -172,7 +321,7 @@ export class LoginComponent implements OnInit {
           this.router.navigate(['/inicio']);
         }
       },
-      error: (err) => console.error('❌ Error al registrar:', err),
+      error: (err) => console.error('? Error al registrar:', err),
     });
   }
 
@@ -494,7 +643,63 @@ export class LoginComponent implements OnInit {
   toggleRegisterPasswordVisibility(): void {
     this.showRegisterPassword = !this.showRegisterPassword;
   }
+
+  ngOnDestroy(): void {
+    if (this.loginRateLimitTimer) clearInterval(this.loginRateLimitTimer);
+    if (this.unbanAppealRateLimitTimer) clearInterval(this.unbanAppealRateLimitTimer);
+    for (const t of this.toasts) {
+      if (t?.timeout) clearTimeout(t.timeout);
+    }
+  }
+
+  private syncRateLimitCooldownsFromService(): void {
+    const loginRemaining = this.rateLimitService.getScopeRemainingSeconds(
+      RATE_LIMIT_SCOPES.LOGIN
+    );
+    if (loginRemaining > 0) this.startLoginRateLimit(loginRemaining);
+
+    const appealRemaining = this.rateLimitService.getScopeRemainingSeconds(
+      RATE_LIMIT_SCOPES.UNBAN_APPEAL
+    );
+    if (appealRemaining > 0) this.startUnbanAppealRateLimit(appealRemaining);
+  }
+
+  private startLoginRateLimit(seconds: number): void {
+    const normalized = Math.max(0, Math.floor(Number(seconds || 0)));
+    if (this.loginRateLimitTimer) clearInterval(this.loginRateLimitTimer);
+    this.loginRateLimitSeconds = normalized;
+    if (normalized <= 0) return;
+    this.loginRateLimitTimer = setInterval(() => {
+      this.loginRateLimitSeconds = Math.max(0, this.loginRateLimitSeconds - 1);
+      if (this.loginRateLimitSeconds <= 0 && this.loginRateLimitTimer) {
+        clearInterval(this.loginRateLimitTimer);
+        this.loginRateLimitTimer = null;
+      }
+    }, 1000);
+  }
+
+  private startUnbanAppealRateLimit(seconds: number): void {
+    const normalized = Math.max(0, Math.floor(Number(seconds || 0)));
+    if (this.unbanAppealRateLimitTimer) clearInterval(this.unbanAppealRateLimitTimer);
+    this.unbanAppealRateLimitSeconds = normalized;
+    if (normalized <= 0) return;
+    this.unbanAppealRateLimitTimer = setInterval(() => {
+      this.unbanAppealRateLimitSeconds = Math.max(
+        0,
+        this.unbanAppealRateLimitSeconds - 1
+      );
+      if (
+        this.unbanAppealRateLimitSeconds <= 0 &&
+        this.unbanAppealRateLimitTimer
+      ) {
+        clearInterval(this.unbanAppealRateLimitTimer);
+        this.unbanAppealRateLimitTimer = null;
+      }
+    }, 1000);
+  }
 }
+
+
 
 
 

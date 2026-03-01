@@ -3,6 +3,8 @@
 import { environment } from '../environments';
 import { GroupInviteResponseWS } from '../Interface/GroupInviteResponseWS';
 import { GroupInviteWS } from '../Interface/GroupInviteWS';
+import { ChatListItemDTO } from '../Interface/ChatListItemDTO';
+import { MensajeDTO } from '../Interface/MensajeDTO';
 import { UnseenCountWS } from '../Interface/UnseenCountWS';
 import { CryptoService } from '../Service/crypto/crypto.service';
 
@@ -731,6 +733,296 @@ export function computePreviewPatch(
   const lastId = mensaje?.id ?? chatItem?.lastPreviewId ?? null;
 
   return { preview, fecha, lastId };
+}
+
+function normalizeLastMessageTipo(raw: unknown): string {
+  return String(raw || '').trim().toUpperCase();
+}
+
+function toLastMessageTipoDTO(raw: unknown): ChatListItemDTO['ultimaMensajeTipo'] {
+  const tipo = normalizeLastMessageTipo(raw);
+  if (
+    tipo === 'TEXT' ||
+    tipo === 'AUDIO' ||
+    tipo === 'IMAGE' ||
+    tipo === 'VIDEO' ||
+    tipo === 'FILE' ||
+    tipo === 'SYSTEM'
+  ) {
+    return tipo;
+  }
+  return null;
+}
+
+export function parseChatListRecencyId(
+  item: ChatListItemDTO | null | undefined
+): number {
+  const id = Number(item?.ultimaMensajeId);
+  return Number.isFinite(id) && id > 0 ? id : 0;
+}
+
+export function parseChatListRecencyDate(
+  item: ChatListItemDTO | null | undefined
+): number {
+  const ts = Date.parse(String(item?.ultimaFecha || ''));
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+export function isIncomingChatItemNewer(
+  incoming: ChatListItemDTO,
+  existing: ChatListItemDTO
+): boolean {
+  const incomingMsgId = parseChatListRecencyId(incoming);
+  const existingMsgId = parseChatListRecencyId(existing);
+  if (incomingMsgId !== existingMsgId) return incomingMsgId > existingMsgId;
+
+  const incomingTs = parseChatListRecencyDate(incoming);
+  const existingTs = parseChatListRecencyDate(existing);
+  if (incomingTs !== existingTs) return incomingTs > existingTs;
+
+  return false;
+}
+
+export function firstNonEmptyString(...values: unknown[]): string | null {
+  for (const value of values) {
+    const t = String(value ?? '').trim();
+    if (t) return t;
+  }
+  return null;
+}
+
+export function mergeChatListItemForDisplay(
+  preferred: ChatListItemDTO,
+  fallback: ChatListItemDTO
+): ChatListItemDTO {
+  return {
+    ...fallback,
+    ...preferred,
+    receptor: preferred.receptor ?? fallback.receptor,
+    usuarios:
+      Array.isArray(preferred.usuarios) && preferred.usuarios.length > 0
+        ? preferred.usuarios
+        : fallback.usuarios,
+    miembros:
+      Array.isArray(preferred.miembros) && preferred.miembros.length > 0
+        ? preferred.miembros
+        : fallback.miembros,
+    ultimaMensaje: firstNonEmptyString(
+      preferred.ultimaMensaje,
+      fallback.ultimaMensaje
+    ),
+    ultimaMensajeRaw: firstNonEmptyString(
+      preferred.ultimaMensajeRaw,
+      fallback.ultimaMensajeRaw
+    ),
+    ultimaMensajeImageUrl: firstNonEmptyString(
+      preferred.ultimaMensajeImageUrl,
+      fallback.ultimaMensajeImageUrl
+    ),
+    ultimaMensajeImageMime: firstNonEmptyString(
+      preferred.ultimaMensajeImageMime,
+      fallback.ultimaMensajeImageMime
+    ),
+    ultimaMensajeImageNombre: firstNonEmptyString(
+      preferred.ultimaMensajeImageNombre,
+      fallback.ultimaMensajeImageNombre
+    ),
+    ultimaMensajeAudioUrl: firstNonEmptyString(
+      preferred.ultimaMensajeAudioUrl,
+      fallback.ultimaMensajeAudioUrl
+    ),
+    ultimaMensajeAudioMime: firstNonEmptyString(
+      preferred.ultimaMensajeAudioMime,
+      fallback.ultimaMensajeAudioMime
+    ),
+    ultimaMensajeAudioDuracionMs:
+      Number.isFinite(Number(preferred.ultimaMensajeAudioDuracionMs)) &&
+      Number(preferred.ultimaMensajeAudioDuracionMs) > 0
+        ? Number(preferred.ultimaMensajeAudioDuracionMs)
+        : Number.isFinite(Number(fallback.ultimaMensajeAudioDuracionMs)) &&
+          Number(fallback.ultimaMensajeAudioDuracionMs) > 0
+        ? Number(fallback.ultimaMensajeAudioDuracionMs)
+        : null,
+    ultimaMensajeTipo:
+      toLastMessageTipoDTO(preferred.ultimaMensajeTipo) ||
+      toLastMessageTipoDTO(fallback.ultimaMensajeTipo) ||
+      null,
+    ultimaMensajeEmisorId:
+      Number.isFinite(Number(preferred.ultimaMensajeEmisorId)) &&
+      Number(preferred.ultimaMensajeEmisorId) > 0
+        ? Number(preferred.ultimaMensajeEmisorId)
+        : Number.isFinite(Number(fallback.ultimaMensajeEmisorId)) &&
+          Number(fallback.ultimaMensajeEmisorId) > 0
+        ? Number(fallback.ultimaMensajeEmisorId)
+        : null,
+    ultimaMensajeId:
+      parseChatListRecencyId(preferred) ||
+      parseChatListRecencyId(fallback) ||
+      null,
+    ultimaFecha: firstNonEmptyString(preferred.ultimaFecha, fallback.ultimaFecha),
+  };
+}
+
+export function dedupeChatListItemsById(items: ChatListItemDTO[]): ChatListItemDTO[] {
+  const map = new Map<number, ChatListItemDTO>();
+  for (const item of items || []) {
+    const id = Number(item?.id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+
+    const existing = map.get(id);
+    if (!existing) {
+      map.set(id, item);
+      continue;
+    }
+
+    const incomingNewer = isIncomingChatItemNewer(item, existing);
+    const preferred = incomingNewer ? item : existing;
+    const fallback = incomingNewer ? existing : item;
+    map.set(id, mergeChatListItemForDisplay(preferred, fallback));
+  }
+  return Array.from(map.values());
+}
+
+export interface ConversationHistoryState<TMessage = MensajeDTO> {
+  messages: TMessage[];
+  page: number;
+  hasMore: boolean;
+  loadingMore: boolean;
+  initialized: boolean;
+}
+
+export function buildConversationHistoryKey(chatId: number, esGrupo: boolean): string {
+  return `${esGrupo ? 'G' : 'I'}:${Number(chatId)}`;
+}
+
+export function createInitialHistoryState<TMessage = MensajeDTO>(): ConversationHistoryState<TMessage> {
+  return {
+    messages: [],
+    page: 0,
+    hasMore: true,
+    loadingMore: false,
+    initialized: false,
+  };
+}
+
+export function mergeMessagesById<T extends { id?: number | null }>(
+  existing: T[],
+  incoming: T[],
+  mode: 'replace' | 'append' | 'prepend'
+): T[] {
+  const base =
+    mode === 'replace'
+      ? [...incoming]
+      : mode === 'prepend'
+      ? [...incoming, ...existing]
+      : [...existing, ...incoming];
+
+  const merged: T[] = [];
+  const indexById = new Map<number, number>();
+
+  for (const message of base) {
+    const id = Number(message?.id);
+    if (Number.isFinite(id) && id > 0) {
+      const idx = indexById.get(id);
+      if (idx != null) {
+        merged[idx] = { ...merged[idx], ...message };
+        continue;
+      }
+      indexById.set(id, merged.length);
+    }
+    merged.push(message);
+  }
+
+  return merged;
+}
+
+export function getMensajeFechaSafe(m: MensajeDTO): Date | null {
+  const raw = (m as any)?.fechaEnvio || (m as any)?.fecha || (m as any)?.createdAt;
+  if (!raw) return null;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function getDayKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function isSameDay(a: Date, b: Date): boolean {
+  return getDayKey(a) === getDayKey(b);
+}
+
+export function shouldShowDateSeparatorForMessages(
+  messages: MensajeDTO[],
+  index: number
+): boolean {
+  const current = getMensajeFechaSafe(messages[index]);
+  if (!current) return false;
+
+  if (index === 0) return true;
+  const previous = getMensajeFechaSafe(messages[index - 1]);
+  if (!previous) return true;
+
+  return !isSameDay(current, previous);
+}
+
+export function getDateSeparatorLabelForMessage(
+  message: MensajeDTO,
+  now = new Date()
+): string {
+  const current = getMensajeFechaSafe(message);
+  if (!current) return '';
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (isSameDay(current, now)) return 'Hoy';
+  if (isSameDay(current, yesterday)) return 'Ayer';
+  if (current.getFullYear() === now.getFullYear()) {
+    return new Intl.DateTimeFormat('es-ES', {
+      day: 'numeric',
+      month: 'short',
+    }).format(current);
+  }
+
+  return new Intl.DateTimeFormat('es-ES', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(current);
+}
+
+export function formatMensajeHoraFromMessage(message: MensajeDTO): string {
+  const d = getMensajeFechaSafe(message);
+  if (!d || Number.isNaN(d.getTime())) return '';
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+export function normalizeSearchText(s: string): string {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+export function compareFechaDesc(a: any, b: any): number {
+  const ta = a ? new Date(a).getTime() : 0;
+  const tb = b ? new Date(b).getTime() : 0;
+  return tb - ta;
+}
+
+export function formatAttachmentSize(bytes: number): string {
+  const size = Number(bytes || 0);
+  if (size <= 0) return '0 B';
+  if (size < 1024) return `${size} B`;
+  const kb = size / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(1)} MB`;
 }
 
 export function parseAudioPreviewText(txt?: string): {

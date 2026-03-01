@@ -51,7 +51,12 @@
           contraseña?</a>
       </div>
 
-      <button type="submit" class="btn-primary">Entrar</button>
+      <button type="submit" class="btn-primary" [disabled]="loginRateLimitSeconds > 0">
+        <ng-container *ngIf="loginRateLimitSeconds > 0; else loginReady">
+          Reintentar en {{ loginRateLimitSeconds }}s
+        </ng-container>
+        <ng-template #loginReady>Entrar</ng-template>
+      </button>
 
       <div class="divider"><span>o</span></div>
 
@@ -62,6 +67,19 @@
       <p class="switch">
         ¿No tienes cuenta? <a class="link" (click)="switchTo(false)">Regístrate</a>
       </p>
+
+      <button
+        *ngIf="showBanAppealButton"
+        type="button"
+        class="btn-ban-appeal"
+        (click)="abrirReporteDesbaneo()"
+        [disabled]="unbanAppealRateLimitSeconds > 0"
+      >
+        <ng-container *ngIf="unbanAppealRateLimitSeconds > 0; else appealReady">
+          Reintentar reporte en {{ unbanAppealRateLimitSeconds }}s
+        </ng-container>
+        <ng-template #appealReady>Reportar baneo y solicitar desbaneo</ng-template>
+      </button>
     </form>
 
     <!-- Toasts -->

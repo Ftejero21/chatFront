@@ -39,12 +39,15 @@
                 <span>Dashboard</span>
             </a>
             <a href="javascript:void(0)"
-                class="sidebar-item flex items-center space-x-3 px-4 py-3 text-sm font-semibold">
+                (click)="showReportes()"
+                class="sidebar-item flex items-center space-x-3 px-4 py-3 text-sm font-semibold"
+                [class.active]="isReportsView">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 01-6-6H9a6 6 0 01-6 6v1z" />
+                        d="M3 5h18M7 5v14l5-3 5 3V5" />
                 </svg>
-                <span>Usuarios</span>
+                <span class="sidebar-item-label">Reportes</span>
+                <span *ngIf="reportesBadgeCount > 0" class="sidebar-badge">{{ reportesBadgeText }}</span>
             </a>
             <a href="javascript:void(0)"
                 class="sidebar-item flex items-center space-x-3 px-4 py-3 text-sm font-semibold">
@@ -105,34 +108,35 @@
                 <div class="flex items-end justify-between">
                     <h3 class="text-3xl font-extrabold text-slate-800">{{ stats.totalUsuarios }}</h3>
                     <span
-                        [ngClass]="stats.porcentajeUsuarios >= 0 ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'"
+                        [ngClass]="porcentajeUsuariosCard >= 0 ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'"
                         class="text-[10px] font-bold px-2 py-1 rounded-lg">
-                        {{ stats.porcentajeUsuarios >= 0 ? '+' : '' }}{{ stats.porcentajeUsuarios | number:'1.0-1' }}%
-                        {{ stats.porcentajeUsuarios >= 0 ? '&#8593;' : '&#8595;' }}
+                        {{ porcentajeUsuariosCard >= 0 ? '+' : '' }}{{ porcentajeUsuariosCard | number:'1.0-1' }}%
+                        {{ porcentajeUsuariosCard >= 0 ? '&#8593;' : '&#8595;' }}
                     </span>
                 </div>
             </div>
             <div class="glass-card p-6 border-l-4 border-l-blue-500">
-                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-3">Chats Creados</p>
+                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-3">Chats Creados Hoy</p>
                 <div class="flex items-end justify-between">
-                    <h3 class="text-3xl font-extrabold text-slate-800">{{ stats.chatsActivos }}</h3>
+                    <h3 class="text-3xl font-extrabold text-slate-800">{{ chatsCreadosHoyCard }}</h3>
                     <span
-                        [ngClass]="stats.porcentajeChats >= 0 ? 'text-blue-500 bg-blue-50' : 'text-rose-500 bg-rose-50'"
+                        [ngClass]="porcentajeChatsCard >= 0 ? 'text-blue-500 bg-blue-50' : 'text-rose-500 bg-rose-50'"
                         class="text-[10px] font-bold px-2 py-1 rounded-lg">
-                        {{ stats.porcentajeChats >= 0 ? '+' : '' }}{{ stats.porcentajeChats | number:'1.0-1' }}%
-                        {{ stats.porcentajeChats >= 0 ? '&#8593;' : '&#8595;' }}
+                        {{ porcentajeChatsCard >= 0 ? '+' : '' }}{{ porcentajeChatsCard | number:'1.0-1' }}%
+                        {{ porcentajeChatsCard >= 0 ? '&#8593;' : '&#8595;' }}
                     </span>
                 </div>
             </div>
             <div class="glass-card p-6 border-l-4 border-l-rose-500">
-                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-3">Reportes</p>
+                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-3">Reportes Diarios</p>
                 <div class="flex items-end justify-between">
-                    <h3 class="text-3xl font-extrabold text-slate-800">{{ stats.reportes }}</h3>
+                    <h3 class="text-3xl font-extrabold text-slate-800">{{ reportesHoyCount }}</h3>
                     <span
-                        [ngClass]="stats.porcentajeReportes >= 0 ? 'text-rose-500 bg-rose-50' : 'text-emerald-500 bg-emerald-50'"
-                        class="text-[10px] font-bold px-2 py-1 rounded-lg">
-                        {{ stats.porcentajeReportes >= 0 ? '+' : '' }}{{ stats.porcentajeReportes | number:'1.0-1' }}%
-                        {{ stats.porcentajeReportes >= 0 ? '&#8593;' : '&#8595;' }}
+                        [ngClass]="porcentajeReportesCard >= 0 ? 'text-rose-500 bg-rose-50' : 'text-emerald-500 bg-emerald-50'"
+                        class="text-[10px] font-bold px-2 py-1 rounded-lg"
+                    >
+                        {{ porcentajeReportesCard >= 0 ? '+' : '' }}{{ porcentajeReportesCard | number:'1.0-1' }}%
+                        {{ porcentajeReportesCard >= 0 ? '&#8593;' : '&#8595;' }}
                     </span>
                 </div>
             </div>
@@ -141,10 +145,10 @@
                 <div class="flex items-end justify-between">
                     <h3 class="text-3xl font-extrabold text-slate-800">{{ stats.mensajesHoy }}</h3>
                     <span
-                        [ngClass]="stats.porcentajeMensajes >= 0 ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'"
+                        [ngClass]="porcentajeMensajesCard >= 0 ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'"
                         class="text-[10px] font-bold px-2 py-1 rounded-lg">
-                        {{ stats.porcentajeMensajes >= 0 ? '+' : '' }}{{ stats.porcentajeMensajes | number:'1.0-1' }}%
-                        {{ stats.porcentajeMensajes >= 0 ? '&#8593;' : '&#8595;' }}
+                        {{ porcentajeMensajesCard >= 0 ? '+' : '' }}{{ porcentajeMensajesCard | number:'1.0-1' }}%
+                        {{ porcentajeMensajesCard >= 0 ? '&#8593;' : '&#8595;' }}
                     </span>
                 </div>
             </div>
@@ -220,13 +224,11 @@
                                 <button (click)="showConversations(user)"
                                     class="text-emerald-600 hover:text-emerald-700 font-bold text-xs underline decoration-2 underline-offset-4">Conversaciones</button>
                                 <button
-                                    (click)="user.activo ? banUsuario(user) : unbanUsuario(user)"
-                                    [ngClass]="user.activo
-                                      ? 'text-rose-400 hover:text-rose-600'
-                                      : 'text-blue-400 hover:text-blue-600'"
-                                    class="italic text-xs transition-opacity"
+                                    *ngIf="user.activo"
+                                    (click)="banUsuario(user)"
+                                    class="text-rose-400 hover:text-rose-600 italic text-xs transition-opacity"
                                   >
-                                    {{ user.activo ? 'Banear' : 'Desbanear' }}
+                                    Banear
                                 </button>
                             </td>
                         </tr>
@@ -261,7 +263,118 @@
             </div>
         </section>
 
-        <section id="conversations-view" class="space-y-6 w-full" [class.hidden-view]="isDashboardView">
+        <section id="reports-view" class="space-y-6 w-full" [class.hidden-view]="!isReportsView">
+            <div class="flex items-center gap-4">
+                <button (click)="showDashboard()"
+                    class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                </button>
+
+                <div>
+                    <h3 class="text-2xl font-bold text-slate-800">
+                        Reportes de <span class="logo-accent">Desbaneo</span>
+                    </h3>
+                    <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
+                </div>
+            </div>
+
+            <div class="glass-card overflow-hidden w-full p-4 md:p-5">
+                <div class="reports-meta-line">
+                    <span class="reports-meta-title">Total en vista: {{ appealTotalElements }}</span>
+                    <span class="reports-meta-hint">Actualización en tiempo real</span>
+                </div>
+
+                <div class="reports-filter-tabs" role="tablist" aria-label="Filtrar reportes">
+                    <button
+                        type="button"
+                        class="reports-filter-btn"
+                        [class.is-active]="isAppealFilterActive('ABIERTOS')"
+                        (click)="setAppealViewFilter('ABIERTOS')"
+                    >
+                        Pendientes + En revisión
+                    </button>
+                    <button
+                        type="button"
+                        class="reports-filter-btn"
+                        [class.is-active]="isAppealFilterActive('APROBADA')"
+                        (click)="setAppealViewFilter('APROBADA')"
+                    >
+                        Aprobados
+                    </button>
+                    <button
+                        type="button"
+                        class="reports-filter-btn"
+                        [class.is-active]="isAppealFilterActive('RECHAZADA')"
+                        (click)="setAppealViewFilter('RECHAZADA')"
+                    >
+                        Rechazados
+                    </button>
+                </div>
+
+                <div *ngIf="loadingAppeals" class="text-sm text-slate-500 py-6">Cargando reportes...</div>
+
+                <div *ngIf="!loadingAppeals && appealItems.length === 0" class="text-sm text-slate-500 py-6">
+                    {{ appealEmptyText }}
+                </div>
+
+                <div *ngIf="!loadingAppeals && appealItems.length > 0" class="reports-list">
+                    <article
+                        class="report-card"
+                        [class.report-card--processing]="processingAppealId === item.id"
+                        *ngFor="let item of appealItems; trackBy: trackAppeal"
+                        (click)="onAppealCardClick(item)"
+                    >
+                        <div class="report-card-head">
+                            <div class="report-card-user">
+                                <span class="report-card-name">{{ getAppealReporterLabel(item) }}</span>
+                                <span class="report-card-email">{{ item.email }}</span>
+                            </div>
+                            <span [class]="getAppealEstadoClass(item)">{{ item.estado }}</span>
+                        </div>
+                        <p class="report-card-motivo">
+                            {{ item.motivo || 'Sin motivo especificado por el usuario.' }}
+                        </p>
+                        <p class="report-card-date" *ngIf="item.createdAt">
+                            Enviado: {{ item.createdAt | date:'dd/MM/yyyy HH:mm' }}
+                        </p>
+                        <p class="report-card-cta">
+                            {{ processingAppealId === item.id ? 'Procesando...' : 'Click para revisar y aprobar desbaneo' }}
+                        </p>
+                    </article>
+                </div>
+
+                <div class="admin-pagination-wrap" *ngIf="!loadingAppeals && appealTotalElements > 0">
+                    <div class="admin-pagination-meta">
+                        Página {{ appealPage + 1 }} de {{ appealTotalPages }}
+                        <span class="admin-pagination-dot">•</span>
+                        {{ appealTotalElements }} reportes
+                    </div>
+                    <div class="admin-pagination-actions">
+                        <button
+                            type="button"
+                            class="admin-page-btn"
+                            [disabled]="appealPage <= 0 || loadingAppeals"
+                            (click)="prevAppealsPage()"
+                        >
+                            Anterior
+                        </button>
+                        <button
+                            type="button"
+                            class="admin-page-btn admin-page-btn--primary"
+                            [disabled]="appealIsLastPage || loadingAppeals"
+                            (click)="nextAppealsPage()"
+                        >
+                            Siguiente
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="conversations-view" class="space-y-6 w-full" [class.hidden-view]="isDashboardView || isReportsView">
       <div class="flex items-center gap-4">
         <button (click)="showDashboard()"
           class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90">

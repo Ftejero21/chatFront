@@ -7,6 +7,9 @@ import { CallEndWS } from '../../Interface/CallEndWS';
 import { CallAnswerWS } from '../../Interface/CallAnswerWS';
 import { CallInviteWS } from '../../Interface/CallInviteWS';
 import { MensajeReaccionDTO } from '../../Interface/MensajeReaccionDTO';
+import { UnbanAppealEventDTO } from '../../Interface/UnbanAppealEventDTO';
+import { WsUserErrorDTO } from '../../Interface/WsUserErrorDTO';
+import { RateLimitService } from '../rate-limit/rate-limit.service';
 
 type SdpOfferDTO = {
   callId: string;
@@ -44,7 +47,9 @@ export class WebSocketService {
   private subsAnswer?: StompSubscription;
   private subsIce?: StompSubscription;
   private subsCallEnd?: StompSubscription;
-  constructor() {
+  private userErrorsHandlers = new Set<(payload: WsUserErrorDTO) => void>();
+
+  constructor(private rateLimitService: RateLimitService) {
     this.stompClient = new Client({
       brokerURL: undefined,
       webSocketFactory: () => new SockJS(this.socketUrl),
@@ -71,6 +76,8 @@ export class WebSocketService {
         usuarioId: localStorage.getItem('usuarioId'),
         hasToken: !!localStorage.getItem('token'),
       });
+      this.subsUserErrors = undefined;
+      this.ensureUserErrorsSubscription();
       onConnected();
     };
 
@@ -96,6 +103,7 @@ export class WebSocketService {
   enviarMensajeGrupal(mensaje: MensajeDTO): void {
     // receptorId = chatId del grupo
     if (this.stompClient?.connected) {
+      if (!this.canPublishToRateLimitedDestination('/app/chat.grupal')) return;
       this.stompClient.publish({
         destination: '/app/chat.grupal',
         body: JSON.stringify(mensaje),
@@ -178,23 +186,39 @@ export class WebSocketService {
     });
   }
 
-  suscribirseAErroresUsuario(handler: (payload: any) => void): void {
-    this.esperarConexion(() => {
-      if (this.subsUserErrors) {
-        try {
-          this.subsUserErrors.unsubscribe();
-        } catch {}
-        this.subsUserErrors = undefined;
-      }
-      this.subsUserErrors = this.stompClient.subscribe(`/user/queue/errors`, (msg) => {
-        try {
-          const payload = JSON.parse(msg.body);
-          handler(payload);
-        } catch (e) {
-          console.error('❌ Error parseando /user/queue/errors:', e);
+  suscribirseAErroresUsuario(handler: (payload: WsUserErrorDTO) => void): void {
+    this.userErrorsHandlers.clear();
+    this.userErrorsHandlers.add(handler);
+    this.esperarConexion(() => this.ensureUserErrorsSubscription());
+  }
+
+  private ensureUserErrorsSubscription(): void {
+    if (!this.stompClient?.connected) return;
+    if (this.subsUserErrors) return;
+
+    this.subsUserErrors = this.stompClient.subscribe(`/user/queue/errors`, (msg) => {
+      try {
+        const payload = JSON.parse(msg.body) as WsUserErrorDTO;
+        this.rateLimitService.registerWsRateLimit(payload);
+        for (const handler of this.userErrorsHandlers) {
+          try {
+            handler(payload);
+          } catch (err) {
+            console.error('❌ Error en handler de /user/queue/errors:', err);
+          }
         }
-      });
+      } catch (e) {
+        console.error('❌ Error parseando /user/queue/errors:', e);
+      }
     });
+  }
+
+  private canPublishToRateLimitedDestination(destination: string): boolean {
+    if (!this.stompClient?.connected) return false;
+    const remaining = this.rateLimitService.getWsDestinationRemainingSeconds(destination);
+    if (remaining <= 0) return true;
+    this.rateLimitService.announceWsActionBlocked(destination, remaining);
+    return false;
   }
 
   suscribirseAEscribiendoGrupo(
@@ -249,6 +273,7 @@ export class WebSocketService {
       console.warn('⚠️ WS no conectado. No se pudo iniciar la llamada.');
       return;
     }
+    if (!this.canPublishToRateLimitedDestination('/app/call.start')) return;
     const payload = { callerId, calleeId, chatId };
     this.stompClient.publish({
       destination: '/app/call.start',
@@ -268,6 +293,7 @@ export class WebSocketService {
       console.warn('⚠️ WS no conectado. No se pudo responder la llamada.');
       return;
     }
+    if (!this.canPublishToRateLimitedDestination('/app/call.answer')) return;
     const payload = { callId, callerId, calleeId, accepted, reason };
     this.stompClient.publish({
       destination: '/app/call.answer',
@@ -281,6 +307,7 @@ export class WebSocketService {
       console.warn('⚠️ WS no conectado. No se pudo colgar la llamada.');
       return;
     }
+    if (!this.canPublishToRateLimitedDestination('/app/call.end')) return;
     const payload = { callId, byUserId };
     this.stompClient.publish({
       destination: '/app/call.end',
@@ -377,6 +404,7 @@ export class WebSocketService {
 
   enviarMensajeIndividual(mensaje: MensajeDTO): void {
     if (this.stompClient.connected) {
+      if (!this.canPublishToRateLimitedDestination('/app/chat.individual')) return;
       this.stompClient.publish({
         destination: '/app/chat.individual',
         body: JSON.stringify(mensaje),
@@ -554,6 +582,7 @@ export class WebSocketService {
       console.warn('WS no conectado. No se pudo enviar chat.eliminar');
       return;
     }
+    if (!this.canPublishToRateLimitedDestination('/app/chat.eliminar')) return;
 
     console.log('[WS] publish /app/chat.eliminar', mensaje);
     this.stompClient.publish({
@@ -579,8 +608,10 @@ export class WebSocketService {
   }
 
   marcarMensajesComoLeidos(ids: number[]): void {
+    if (!this.stompClient?.connected) return;
+    if (!this.canPublishToRateLimitedDestination('/app/mensajes.marcarLeidos')) return;
     console.log('[WS] publish /app/mensajes.marcarLeidos', ids);
-    this.stompClient?.publish({
+    this.stompClient.publish({
       destination: '/app/mensajes.marcarLeidos',
       body: JSON.stringify(ids),
     });
@@ -642,6 +673,7 @@ export class WebSocketService {
       console.warn('WS no conectado. No se pudo enviar chat.reaccion');
       return;
     }
+    if (!this.canPublishToRateLimitedDestination('/app/chat.reaccion')) return;
     this.stompClient.publish({
       destination: '/app/chat.reaccion',
       body: JSON.stringify(payload),
@@ -662,6 +694,19 @@ export class WebSocketService {
     });
   }
 
+  public suscribirseAReportesAdmin(
+    callback: (payload: UnbanAppealEventDTO) => void
+  ): StompSubscription | null {
+    if (!this.stompClient?.connected) return null;
+    return this.stompClient.subscribe(`/topic/admin.solicitudes-desbaneo`, (message) => {
+      try {
+        callback(JSON.parse(message.body) as UnbanAppealEventDTO);
+      } catch (e) {
+        console.error('❌ Error parseando reporte admin WS:', e);
+      }
+    });
+  }
+
   suscribirseAChat(
     receptorId: number,
     callback: (mensaje: MensajeDTO) => void
@@ -678,3 +723,4 @@ export class WebSocketService {
     }
   }
 }
+

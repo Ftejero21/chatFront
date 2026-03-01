@@ -1,5 +1,9 @@
-import { Component, EventEmitter, Output } from '@angular/core';
+﻿import { Component, EventEmitter, Output } from '@angular/core';
 import { AuthService } from '../../../Service/auth/auth.service';
+import {
+  RATE_LIMIT_SCOPES,
+  RateLimitService,
+} from '../../../Service/rate-limit/rate-limit.service';
 
 @Component({
   selector: 'app-password-reset',
@@ -9,7 +13,7 @@ import { AuthService } from '../../../Service/auth/auth.service';
 export class PasswordResetComponent {
   @Output() close = new EventEmitter<void>();
 
-  step = 1; // 1: Email, 2: Código + Nueva Contraseña
+  step = 1; // 1: Email, 2: CÃ³digo + Nueva ContraseÃ±a
   email = '';
   code = '';
   newPassword = '';
@@ -20,6 +24,10 @@ export class PasswordResetComponent {
   isLoading = false;
   showNewPassword = false;
   showRepeatPassword = false;
+  requestCooldownSec = 0;
+  verifyCooldownSec = 0;
+  requestCooldownTimer: any;
+  verifyCooldownTimer: any;
 
   timeLeft = 300;
   timerInterval: any;
@@ -30,7 +38,22 @@ export class PasswordResetComponent {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   }
 
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private rateLimitService: RateLimitService
+  ) {}
+
+  ngOnInit(): void {
+    const req = this.rateLimitService.getScopeRemainingSeconds(
+      RATE_LIMIT_SCOPES.PASSWORD_RESET_REQUEST
+    );
+    if (req > 0) this.startRequestCooldown(req);
+
+    const verify = this.rateLimitService.getScopeRemainingSeconds(
+      RATE_LIMIT_SCOPES.PASSWORD_RESET_VERIFY
+    );
+    if (verify > 0) this.startVerifyCooldown(verify);
+  }
 
   closeModal() {
     this.stopTimer();
@@ -38,8 +61,13 @@ export class PasswordResetComponent {
   }
 
   solicitarCodigo() {
+    if (this.requestCooldownSec > 0) {
+      this.errorMsg = `Demasiados intentos. Reintenta en ${this.requestCooldownSec}s.`;
+      return;
+    }
+
     if (!this.email) {
-      this.errorMsg = 'Por favor, ingrese un correo válido.';
+      this.errorMsg = 'Por favor, ingrese un correo vÃ¡lido.';
       return;
     }
     
@@ -50,12 +78,28 @@ export class PasswordResetComponent {
     this.authService.solicitarPasswordReset(this.email).subscribe({
       next: (res) => {
         this.isLoading = false;
-        this.successMsg = res.mensaje || 'Código enviado. Revise su bandeja.';
+        this.successMsg = res.mensaje || 'CÃ³digo enviado. Revise su bandeja.';
         this.step = 2; // Avanza al siguiente paso
         this.startTimer();
       },
       error: (err) => {
         this.isLoading = false;
+        if (this.rateLimitService.isRateLimitHttpError(err)) {
+          const fromScope = this.rateLimitService.getScopeRemainingSeconds(
+            RATE_LIMIT_SCOPES.PASSWORD_RESET_REQUEST
+          );
+          const fromHeader = this.rateLimitService.parseRetryAfterSecondsFromHttpError(
+            err
+          );
+          const sec = fromScope || fromHeader || 30;
+          this.rateLimitService.setScopeCooldown(
+            RATE_LIMIT_SCOPES.PASSWORD_RESET_REQUEST,
+            sec
+          );
+          this.startRequestCooldown(sec > 0 ? sec : 30);
+          this.errorMsg = `Demasiados intentos. Reintenta en ${this.requestCooldownSec}s.`;
+          return;
+        }
         this.errorMsg = err.error?.mensaje || 'Error al enviar código. Verifique el correo.';
       }
     });
@@ -66,6 +110,11 @@ export class PasswordResetComponent {
   }
 
   verificarYGuardar() {
+    if (this.verifyCooldownSec > 0) {
+      this.errorMsg = `Debes esperar ${this.verifyCooldownSec}s para volver a intentar.`;
+      return;
+    }
+
     this.errorMsg = '';
     this.successMsg = '';
 
@@ -75,12 +124,12 @@ export class PasswordResetComponent {
     }
 
     if (this.newPassword !== this.repeatPassword) {
-      this.errorMsg = 'Las contraseñas no coinciden.';
+      this.errorMsg = 'Las contraseÃ±as no coinciden.';
       return;
     }
 
     if (this.timeLeft === 0) {
-      this.errorMsg = 'El código ha caducado. Solicite uno nuevo.';
+      this.errorMsg = 'El cÃ³digo ha caducado. Solicite uno nuevo.';
       return;
     }
 
@@ -90,13 +139,29 @@ export class PasswordResetComponent {
       next: (res) => {
         this.isLoading = false;
         this.stopTimer();
-        this.successMsg = res.mensaje || 'Contraseña actualizada. Ya puede iniciar sesión.';
-        // Después de 2s, cierra el modal automáticamente
+        this.successMsg = res.mensaje || 'ContraseÃ±a actualizada. Ya puede iniciar sesiÃ³n.';
+        // DespuÃ©s de 2s, cierra el modal automÃ¡ticamente
         setTimeout(() => this.closeModal(), 2000);
       },
       error: (err) => {
         this.isLoading = false;
-        this.errorMsg = err.error?.mensaje || 'Código inválido o error de servidor.';
+        if (this.rateLimitService.isRateLimitHttpError(err)) {
+          const fromScope = this.rateLimitService.getScopeRemainingSeconds(
+            RATE_LIMIT_SCOPES.PASSWORD_RESET_VERIFY
+          );
+          const fromHeader = this.rateLimitService.parseRetryAfterSecondsFromHttpError(
+            err
+          );
+          const sec = fromScope || fromHeader || 30;
+          this.rateLimitService.setScopeCooldown(
+            RATE_LIMIT_SCOPES.PASSWORD_RESET_VERIFY,
+            sec
+          );
+          this.startVerifyCooldown(sec > 0 ? sec : 30);
+          this.errorMsg = `Demasiados intentos. Reintenta en ${this.verifyCooldownSec}s.`;
+          return;
+        }
+        this.errorMsg = err.error?.mensaje || 'CÃ³digo invÃ¡lido o error de servidor.';
       }
     });
   }
@@ -118,8 +183,38 @@ export class PasswordResetComponent {
     }
   }
 
+  private startRequestCooldown(seconds: number): void {
+    const normalized = Math.max(0, Math.floor(Number(seconds || 0)));
+    if (this.requestCooldownTimer) clearInterval(this.requestCooldownTimer);
+    this.requestCooldownSec = normalized;
+    if (normalized <= 0) return;
+    this.requestCooldownTimer = setInterval(() => {
+      this.requestCooldownSec = Math.max(0, this.requestCooldownSec - 1);
+      if (this.requestCooldownSec <= 0 && this.requestCooldownTimer) {
+        clearInterval(this.requestCooldownTimer);
+        this.requestCooldownTimer = null;
+      }
+    }, 1000);
+  }
+
+  private startVerifyCooldown(seconds: number): void {
+    const normalized = Math.max(0, Math.floor(Number(seconds || 0)));
+    if (this.verifyCooldownTimer) clearInterval(this.verifyCooldownTimer);
+    this.verifyCooldownSec = normalized;
+    if (normalized <= 0) return;
+    this.verifyCooldownTimer = setInterval(() => {
+      this.verifyCooldownSec = Math.max(0, this.verifyCooldownSec - 1);
+      if (this.verifyCooldownSec <= 0 && this.verifyCooldownTimer) {
+        clearInterval(this.verifyCooldownTimer);
+        this.verifyCooldownTimer = null;
+      }
+    }, 1000);
+  }
+
   ngOnDestroy() {
     this.stopTimer();
+    if (this.requestCooldownTimer) clearInterval(this.requestCooldownTimer);
+    if (this.verifyCooldownTimer) clearInterval(this.verifyCooldownTimer);
   }
 
   toggleNewPasswordVisibility(): void {
@@ -130,3 +225,4 @@ export class PasswordResetComponent {
     this.showRepeatPassword = !this.showRepeatPassword;
   }
 }
+

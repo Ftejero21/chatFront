@@ -3,14 +3,22 @@ import { AuthService } from '../../../Service/auth/auth.service';
 import { UsuarioDTO } from '../../../Interface/UsuarioDTO';
 import { DashboardStatsDTO } from '../../../Interface/DashboardStatsDTO';
 import { PageResponse } from '../../../Interface/PageResponse';
-import { Observable, Subject, Subscription } from 'rxjs';
+import { firstValueFrom, Observable, Subject, Subscription } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import Swal from 'sweetalert2';
+import { StompSubscription } from '@stomp/stompjs';
 import { ChatService } from '../../../Service/chat/chat.service';
 import { decryptPreviewStringE2E, resolveMediaUrl } from '../../../utils/chat-utils';
 import { CryptoService } from '../../../Service/crypto/crypto.service';
 import { environment } from '../../../environments';
 import { SessionService } from '../../../Service/session/session.service';
+import { WebSocketService } from '../../../Service/WebSocket/web-socket.service';
+import { UnbanAppealDTO, UnbanAppealEstado } from '../../../Interface/UnbanAppealDTO';
+import { UnbanAppealEventDTO } from '../../../Interface/UnbanAppealEventDTO';
+import {
+  RATE_LIMIT_SCOPES,
+  RateLimitService,
+} from '../../../Service/rate-limit/rate-limit.service';
 
 type AdminAudioE2EPayload = {
   type: 'E2E_AUDIO' | 'E2E_GROUP_AUDIO';
@@ -41,6 +49,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
   // Variables de control de vista
   isDashboardView: boolean = true;
+  isReportsView: boolean = false;
   isSidebarOpen: boolean = false;
   headerSubtitle: string = "Gestion centralizada de TejeChat.";
   currentUserName: string = "";
@@ -79,6 +88,22 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   totalElements: number = 0;
   isLastPage: boolean = true;
   loadingUsuarios: boolean = false;
+  appealItems: UnbanAppealDTO[] = [];
+  loadingAppeals: boolean = false;
+  appealPage: number = 0;
+  appealPageSize: number = 8;
+  appealTotalPages: number = 1;
+  appealTotalElements: number = 0;
+  appealIsLastPage: boolean = true;
+  appealViewFilter: 'ABIERTOS' | 'APROBADA' | 'RECHAZADA' = 'ABIERTOS';
+  reportesBadgeCount: number = 0;
+  reportesPendientesCount: number = 0;
+  reportesHoyCount: number = 0;
+  reportesHoyFechaReferencia: string = '';
+  reportesHoyTimezone: string = '';
+  processingAppealId: number | null = null;
+  private reportUserNamesById = new Map<number, string>();
+  private reportesWsSub: StompSubscription | null = null;
 
   // Suscripción a búsqueda por input en tiempo real (debounce)
   private searchSubject = new Subject<string>();
@@ -91,13 +116,16 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     private authService: AuthService,
     private chatService: ChatService,
     private cryptoService: CryptoService,
-    private sessionService: SessionService
+    private sessionService: SessionService,
+    private wsService: WebSocketService,
+    private rateLimitService: RateLimitService
   ) { }
 
   ngOnInit(): void {
     const id = localStorage.getItem('usuarioId');
     this.cargarEstadisticas();
     this.cargarUsuariosRecientes();
+    this.cargarSolicitudesDesbaneo();
 
     if (!id) {
       console.warn('No hay usuario logueado');
@@ -106,6 +134,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
     this.usuarioActualId = parseInt(id, 10);
     this.cargarAdminPerfil(this.usuarioActualId);
+    this.inicializarWsReportesAdmin();
     // Configurar búsqueda con un poco de retraso (300ms) para no saturar al teclear
     this.searchSubscription = this.searchSubject.pipe(
       debounceTime(300),
@@ -118,6 +147,12 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     if (this.searchSubscription) {
       this.searchSubscription.unsubscribe();
+    }
+    if (this.reportesWsSub) {
+      try {
+        this.reportesWsSub.unsubscribe();
+      } catch {}
+      this.reportesWsSub = null;
     }
     if (this.adminCurrentAudioEl) {
       try {
@@ -144,7 +179,13 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
   cargarEstadisticas(): void {
     this.authService.getDashboardStats().subscribe({
-      next: (data) => this.stats = data,
+      next: (data) => {
+        this.stats = data;
+        const reportesDiariosHoy = Number(data?.reportesDiariosHoy);
+        if (Number.isFinite(reportesDiariosHoy) && reportesDiariosHoy >= 0) {
+          this.reportesHoyCount = Math.max(0, reportesDiariosHoy);
+        }
+      },
       error: (err) => console.error("Error cargando estadísticas", err)
     });
   }
@@ -170,6 +211,476 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         this.loadingUsuarios = false;
       }
     });
+  }
+
+  cargarSolicitudesDesbaneo(page: number = 0): void {
+    this.loadingAppeals = true;
+    this.appealPage = Number.isFinite(Number(page)) ? Number(page) : 0;
+    const estadoFilter: UnbanAppealEstado | UnbanAppealEstado[] =
+      this.appealViewFilter === 'ABIERTOS'
+        ? ['PENDIENTE', 'EN_REVISION']
+        : this.appealViewFilter;
+
+    this.authService
+      .listarSolicitudesDesbaneoAdmin(
+        this.appealPage,
+        this.appealPageSize,
+        estadoFilter,
+        'createdAt,desc'
+      )
+      .subscribe({
+        next: (data: PageResponse<UnbanAppealDTO>) => {
+          const content = Array.isArray(data?.content)
+            ? data.content.map((raw) => this.normalizeAppeal(raw))
+            : [];
+          this.appealItems = this.sortAppealsByCreatedDesc(content);
+          this.appealPage = Number(data?.number ?? this.appealPage);
+          this.appealPageSize = Number(data?.size ?? this.appealPageSize);
+          this.appealTotalPages = Math.max(1, Number(data?.totalPages ?? 1));
+          this.appealTotalElements = Number(data?.totalElements ?? content.length ?? 0);
+          this.appealIsLastPage = Boolean(
+            data?.last ?? (this.appealPage >= this.appealTotalPages - 1)
+          );
+          this.loadingAppeals = false;
+          this.hydrateAppealUserNames(content);
+          this.refreshOpenAppealsBadgeCount();
+        },
+        error: (err) => {
+          if (this.rateLimitService.isRateLimitHttpError(err)) {
+            this.loadingAppeals = false;
+            this.refreshOpenAppealsBadgeCount();
+            return;
+          }
+          console.error('Error cargando solicitudes de desbaneo', err);
+          this.appealItems = [];
+          this.appealTotalPages = 1;
+          this.appealTotalElements = 0;
+          this.appealIsLastPage = true;
+          this.loadingAppeals = false;
+          this.refreshOpenAppealsBadgeCount();
+        },
+      });
+  }
+
+  private normalizeAppeal(raw: any): UnbanAppealDTO {
+    return {
+      id: Number(raw?.id ?? 0),
+      usuarioId: Number(raw?.usuarioId ?? raw?.userId ?? 0) || null,
+      email: String(raw?.email || '').trim(),
+      motivo: String(raw?.motivo ?? '').trim() || null,
+      estado: String(raw?.estado || 'PENDIENTE').trim().toUpperCase() as UnbanAppealEstado,
+      createdAt: String(raw?.createdAt || raw?.fechaCreacion || '').trim() || null,
+      updatedAt: String(raw?.updatedAt || raw?.fechaActualizacion || '').trim() || null,
+      reviewedByAdminId: Number(raw?.reviewedByAdminId ?? raw?.adminId ?? 0) || null,
+      resolucionMotivo: String(raw?.resolucionMotivo || '').trim() || null,
+      usuarioNombre: String(raw?.usuarioNombre || raw?.nombre || '').trim() || null,
+      usuarioApellido: String(raw?.usuarioApellido || raw?.apellido || '').trim() || null,
+    };
+  }
+
+  private inicializarWsReportesAdmin(): void {
+    const subscribe = () => {
+      if (this.reportesWsSub) return;
+      this.reportesWsSub = this.wsService.suscribirseAReportesAdmin((event) => {
+        this.handleAppealWsEvent(event);
+      });
+    };
+
+    if (this.wsService.stompClient?.connected) {
+      subscribe();
+      return;
+    }
+
+    const isActive = (this.wsService.stompClient as any)?.active === true;
+    if (!isActive) {
+      this.wsService.conectar(() => subscribe());
+      return;
+    }
+    this.wsService.esperarConexion(() => subscribe());
+  }
+
+  private handleAppealWsEvent(event: UnbanAppealEventDTO): void {
+    const normalized = this.normalizeAppeal(event);
+    if (!normalized?.id) return;
+    if (normalized.estado === 'APROBADA') {
+      this.applyUserActiveFromAppeal(normalized, true);
+    }
+    this.hydrateAppealUserNames([normalized]);
+    this.refreshOpenAppealsBadgeCount();
+    if (this.isReportsView) {
+      this.cargarSolicitudesDesbaneo(this.appealPage);
+    }
+  }
+
+  private upsertAppeal(next: UnbanAppealDTO): void {
+    const id = Number(next?.id);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const idx = this.appealItems.findIndex((x) => Number(x?.id) === id);
+    if (idx === -1) {
+      this.appealItems = [next, ...this.appealItems];
+      return;
+    }
+    this.appealItems = [
+      ...this.appealItems.slice(0, idx),
+      { ...this.appealItems[idx], ...next },
+      ...this.appealItems.slice(idx + 1),
+    ];
+  }
+
+  private removeAppealById(id: number): void {
+    const appealId = Number(id);
+    if (!Number.isFinite(appealId) || appealId <= 0) return;
+    this.appealItems = this.appealItems.filter((x) => Number(x?.id) !== appealId);
+  }
+
+  private sortAppealsByCreatedDesc(items: UnbanAppealDTO[]): UnbanAppealDTO[] {
+    return [...(items || [])].sort((a, b) => {
+      const tsA = Date.parse(String(a?.createdAt || a?.updatedAt || ''));
+      const tsB = Date.parse(String(b?.createdAt || b?.updatedAt || ''));
+      const left = Number.isFinite(tsA) ? tsA : 0;
+      const right = Number.isFinite(tsB) ? tsB : 0;
+      return right - left;
+    });
+  }
+
+  private hydrateAppealUserNames(items: UnbanAppealDTO[]): void {
+    const list = Array.isArray(items) ? items : [];
+    for (const item of list) {
+      const uid = Number(item?.usuarioId || 0);
+      if (!Number.isFinite(uid) || uid <= 0) continue;
+      const full = `${item?.usuarioNombre || ''} ${item?.usuarioApellido || ''}`.trim();
+      if (full) this.reportUserNamesById.set(uid, full);
+    }
+
+    const ids = list
+      .map((x) => Number(x?.usuarioId || 0))
+      .filter((id, pos, arr) => Number.isFinite(id) && id > 0 && arr.indexOf(id) === pos)
+      .filter((id) => !this.reportUserNamesById.has(id));
+    for (const id of ids) {
+      this.authService.getById(id).subscribe({
+        next: (u) => {
+          const nombre = `${u?.nombre || ''} ${u?.apellido || ''}`.trim();
+          if (nombre) this.reportUserNamesById.set(id, nombre);
+        },
+        error: () => {},
+      });
+    }
+  }
+
+  public showReportes(): void {
+    this.isDashboardView = false;
+    this.isReportsView = true;
+    this.isSidebarOpen = false;
+    this.selectedChat = null;
+    this.selectedChatMensajes = [];
+    this.selectedChatMessagesSource = 'admin';
+    this.headerSubtitle = 'Revisión de reportes de desbaneo en tiempo real.';
+    this.appealViewFilter = 'ABIERTOS';
+    this.cargarSolicitudesDesbaneo(0);
+  }
+
+  public setAppealViewFilter(
+    filter: 'ABIERTOS' | 'APROBADA' | 'RECHAZADA'
+  ): void {
+    if (this.appealViewFilter === filter) return;
+    this.appealViewFilter = filter;
+    this.appealPage = 0;
+    this.cargarSolicitudesDesbaneo(0);
+  }
+
+  public isAppealFilterActive(
+    filter: 'ABIERTOS' | 'APROBADA' | 'RECHAZADA'
+  ): boolean {
+    return this.appealViewFilter === filter;
+  }
+
+  public get appealEmptyText(): string {
+    if (this.appealViewFilter === 'APROBADA') {
+      return 'No hay reportes aprobados por mostrar.';
+    }
+    if (this.appealViewFilter === 'RECHAZADA') {
+      return 'No hay reportes rechazados por mostrar.';
+    }
+    return 'No hay reportes pendientes o en revisión por mostrar.';
+  }
+
+  public get reportesBadgeText(): string {
+    const count = Math.max(0, Number(this.reportesBadgeCount || 0));
+    return count > 99 ? '99+' : String(count);
+  }
+
+  public get chatsCreadosHoyCard(): number {
+    const rawToday = Number(this.stats?.chatsCreadosHoy);
+    if (Number.isFinite(rawToday)) return Math.max(0, rawToday);
+    return Math.max(0, Number(this.stats?.chatsActivos || 0));
+  }
+
+  public get porcentajeUsuariosCard(): number {
+    const rawToday = Number(this.stats?.porcentajeUsuariosHoy);
+    if (Number.isFinite(rawToday)) return rawToday;
+    return Number(this.stats?.porcentajeUsuarios || 0);
+  }
+
+  public get porcentajeChatsCard(): number {
+    const rawToday = Number(this.stats?.porcentajeChatsHoy);
+    if (Number.isFinite(rawToday)) return rawToday;
+    return Number(this.stats?.porcentajeChats || 0);
+  }
+
+  public get porcentajeReportesCard(): number {
+    const rawToday = Number(this.stats?.porcentajeReportesHoy);
+    if (Number.isFinite(rawToday)) return rawToday;
+    return Number(this.stats?.porcentajeReportes || 0);
+  }
+
+  public get porcentajeMensajesCard(): number {
+    const rawToday = Number(this.stats?.porcentajeMensajesHoy);
+    if (Number.isFinite(rawToday)) return rawToday;
+    return Number(this.stats?.porcentajeMensajes || 0);
+  }
+
+  public getAppealReporterLabel(item: UnbanAppealDTO): string {
+    const nombreApi =
+      `${item?.usuarioNombre || ''} ${item?.usuarioApellido || ''}`.trim();
+    if (nombreApi) return nombreApi;
+
+    const uid = Number(item?.usuarioId || 0);
+    if (Number.isFinite(uid) && uid > 0) {
+      const cached = String(this.reportUserNamesById.get(uid) || '').trim();
+      if (cached) return cached;
+      return `Usuario #${uid}`;
+    }
+    return String(item?.email || 'Usuario').trim() || 'Usuario';
+  }
+
+  public getAppealEstadoClass(item: UnbanAppealDTO): string {
+    const estado = String(item?.estado || '').trim().toUpperCase();
+    if (estado === 'APROBADA') return 'appeal-chip appeal-chip--ok';
+    if (estado === 'RECHAZADA') return 'appeal-chip appeal-chip--danger';
+    if (estado === 'EN_REVISION') return 'appeal-chip appeal-chip--review';
+    return 'appeal-chip appeal-chip--pending';
+  }
+
+  public trackAppeal = (_: number, item: UnbanAppealDTO) => item.id;
+
+  public async onAppealCardClick(item: UnbanAppealDTO): Promise<void> {
+    const appealId = Number(item?.id);
+    if (!Number.isFinite(appealId) || appealId <= 0) return;
+    if (this.processingAppealId === appealId) return;
+
+    const estadoActual = String(item?.estado || '').trim().toUpperCase() as UnbanAppealEstado;
+    if (estadoActual === 'APROBADA') {
+      await Swal.fire({
+        icon: 'info',
+        title: 'Solicitud ya aprobada',
+        text: 'Esta solicitud ya fue marcada como APROBADA.',
+        confirmButtonColor: '#2563eb',
+      });
+      return;
+    }
+    if (estadoActual === 'RECHAZADA') {
+      await Swal.fire({
+        icon: 'info',
+        title: 'Solicitud rechazada',
+        text: 'Esta solicitud ya fue cerrada como RECHAZADA.',
+        confirmButtonColor: '#2563eb',
+      });
+      return;
+    }
+
+    this.processingAppealId = appealId;
+    try {
+      if (estadoActual === 'PENDIENTE') {
+        const moved = await this.patchAppealStatus(item, 'EN_REVISION', null);
+        if (!moved) return;
+      }
+
+      const reporter = this.getAppealReporterLabel(item);
+      const { value: motivo, isConfirmed, dismiss } = await Swal.fire({
+        html: `
+          <div class="swal-unban-header">
+            <div class="swal-unban-header-icon"><i class="bi bi-person-check-fill"></i></div>
+            <div class="swal-unban-header-text">
+              <h2>Aprobar desbaneo</h2>
+              <p>Revisar solicitud de <strong>${reporter}</strong></p>
+            </div>
+          </div>
+          <div class="swal-unban-body">
+            <label class="swal-unban-label">Motivo de desbaneo (opcional)</label>
+            <p class="swal-unban-helper">Si lo dejas vacío, backend completará un motivo automático.</p>
+          </div>
+        `,
+        input: 'textarea',
+        inputPlaceholder: 'Ej: Se verificó el caso y procede reactivar la cuenta.',
+        showCancelButton: true,
+        confirmButtonText: 'Desbanear',
+        cancelButtonText: 'No desbanear',
+        confirmButtonColor: '#3b82f6',
+        cancelButtonColor: '#64748b',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        customClass: {
+          popup: 'swal-unban-popup',
+          htmlContainer: 'swal-unban-html',
+          input: 'swal-unban-textarea',
+          confirmButton: 'swal-unban-confirm',
+          cancelButton: 'swal-unban-cancel',
+          actions: 'swal-unban-actions',
+        },
+      });
+
+      if (!isConfirmed) {
+        if (dismiss === Swal.DismissReason.cancel) {
+          const rejected = await this.patchAppealStatus(item, 'RECHAZADA', null);
+          if (rejected) {
+            await Swal.fire({
+              title: 'Solicitud rechazada',
+              text:
+                'La solicitud quedó en estado RECHAZADA. El backend notificará al usuario por email.',
+              icon: 'success',
+              confirmButtonColor: '#ef4444',
+            });
+          }
+        }
+        return;
+      }
+
+      const approved = await this.patchAppealStatus(
+        item,
+        'APROBADA',
+        String(motivo || '').trim() || null
+      );
+      if (!approved) return;
+
+      await Swal.fire({
+        title: 'Solicitud aprobada',
+        text:
+          'La solicitud quedó en estado APROBADA. El backend aplicará el desbaneo y enviará el email al usuario.',
+        icon: 'success',
+        confirmButtonColor: '#10b981',
+      });
+    } finally {
+      this.processingAppealId = null;
+    }
+  }
+
+  private async patchAppealStatus(
+    item: UnbanAppealDTO,
+    estado: UnbanAppealEstado,
+    resolucionMotivo?: string | null
+  ): Promise<boolean> {
+    const id = Number(item?.id);
+    if (!Number.isFinite(id) || id <= 0) return false;
+    try {
+      const response = await firstValueFrom(
+        this.authService.actualizarEstadoSolicitudDesbaneoAdmin(id, {
+          estado,
+          resolucionMotivo: String(resolucionMotivo || '').trim() || null,
+        })
+      );
+
+      const merged = this.normalizeAppeal({
+        ...item,
+        ...(response || {}),
+        id,
+        estado,
+        resolucionMotivo:
+          String((response as any)?.resolucionMotivo ?? resolucionMotivo ?? '').trim() || null,
+        updatedAt:
+          String((response as any)?.updatedAt || new Date().toISOString()).trim() ||
+          new Date().toISOString(),
+      });
+      this.upsertAppeal(merged);
+      this.appealItems = this.sortAppealsByCreatedDesc(this.appealItems);
+      const shouldKeep =
+        this.appealViewFilter === 'ABIERTOS'
+          ? merged.estado === 'PENDIENTE' || merged.estado === 'EN_REVISION'
+          : merged.estado === this.appealViewFilter;
+      if (!shouldKeep) {
+        this.removeAppealById(merged.id);
+      }
+      if (merged.estado === 'APROBADA') {
+        this.applyUserActiveFromAppeal(merged, true);
+      }
+      this.refreshOpenAppealsBadgeCount();
+      return true;
+    } catch (err: any) {
+      if (this.rateLimitService.isRateLimitHttpError(err)) {
+        const remaining = this.rateLimitService.getScopeRemainingSeconds(
+          RATE_LIMIT_SCOPES.ADMIN_GLOBAL
+        );
+        Swal.fire({
+          title: 'Límite temporal',
+          text: `Demasiadas acciones administrativas. Reintenta en ${remaining || 30}s.`,
+          icon: 'warning',
+          confirmButtonColor: '#2563eb',
+        });
+        return false;
+      }
+      Swal.fire({
+        title: 'Error',
+        text:
+          err?.error?.mensaje ||
+          'No se pudo actualizar el estado del reporte. Intenta nuevamente.',
+        icon: 'error',
+        confirmButtonColor: '#ef4444',
+      });
+      return false;
+    }
+  }
+
+  private refreshOpenAppealsBadgeCount(): void {
+    const tz = this.getBrowserTimeZone();
+    this.authService.getSolicitudesDesbaneoStatsAdmin(tz).subscribe({
+      next: (stats) => {
+        const pendientes = Number(stats?.pendientes ?? stats?.abiertas ?? 0);
+        this.reportesPendientesCount = Math.max(0, Number.isFinite(pendientes) ? pendientes : 0);
+        this.reportesBadgeCount = this.reportesPendientesCount;
+        this.reportesHoyFechaReferencia = String(stats?.fechaReferencia || '').trim();
+        this.reportesHoyTimezone = String(stats?.timezone || '').trim();
+      },
+      error: () => {},
+    });
+  }
+
+  private getBrowserTimeZone(): string {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    } catch {
+      return '';
+    }
+  }
+
+  public nextAppealsPage(): void {
+    if (this.appealIsLastPage) return;
+    this.cargarSolicitudesDesbaneo(this.appealPage + 1);
+  }
+
+  public prevAppealsPage(): void {
+    if (this.appealPage <= 0) return;
+    this.cargarSolicitudesDesbaneo(this.appealPage - 1);
+  }
+
+  private applyUserActiveFromAppeal(
+    appeal: UnbanAppealDTO,
+    activo: boolean
+  ): void {
+    const targetUserId = Number(appeal?.usuarioId || 0);
+    const targetEmail = String(appeal?.email || '').trim().toLowerCase();
+    if (!targetUserId && !targetEmail) return;
+
+    const patchList = (list: UsuarioDTO[]): UsuarioDTO[] =>
+      (list || []).map((u) => {
+        const uid = Number((u as any)?.id || 0);
+        const email = String((u as any)?.email || '').trim().toLowerCase();
+        const matchById = targetUserId > 0 && uid === targetUserId;
+        const matchByEmail = !!targetEmail && email === targetEmail;
+        if (!matchById && !matchByEmail) return u;
+        return { ...u, activo };
+      });
+
+    this.usuariosLocales = patchList(this.usuariosLocales);
+    this.usuariosMostrados = patchList(this.usuariosMostrados);
   }
 
   onSearchChange(event: any): void {
@@ -248,6 +759,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
   showConversations(user: any): void {
     this.isDashboardView = false;
+    this.isReportsView = false;
     this.currentUserName = user.nombre;
     this.headerSubtitle = `Inspeccionando registros de: ${user.nombre}`;
     this.inspectedUserId = Number(user.id);
@@ -1458,6 +1970,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
   showDashboard() {
     this.isDashboardView = true;
+    this.isReportsView = false;
     this.isSidebarOpen = false;
     this.selectedChat = null;
     this.selectedChatMensajes = [];

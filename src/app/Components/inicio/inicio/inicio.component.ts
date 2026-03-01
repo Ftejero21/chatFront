@@ -15,26 +15,36 @@ import { firstValueFrom } from 'rxjs';
 import { AuthService } from '../../../Service/auth/auth.service';
 import {
   avatarOrDefault,
+  buildConversationHistoryKey,
   buildPreviewFromMessage,
   buildTypingHeaderText,
   clampPercent,
+  compareFechaDesc,
   colorForUserId,
+  createInitialHistoryState,
   computePreviewPatch,
+  dedupeChatListItemsById,
   decryptContenidoE2E,
   decryptPreviewStringE2E,
+  formatAttachmentSize as formatAttachmentSizeUtil,
   formatDuration,
+  formatMensajeHoraFromMessage,
   formatPreviewText,
+  getDateSeparatorLabelForMessage,
   getNombrePorId,
   isSystemMessageLike,
   isAudioPreviewText,
   isGroupInviteResponseWS,
   isGroupInviteWS,
+  mergeMessagesById,
+  normalizeSearchText,
   isPreviewDeleted,
   isUnseenCountWS,
   joinMembersLine,
   parseAudioDurationMs,
   parseAudioPreviewText,
   resolveMediaUrl,
+  shouldShowDateSeparatorForMessages,
   updateChatPreview,
   E2EDebugContext,
 } from '../../../utils/chat-utils';
@@ -168,6 +178,8 @@ interface WsSemanticErrorPayload {
   traceId?: string;
   chatId?: number;
   senderId?: number;
+  destination?: string;
+  retryAfterSeconds?: number;
   ts?: string;
 }
 
@@ -182,6 +194,21 @@ interface PendingGroupTextSendContext {
   source: 'compose' | 'forward';
   createdAtMs: number;
   retryCount: number;
+}
+
+interface MessageReactionStateItem {
+  userId: number;
+  emoji: string;
+  createdAt?: string | null;
+}
+
+interface MessageReactionViewItem {
+  userId: number;
+  emoji: string;
+  createdAt?: string | null;
+  name: string;
+  photoUrl: string | null;
+  initials: string;
 }
 
 /**
@@ -329,8 +356,9 @@ export class InicioComponent {
   public busquedaUsuario = '';
   public mostrarMenuOpciones = false;
   public openMensajeMenuId: number | null = null;
-  private incomingQuickReactionsByMessageId = new Map<number, string>();
+  private messageReactionsByMessageId = new Map<number, MessageReactionStateItem[]>();
   public openIncomingReactionPickerMessageId: number | null = null;
+  public openReactionDetailsMessageId: number | null = null;
   public mensajeRespuestaObjetivo: MensajeDTO | null = null;
   public forwardModalOpen = false;
   public mensajeReenvioOrigen: MensajeDTO | null = null;
@@ -1099,7 +1127,7 @@ export class InicioComponent {
 
     this.chatService.listarTodosLosChats(usuarioId).subscribe({
       next: (chats: ChatListItemDTO[]) => {
-        const dedupedChats = this.dedupeChatListItemsById(chats || []);
+        const dedupedChats = dedupeChatListItemsById(chats || []);
         this.chats = dedupedChats.map((chat) => {
           const esGrupo = !chat.receptor;
           const groupId = Number(chat?.id);
@@ -1338,134 +1366,6 @@ export class InicioComponent {
     });
   }
 
-  private parseChatListRecencyId(item: ChatListItemDTO | null | undefined): number {
-    const id = Number(item?.ultimaMensajeId);
-    return Number.isFinite(id) && id > 0 ? id : 0;
-  }
-
-  private parseChatListRecencyDate(item: ChatListItemDTO | null | undefined): number {
-    const ts = Date.parse(String(item?.ultimaFecha || ''));
-    return Number.isFinite(ts) ? ts : 0;
-  }
-
-  private isIncomingChatItemNewer(
-    incoming: ChatListItemDTO,
-    existing: ChatListItemDTO
-  ): boolean {
-    const incomingMsgId = this.parseChatListRecencyId(incoming);
-    const existingMsgId = this.parseChatListRecencyId(existing);
-    if (incomingMsgId !== existingMsgId) return incomingMsgId > existingMsgId;
-
-    const incomingTs = this.parseChatListRecencyDate(incoming);
-    const existingTs = this.parseChatListRecencyDate(existing);
-    if (incomingTs !== existingTs) return incomingTs > existingTs;
-
-    return false;
-  }
-
-  private firstNonEmptyString(...values: unknown[]): string | null {
-    for (const value of values) {
-      const t = String(value ?? '').trim();
-      if (t) return t;
-    }
-    return null;
-  }
-
-  private mergeChatListItemForDisplay(
-    preferred: ChatListItemDTO,
-    fallback: ChatListItemDTO
-  ): ChatListItemDTO {
-    return {
-      ...fallback,
-      ...preferred,
-      receptor: preferred.receptor ?? fallback.receptor,
-      usuarios:
-        Array.isArray(preferred.usuarios) && preferred.usuarios.length > 0
-          ? preferred.usuarios
-          : fallback.usuarios,
-      miembros:
-        Array.isArray(preferred.miembros) && preferred.miembros.length > 0
-          ? preferred.miembros
-          : fallback.miembros,
-      ultimaMensaje: this.firstNonEmptyString(
-        preferred.ultimaMensaje,
-        fallback.ultimaMensaje
-      ),
-      ultimaMensajeRaw: this.firstNonEmptyString(
-        preferred.ultimaMensajeRaw,
-        fallback.ultimaMensajeRaw
-      ),
-      ultimaMensajeImageUrl: this.firstNonEmptyString(
-        preferred.ultimaMensajeImageUrl,
-        fallback.ultimaMensajeImageUrl
-      ),
-      ultimaMensajeImageMime: this.firstNonEmptyString(
-        preferred.ultimaMensajeImageMime,
-        fallback.ultimaMensajeImageMime
-      ),
-      ultimaMensajeImageNombre: this.firstNonEmptyString(
-        preferred.ultimaMensajeImageNombre,
-        fallback.ultimaMensajeImageNombre
-      ),
-      ultimaMensajeAudioUrl: this.firstNonEmptyString(
-        preferred.ultimaMensajeAudioUrl,
-        fallback.ultimaMensajeAudioUrl
-      ),
-      ultimaMensajeAudioMime: this.firstNonEmptyString(
-        preferred.ultimaMensajeAudioMime,
-        fallback.ultimaMensajeAudioMime
-      ),
-      ultimaMensajeAudioDuracionMs:
-        Number.isFinite(Number(preferred.ultimaMensajeAudioDuracionMs)) &&
-        Number(preferred.ultimaMensajeAudioDuracionMs) > 0
-          ? Number(preferred.ultimaMensajeAudioDuracionMs)
-          : Number.isFinite(Number(fallback.ultimaMensajeAudioDuracionMs)) &&
-            Number(fallback.ultimaMensajeAudioDuracionMs) > 0
-          ? Number(fallback.ultimaMensajeAudioDuracionMs)
-          : null,
-      ultimaMensajeTipo:
-        this.toLastMessageTipoDTO(preferred.ultimaMensajeTipo) ||
-        this.toLastMessageTipoDTO(fallback.ultimaMensajeTipo) ||
-        null,
-      ultimaMensajeEmisorId:
-        Number.isFinite(Number(preferred.ultimaMensajeEmisorId)) &&
-        Number(preferred.ultimaMensajeEmisorId) > 0
-          ? Number(preferred.ultimaMensajeEmisorId)
-          : Number.isFinite(Number(fallback.ultimaMensajeEmisorId)) &&
-            Number(fallback.ultimaMensajeEmisorId) > 0
-          ? Number(fallback.ultimaMensajeEmisorId)
-          : null,
-      ultimaMensajeId:
-        this.parseChatListRecencyId(preferred) ||
-        this.parseChatListRecencyId(fallback) ||
-        null,
-      ultimaFecha: this.firstNonEmptyString(
-        preferred.ultimaFecha,
-        fallback.ultimaFecha
-      ),
-    };
-  }
-
-  private dedupeChatListItemsById(items: ChatListItemDTO[]): ChatListItemDTO[] {
-    const map = new Map<number, ChatListItemDTO>();
-    for (const item of items || []) {
-      const id = Number(item?.id);
-      if (!Number.isFinite(id) || id <= 0) continue;
-
-      const existing = map.get(id);
-      if (!existing) {
-        map.set(id, item);
-        continue;
-      }
-
-      const incomingNewer = this.isIncomingChatItemNewer(item, existing);
-      const preferred = incomingNewer ? item : existing;
-      const fallback = incomingNewer ? existing : item;
-      map.set(id, this.mergeChatListItemForDisplay(preferred, fallback));
-    }
-    return Array.from(map.values());
-  }
-
   private bindBanWsListener(): void {
     if (this.banWsBound) return;
     this.banWsBound = true;
@@ -1671,6 +1571,8 @@ export class InicioComponent {
       traceId: String(rawPayload?.traceId || '').trim(),
       chatId: Number(rawPayload?.chatId),
       senderId: Number(rawPayload?.senderId),
+      destination: String(rawPayload?.destination || '').trim(),
+      retryAfterSeconds: Number(rawPayload?.retryAfterSeconds),
       ts: String(rawPayload?.ts || '').trim(),
     };
   }
@@ -1679,6 +1581,7 @@ export class InicioComponent {
     const payload = this.normalizeWsSemanticErrorPayload(rawPayload);
     const code = String(payload.code || '').trim().toUpperCase();
     if (!code) return;
+    if (code === 'RATE_LIMIT_EXCEEDED') return;
     const traceSuffix = payload.traceId ? ` (traceId: ${payload.traceId})` : '';
     const backendMsg = String(payload.message || '').trim();
 
@@ -2062,6 +1965,7 @@ export class InicioComponent {
     this.showMessageSearchPanelMounted = false;
     this.highlightedMessageId = null;
     this.openIncomingReactionPickerMessageId = null;
+    this.openReactionDetailsMessageId = null;
     if (this.highlightedMessageTimer) {
       clearTimeout(this.highlightedMessageTimer);
       this.highlightedMessageTimer = null;
@@ -3022,26 +2926,12 @@ private async decryptPreviewString(
     };
   }
 
-  private buildConversationHistoryKey(chatId: number, esGrupo: boolean): string {
-    return `${esGrupo ? 'G' : 'I'}:${Number(chatId)}`;
-  }
-
-  private createInitialHistoryState(): ChatHistoryState {
-    return {
-      messages: [],
-      page: 0,
-      hasMore: true,
-      loadingMore: false,
-      initialized: false,
-    };
-  }
-
   private resetHistoryStateForConversation(
     chatId: number,
     esGrupo: boolean
   ): ChatHistoryState {
-    const key = this.buildConversationHistoryKey(chatId, esGrupo);
-    const state = this.createInitialHistoryState();
+    const key = buildConversationHistoryKey(chatId, esGrupo);
+    const state = createInitialHistoryState<MensajeDTO>();
     this.historyStateByConversation.set(key, state);
     return state;
   }
@@ -3050,7 +2940,7 @@ private async decryptPreviewString(
     chatId: number,
     esGrupo: boolean
   ): ChatHistoryState | null {
-    const key = this.buildConversationHistoryKey(chatId, esGrupo);
+    const key = buildConversationHistoryKey(chatId, esGrupo);
     return this.historyStateByConversation.get(key) || null;
   }
 
@@ -3109,36 +2999,6 @@ private async decryptPreviewString(
     return filtered;
   }
 
-  private mergeMessagesById(
-    existing: MensajeDTO[],
-    incoming: MensajeDTO[],
-    mode: 'replace' | 'append' | 'prepend'
-  ): MensajeDTO[] {
-    const base =
-      mode === 'replace'
-        ? [...incoming]
-        : mode === 'prepend'
-        ? [...incoming, ...existing]
-        : [...existing, ...incoming];
-
-    const merged: MensajeDTO[] = [];
-    const indexById = new Map<number, number>();
-
-    for (const message of base) {
-      const id = Number(message?.id);
-      if (Number.isFinite(id) && id > 0) {
-        const idx = indexById.get(id);
-        if (idx != null) {
-          merged[idx] = { ...merged[idx], ...message };
-          continue;
-        }
-        indexById.set(id, merged.length);
-      }
-      merged.push(message);
-    }
-    return merged;
-  }
-
   private syncActiveHistoryStateMessages(): void {
     const chatId = Number(this.chatActual?.id);
     if (!Number.isFinite(chatId) || chatId <= 0) return;
@@ -3185,7 +3045,7 @@ private async decryptPreviewString(
           return;
         }
 
-        const merged = this.mergeMessagesById([], lista, 'replace');
+        const merged = mergeMessagesById([], lista, 'replace');
         this.mensajesSeleccionados = merged;
         this.seedIncomingReactionsFromMessages(merged);
         state.messages = [...merged];
@@ -3295,7 +3155,7 @@ private async decryptPreviewString(
           return;
         }
 
-        const merged = this.mergeMessagesById(
+        const merged = mergeMessagesById(
           this.mensajesSeleccionados || [],
           pageMessages,
           'prepend'
@@ -4529,9 +4389,12 @@ private async decryptPreviewString(
     };
 
     this.wsService.enviarEliminarMensaje(payloadEliminar);
-    this.incomingQuickReactionsByMessageId.delete(Number(mensaje.id));
+    this.messageReactionsByMessageId.delete(Number(mensaje.id));
     if (this.openIncomingReactionPickerMessageId === Number(mensaje.id)) {
       this.openIncomingReactionPickerMessageId = null;
+    }
+    if (this.openReactionDetailsMessageId === Number(mensaje.id)) {
+      this.openReactionDetailsMessageId = null;
     }
     console.log('[INICIO] eliminarMensaje payload enviado', payloadEliminar);
     this.openMensajeMenuId = null;
@@ -4902,6 +4765,7 @@ private async decryptPreviewString(
     const id = Number(mensaje.id);
     this.openIncomingReactionPickerMessageId =
       this.openIncomingReactionPickerMessageId === id ? null : id;
+    this.openReactionDetailsMessageId = null;
     this.cdr.markForCheck();
   }
 
@@ -4924,10 +4788,21 @@ private async decryptPreviewString(
     if (!selected || !this.incomingReactionChoicesSet.has(selected)) return;
 
     const id = Number(mensaje.id);
-    const prev = String(this.incomingQuickReactionsByMessageId.get(id) || '');
+    const prev = this.getUserReactionEmojiForMessage(
+      id,
+      Number(this.usuarioActualId)
+    );
     const next = prev === selected ? '' : selected;
 
-    this.setIncomingQuickReactionByMessageId(id, next || null);
+    if (next) {
+      this.upsertMessageReactionByMessageId(id, {
+        userId: Number(this.usuarioActualId),
+        emoji: next,
+        createdAt: new Date().toISOString(),
+      });
+    } else {
+      this.removeMessageReactionByMessageId(id, Number(this.usuarioActualId));
+    }
     this.emitOutgoingReactionEvent(mensaje, next || null);
     this.openIncomingReactionPickerMessageId = null;
     this.cdr.markForCheck();
@@ -4936,21 +4811,241 @@ private async decryptPreviewString(
   public incomingQuickReaction(mensaje: MensajeDTO): string {
     const id = Number(mensaje.id);
     if (!Number.isFinite(id) || id <= 0) return '';
-    return String(this.incomingQuickReactionsByMessageId.get(id) || '');
+    const list = this.getMessageReactionsByMessageId(id);
+    return String(list[0]?.emoji || '');
   }
 
-  private setIncomingQuickReactionByMessageId(
+  public hasReactionDetails(mensaje: MensajeDTO): boolean {
+    const id = Number(mensaje?.id);
+    if (!Number.isFinite(id) || id <= 0) return false;
+    return this.getMessageReactionsByMessageId(id).length > 0;
+  }
+
+  public toggleMessageReactionDetails(
+    mensaje: MensajeDTO,
+    event?: MouseEvent
+  ): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const id = Number(mensaje?.id);
+    if (!Number.isFinite(id) || id <= 0) return;
+    if (!this.hasReactionDetails(mensaje)) return;
+    this.openReactionDetailsMessageId =
+      this.openReactionDetailsMessageId === id ? null : id;
+    this.openIncomingReactionPickerMessageId = null;
+    this.cdr.markForCheck();
+  }
+
+  public isMessageReactionDetailsOpen(mensaje: MensajeDTO): boolean {
+    const id = Number(mensaje?.id);
+    if (!Number.isFinite(id) || id <= 0) return false;
+    return this.openReactionDetailsMessageId === id;
+  }
+
+  public messageReactionDetails(mensaje: MensajeDTO): MessageReactionViewItem[] {
+    const id = Number(mensaje?.id);
+    if (!Number.isFinite(id) || id <= 0) return [];
+    const state = this.getMessageReactionsByMessageId(id);
+    return state.map((reaction) =>
+      this.buildMessageReactionViewItem(mensaje, reaction)
+    );
+  }
+
+  public trackMessageReaction = (_: number, r: MessageReactionViewItem) =>
+    `${r.userId}-${r.emoji}-${r.createdAt || ''}`;
+
+  private setMessageReactionsByMessageId(
     messageId: number,
-    emoji: string | null
+    reactions: MessageReactionStateItem[] | null
   ): void {
     const id = Number(messageId);
     if (!Number.isFinite(id) || id <= 0) return;
-    const clean = String(emoji || '').trim();
-    if (!clean) {
-      this.incomingQuickReactionsByMessageId.delete(id);
+    const normalized = this.normalizeMessageReactionSnapshot(reactions || []);
+    if (!normalized.length) {
+      this.messageReactionsByMessageId.delete(id);
       return;
     }
-    this.incomingQuickReactionsByMessageId.set(id, clean);
+    this.messageReactionsByMessageId.set(id, normalized);
+  }
+
+  private upsertMessageReactionByMessageId(
+    messageId: number,
+    reaction: MessageReactionStateItem
+  ): void {
+    const id = Number(messageId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const userId = Number(reaction?.userId);
+    const emoji = String(reaction?.emoji || '').trim();
+    if (!Number.isFinite(userId) || userId <= 0 || !emoji) return;
+
+    const current = this.getMessageReactionsByMessageId(id);
+    const filtered = current.filter((r) => Number(r.userId) !== userId);
+    const merged = [
+      ...filtered,
+      {
+        userId,
+        emoji,
+        createdAt: String(reaction?.createdAt || '').trim() || null,
+      },
+    ];
+    this.setMessageReactionsByMessageId(id, merged);
+  }
+
+  private removeMessageReactionByMessageId(
+    messageId: number,
+    reactorUserId: number
+  ): void {
+    const id = Number(messageId);
+    const userId = Number(reactorUserId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    if (!Number.isFinite(userId) || userId <= 0) return;
+    const current = this.getMessageReactionsByMessageId(id);
+    if (!current.length) return;
+    this.setMessageReactionsByMessageId(
+      id,
+      current.filter((r) => Number(r.userId) !== userId)
+    );
+  }
+
+  private getMessageReactionsByMessageId(messageId: number): MessageReactionStateItem[] {
+    const id = Number(messageId);
+    if (!Number.isFinite(id) || id <= 0) return [];
+    return [...(this.messageReactionsByMessageId.get(id) || [])];
+  }
+
+  private getUserReactionEmojiForMessage(
+    messageId: number,
+    userId: number
+  ): string {
+    const uid = Number(userId);
+    if (!Number.isFinite(uid) || uid <= 0) return '';
+    const reactions = this.getMessageReactionsByMessageId(messageId);
+    const mine = reactions.find((r) => Number(r.userId) === uid);
+    return String(mine?.emoji || '');
+  }
+
+  private normalizeMessageReactionSnapshot(
+    reactions: MessageReactionStateItem[]
+  ): MessageReactionStateItem[] {
+    if (!Array.isArray(reactions) || reactions.length === 0) return [];
+    const dedupByUserId = new Map<number, MessageReactionStateItem>();
+    for (const reaction of reactions) {
+      const userId = Number(reaction?.userId || 0);
+      const emoji = String(reaction?.emoji || '').trim();
+      if (!emoji || !Number.isFinite(userId) || userId <= 0) continue;
+      const candidate: MessageReactionStateItem = {
+        userId,
+        emoji,
+        createdAt: String(reaction?.createdAt || '').trim() || null,
+      };
+      const prev = dedupByUserId.get(userId);
+      if (!prev) {
+        dedupByUserId.set(userId, candidate);
+        continue;
+      }
+      if (
+        this.reactionSortValue(candidate.createdAt) >=
+        this.reactionSortValue(prev.createdAt)
+      ) {
+        dedupByUserId.set(userId, candidate);
+      }
+    }
+
+    return Array.from(dedupByUserId.values()).sort(
+      (a, b) =>
+        this.reactionSortValue(b.createdAt) - this.reactionSortValue(a.createdAt)
+    );
+  }
+
+  private reactionSortValue(value?: string | null): number {
+    const ts = Date.parse(String(value || ''));
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
+  private buildMessageReactionViewItem(
+    mensaje: MensajeDTO,
+    reaction: MessageReactionStateItem
+  ): MessageReactionViewItem {
+    const userId = Number(reaction?.userId || 0);
+    const name = this.resolveReactionUserName(userId, mensaje);
+    return {
+      userId,
+      emoji: String(reaction?.emoji || '').trim(),
+      createdAt: String(reaction?.createdAt || '').trim() || null,
+      name,
+      photoUrl: this.resolveReactionUserPhoto(userId, mensaje),
+      initials: this.buildInitials(name),
+    };
+  }
+
+  private resolveReactionUserName(userId: number, mensaje: MensajeDTO): string {
+    const id = Number(userId);
+    if (!Number.isFinite(id) || id <= 0) return 'Usuario';
+    if (id === Number(this.usuarioActualId)) return 'Tú';
+
+    if (Number(mensaje?.emisorId) === id) {
+      const senderName =
+        `${mensaje?.emisorNombre || ''} ${mensaje?.emisorApellido || ''}`.trim();
+      if (senderName) return senderName;
+    }
+
+    const member = this.findUserInCurrentChatById(id);
+    if (member) {
+      const full = `${member.nombre || ''} ${member.apellido || ''}`.trim();
+      if (full) return full;
+    }
+
+    return this.obtenerNombrePorId(id) || `Usuario ${id}`;
+  }
+
+  private resolveReactionUserPhoto(
+    userId: number,
+    mensaje: MensajeDTO
+  ): string | null {
+    const id = Number(userId);
+    if (!Number.isFinite(id) || id <= 0) return null;
+
+    if (id === Number(this.usuarioActualId)) {
+      const own = String(this.usuarioFotoUrl || this.perfilUsuario?.foto || '').trim();
+      return own || null;
+    }
+
+    if (Number(mensaje?.emisorId) === id) {
+      const fromMessage = String(mensaje?.emisorFoto || '').trim();
+      if (fromMessage) return fromMessage;
+    }
+
+    const member = this.findUserInCurrentChatById(id);
+    const fromMember = String(member?.foto || '').trim();
+    if (fromMember) return fromMember;
+
+    return null;
+  }
+
+  private findUserInCurrentChatById(
+    userId: number
+  ): { nombre?: string; apellido?: string; foto?: string | null } | null {
+    const id = Number(userId);
+    if (!Number.isFinite(id) || id <= 0) return null;
+
+    const receptor = this.chatActual?.receptor;
+    if (receptor && Number(receptor?.id) === id) {
+      return receptor;
+    }
+
+    const members = Array.isArray(this.chatActual?.usuarios)
+      ? this.chatActual.usuarios
+      : [];
+    const found = members.find((m: any) => Number(m?.id) === id);
+    return found || null;
+  }
+
+  private buildInitials(name: string): string {
+    const clean = String(name || '').trim();
+    if (!clean) return 'US';
+    const parts = clean.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0].charAt(0)}${parts[1].charAt(0)}`.toUpperCase();
   }
 
   private emitOutgoingReactionEvent(
@@ -5028,11 +5123,15 @@ private async decryptPreviewString(
     if (!event) return;
 
     if (event.action === 'REMOVE') {
-      this.setIncomingQuickReactionByMessageId(event.messageId, null);
+      this.removeMessageReactionByMessageId(event.messageId, event.reactorUserId);
     } else {
       const emoji = String(event.emoji || '').trim();
       if (!emoji) return;
-      this.setIncomingQuickReactionByMessageId(event.messageId, emoji);
+      this.upsertMessageReactionByMessageId(event.messageId, {
+        userId: event.reactorUserId,
+        emoji,
+        createdAt: event.createdAt || null,
+      });
     }
 
     if (this.openIncomingReactionPickerMessageId === Number(event.messageId)) {
@@ -5056,22 +5155,42 @@ private async decryptPreviewString(
       const id = Number(m?.id);
       if (!Number.isFinite(id) || id <= 0) continue;
 
-      const directEmoji = String(
-        m?.reaccionEmoji ??
-          m?.reactionEmoji ??
-          ''
-      ).trim();
-      if (directEmoji) {
-        this.setIncomingQuickReactionByMessageId(id, directEmoji);
+      const hasA =
+        Object.prototype.hasOwnProperty.call(m, 'reaccionEmoji') ||
+        Object.prototype.hasOwnProperty.call(m, 'reactionEmoji');
+      const hasB = Object.prototype.hasOwnProperty.call(m, 'reacciones');
+
+      const normalizedFromList = Array.isArray(m?.reacciones)
+        ? m.reacciones
+            .map((r: any) => ({
+              userId: Number(r?.userId ?? r?.usuarioId ?? 0),
+              emoji: String(r?.emoji ?? r?.reaction ?? '').trim(),
+              createdAt: String(r?.createdAt ?? r?.fecha ?? '').trim() || null,
+            }))
+            .filter((r) => Number.isFinite(r.userId) && r.userId > 0 && !!r.emoji)
+        : [];
+
+      if (normalizedFromList.length > 0) {
+        this.setMessageReactionsByMessageId(id, normalizedFromList);
         continue;
       }
 
-      const reactions = Array.isArray(m?.reacciones) ? m.reacciones : [];
-      if (!reactions.length) continue;
-      const last = reactions[reactions.length - 1] || {};
-      const emoji = String(last?.emoji ?? last?.reaction ?? '').trim();
-      if (emoji) {
-        this.setIncomingQuickReactionByMessageId(id, emoji);
+      const directEmoji = String(m?.reaccionEmoji ?? m?.reactionEmoji ?? '').trim();
+      const directActorId = Number(m?.reaccionUsuarioId ?? m?.reactionUserId ?? 0);
+      const directCreatedAt = String(m?.reaccionFecha ?? m?.reactionAt ?? '').trim();
+      if (directEmoji && Number.isFinite(directActorId) && directActorId > 0) {
+        this.setMessageReactionsByMessageId(id, [
+          {
+            userId: directActorId,
+            emoji: directEmoji,
+            createdAt: directCreatedAt || null,
+          },
+        ]);
+        continue;
+      }
+
+      if (hasA || hasB) {
+        this.messageReactionsByMessageId.delete(id);
       }
     }
   }
@@ -5087,6 +5206,12 @@ private async decryptPreviewString(
       const insideReactionUi = !!targetEl?.closest('.msg-reaction-box');
       if (!insideReactionUi) {
         this.openIncomingReactionPickerMessageId = null;
+      }
+    }
+    if (this.openReactionDetailsMessageId !== null) {
+      const insideReactionDetailUi = !!targetEl?.closest('.msg-reaction-indicator');
+      if (!insideReactionDetailUi) {
+        this.openReactionDetailsMessageId = null;
       }
     }
 
@@ -6076,66 +6201,16 @@ private async decryptPreviewString(
     return formatDuration(ms);
   }
 
-  private getMensajeFecha(m: MensajeDTO): Date | null {
-    const raw =
-      (m as any)?.fechaEnvio || (m as any)?.fecha || (m as any)?.createdAt;
-    if (!raw) return null;
-    const date = new Date(raw);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  private getDayKey(date: Date): string {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-
-  private isSameDay(a: Date, b: Date): boolean {
-    return this.getDayKey(a) === this.getDayKey(b);
-  }
-
   public shouldShowDateSeparator(index: number): boolean {
-    const current = this.getMensajeFecha(this.mensajesSeleccionados[index]);
-    if (!current) return false;
-
-    if (index === 0) return true;
-    const previous = this.getMensajeFecha(this.mensajesSeleccionados[index - 1]);
-    if (!previous) return true;
-
-    return !this.isSameDay(current, previous);
+    return shouldShowDateSeparatorForMessages(this.mensajesSeleccionados, index);
   }
 
   public getDateSeparatorLabel(m: MensajeDTO): string {
-    const current = this.getMensajeFecha(m);
-    if (!current) return '';
-
-    const now = new Date();
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (this.isSameDay(current, now)) return 'Hoy';
-    if (this.isSameDay(current, yesterday)) return 'Ayer';
-    if (current.getFullYear() === now.getFullYear()) {
-      return new Intl.DateTimeFormat('es-ES', {
-        day: 'numeric',
-        month: 'short',
-      }).format(current);
-    }
-
-    return new Intl.DateTimeFormat('es-ES', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    }).format(current);
+    return getDateSeparatorLabelForMessage(m);
   }
 
   public formatMensajeHora(m: MensajeDTO): string {
-    const d = this.getMensajeFecha(m);
-    if (!d || Number.isNaN(d.getTime())) return '';
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    return `${hh}:${mm}`;
+    return formatMensajeHoraFromMessage(m);
   }
 
   /**
@@ -6570,12 +6645,12 @@ private async decryptPreviewString(
     const base = (this.chats || []).filter((chat) =>
       this.matchesChatListFilter(chat)
     );
-    const q = this._norm(this.busquedaChat);
+    const q = normalizeSearchText(this.busquedaChat);
     if (!q) return base;
 
     return base
       .map((c, idx) => {
-        const nombre = this._norm(c?.nombre || '');
+        const nombre = normalizeSearchText(c?.nombre || '');
         let score = 0;
         if (nombre.startsWith(q)) score = 2; // mejor match
         else if (nombre.includes(q)) score = 1; // match normal
@@ -6591,7 +6666,7 @@ private async decryptPreviewString(
         if (unreadDiff !== 0) return unreadDiff;
 
         // 3) por fecha (más reciente arriba)
-        const fd = this._compareFechaDesc(a.c.ultimaFecha, b.c.ultimaFecha);
+        const fd = compareFechaDesc(a.c.ultimaFecha, b.c.ultimaFecha);
         if (fd !== 0) return fd;
 
         // 4) estable: índice original
@@ -6603,16 +6678,6 @@ private async decryptPreviewString(
   // ==========
   // PRIVATE METHODS (helpers internos)
   // ==========
-
-  /**
-   * Limpia strings eliminando acentos, espacios o mayúsculas para facilitar búsquedas sin errores.
-   */
-  private _norm(s: string): string {
-    return (s || '')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, ''); // quita diacríticos
-  }
 
   private matchesChatListFilter(chat: any): boolean {
     switch (this.chatListFilter) {
@@ -6626,15 +6691,6 @@ private async decryptPreviewString(
       default:
         return true;
     }
-  }
-
-  /**
-   * Ordena y decide qué fecha es más reciente entre dos valores de tiempo. (A versus B).
-   */
-  private _compareFechaDesc(a: any, b: any): number {
-    const ta = a ? new Date(a).getTime() : 0;
-    const tb = b ? new Date(b).getTime() : 0;
-    return tb - ta;
   }
 
   private normalizeOwnProfilePhoto(url?: string | null): string | null {
@@ -8377,13 +8433,7 @@ private async decryptPreviewString(
   }
 
   public formatAttachmentSize(bytes: number): string {
-    const size = Number(bytes || 0);
-    if (size <= 0) return '0 B';
-    if (size < 1024) return `${size} B`;
-    const kb = size / 1024;
-    if (kb < 1024) return `${kb.toFixed(1)} KB`;
-    const mb = kb / 1024;
-    return `${mb.toFixed(1)} MB`;
+    return formatAttachmentSizeUtil(bytes);
   }
 
   public async enviarMensajeDesdeComposer(): Promise<void> {
@@ -8728,6 +8778,7 @@ private async decryptPreviewString(
     this.mensajeNuevo = '';
     this.mostrarMenuOpciones = false;
     this.openIncomingReactionPickerMessageId = null;
+    this.openReactionDetailsMessageId = null;
     this.clearPendingAttachment();
     this.closeEmojiPicker(true);
     this.closeMessageSearchPanel();
@@ -8858,8 +8909,9 @@ private async decryptPreviewString(
     this.decryptedImageUrlByCacheKey.clear();
     this.decryptedImageCaptionByCacheKey.clear();
     this.decryptingImageByCacheKey.clear();
-    this.incomingQuickReactionsByMessageId.clear();
+    this.messageReactionsByMessageId.clear();
     this.openIncomingReactionPickerMessageId = null;
+    this.openReactionDetailsMessageId = null;
   }
 }
 

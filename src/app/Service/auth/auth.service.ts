@@ -10,6 +10,7 @@ import { DashboardStatsDTO } from '../../Interface/DashboardStatsDTO';
 import { PageResponse } from '../../Interface/PageResponse';
 import { UserE2EStateDTO } from '../../Interface/UserE2EStateDTO';
 import { UserE2ERekeyRequestDTO } from '../../Interface/UserE2ERekeyRequestDTO';
+import { UnbanAppealDTO, UnbanAppealEstado } from '../../Interface/UnbanAppealDTO';
 
 import { PreKeyBundleDTO, UploadBundleDTO } from '../../Interface/UploadBundleDTO';
 
@@ -116,6 +117,88 @@ export class AuthService {
 
   desbanearUsuario(id: number): Observable<any> {
     return this.http.post(`${this.baseUrl}/admin/${id}/unban`, {});
+  }
+
+  solicitarDesbaneo(payload: {
+    email: string;
+    motivo: string;
+  }): Observable<{ mensaje: string }> {
+    return this.http.post<{ mensaje: string }>(
+      `${this.baseUrl}/solicitudes-desbaneo`,
+      payload
+    );
+  }
+
+  listarSolicitudesDesbaneoAdmin(
+    page: number = 0,
+    size: number = 20,
+    estado?: UnbanAppealEstado | '' | UnbanAppealEstado[],
+    sort: string = 'createdAt,desc'
+  ): Observable<PageResponse<UnbanAppealDTO>> {
+    let params = new HttpParams()
+      .set('page', String(Number.isFinite(page) ? page : 0))
+      .set('size', String(Number.isFinite(size) ? size : 20));
+
+    const normalizedSort = String(sort || '').trim();
+    if (normalizedSort) {
+      params = params.set('sort', normalizedSort);
+    }
+
+    if (Array.isArray(estado)) {
+      const estados = estado
+        .map((x) => String(x || '').trim().toUpperCase())
+        .filter(Boolean);
+      if (estados.length > 0) {
+        params = params.set('estados', estados.join(','));
+      }
+    } else {
+      const normalizedEstado = String(estado || '').trim().toUpperCase();
+      if (normalizedEstado) {
+        params = params.set('estado', normalizedEstado);
+      }
+    }
+
+    return this.http.get<PageResponse<UnbanAppealDTO>>(
+      `${this.baseUrl}/admin/solicitudes-desbaneo`,
+      { params }
+    );
+  }
+
+  getSolicitudesDesbaneoStatsAdmin(tz?: string): Observable<{
+    pendientes: number;
+    enRevision: number;
+    aprobadas: number;
+    rechazadas: number;
+    abiertas: number;
+    hoyReportantesUnicos?: number;
+    fechaReferencia?: string;
+    timezone?: string;
+  }> {
+    let params = new HttpParams();
+    const normalizedTz = String(tz || '').trim();
+    if (normalizedTz) {
+      params = params.set('tz', normalizedTz);
+    }
+    return this.http.get<{
+      pendientes: number;
+      enRevision: number;
+      aprobadas: number;
+      rechazadas: number;
+      abiertas: number;
+      hoyReportantesUnicos?: number;
+      fechaReferencia?: string;
+      timezone?: string;
+    }>(`${this.baseUrl}/admin/solicitudes-desbaneo/stats`, { params });
+  }
+
+  actualizarEstadoSolicitudDesbaneoAdmin(
+    id: number,
+    payload: { estado: UnbanAppealEstado; resolucionMotivo?: string | null }
+  ): Observable<UnbanAppealDTO> {
+    return this.http.patch<UnbanAppealDTO>(
+      `${this.baseUrl}/admin/solicitudes-desbaneo/${id}/estado`,
+      payload
+    );
   }
 
   solicitarCodigoCambioPasswordPerfil(): Observable<{ mensaje: string }> {

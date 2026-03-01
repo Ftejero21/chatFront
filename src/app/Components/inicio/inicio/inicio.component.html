@@ -588,8 +588,44 @@
                     </div>
                   </div>
 
-                  <div *ngIf="incomingQuickReaction(mensaje) as reaction" class="msg-reaction-row">
-                    <span class="msg-reaction-pill">{{ reaction }}</span>
+                  <div
+                    *ngIf="incomingQuickReaction(mensaje) as reaction"
+                    class="msg-reaction-row msg-reaction-indicator"
+                    (click)="$event.stopPropagation()"
+                  >
+                    <button
+                      type="button"
+                      class="msg-reaction-pill msg-reaction-pill--button"
+                      [attr.aria-label]="'Ver reacciones'"
+                      [attr.aria-expanded]="isMessageReactionDetailsOpen(mensaje)"
+                      (click)="toggleMessageReactionDetails(mensaje, $event)"
+                    >
+                      {{ reaction }}
+                    </button>
+                    <div
+                      *ngIf="isMessageReactionDetailsOpen(mensaje)"
+                      class="msg-reaction-detail-dropdown"
+                      (click)="$event.stopPropagation()"
+                    >
+                      <div
+                        class="msg-reaction-detail-item"
+                        *ngFor="let item of messageReactionDetails(mensaje); trackBy: trackMessageReaction"
+                      >
+                        <img
+                          *ngIf="item.photoUrl; else reactionUserInitials"
+                          class="msg-reaction-detail-avatar"
+                          [src]="item.photoUrl"
+                          [alt]="item.name"
+                        />
+                        <ng-template #reactionUserInitials>
+                          <span class="msg-reaction-detail-avatar-fallback">
+                            {{ item.initials }}
+                          </span>
+                        </ng-template>
+                        <span class="msg-reaction-detail-name">{{ item.name }}</span>
+                        <span class="msg-reaction-detail-emoji">{{ item.emoji }}</span>
+                      </div>
+                    </div>
                   </div>
 
                 </div>

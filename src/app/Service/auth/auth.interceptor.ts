@@ -1,9 +1,20 @@
 import { Injectable } from '@angular/core';
-import { HttpRequest, HttpHandler, HttpEvent, HttpInterceptor } from '@angular/common/http';
+import {
+  HttpRequest,
+  HttpHandler,
+  HttpEvent,
+  HttpInterceptor,
+  HttpErrorResponse,
+} from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+import { throwError } from 'rxjs';
+import { RateLimitService } from '../rate-limit/rate-limit.service';
 
 @Injectable()
 export class AuthInterceptor implements HttpInterceptor {
+  constructor(private rateLimitService: RateLimitService) {}
+
   intercept(request: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
     const token = localStorage.getItem('token');
 
@@ -17,6 +28,15 @@ export class AuthInterceptor implements HttpInterceptor {
     } else {
     }
 
-    return next.handle(request);
+    return next.handle(request).pipe(
+      catchError((error: HttpErrorResponse) => {
+        this.rateLimitService.registerHttpRateLimit(
+          request.method,
+          request.url,
+          error
+        );
+        return throwError(() => error);
+      })
+    );
   }
 }

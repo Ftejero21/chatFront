@@ -280,6 +280,29 @@
 .link:hover { text-decoration: underline; }
 .switch { text-align: center; color: #475569; margin-top: 8px; }
 
+.btn-ban-appeal {
+  align-self: center;
+  margin-top: 2px;
+  border: 1px solid #fca5a5;
+  background: #fff1f2;
+  color: #b91c1c;
+  border-radius: 9999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.08s ease;
+}
+
+.btn-ban-appeal:hover {
+  background: #ffe4e6;
+  border-color: #f87171;
+}
+
+.btn-ban-appeal:active {
+  transform: translateY(1px);
+}
+
 /* ===== Avatar (registro) ===== */
 .avatar-wrap {
   position: relative;
