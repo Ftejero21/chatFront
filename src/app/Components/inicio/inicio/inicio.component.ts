@@ -6,12 +6,20 @@
   NgZone,
   ViewChild,
 } from '@angular/core';
-import { ChatService } from '../../../Service/chat/chat.service';
+import {
+  ChatService,
+  ProgramarMensajeRequestDTO,
+  ProgramarMensajeResponseDTO,
+  PollVoteRestRequestDTO,
+} from '../../../Service/chat/chat.service';
 import { MensajeDTO } from '../../../Interface/MensajeDTO';
-import { WebSocketService } from '../../../Service/WebSocket/web-socket.service';
+import {
+  PollVoteWSRequestDTO,
+  WebSocketService,
+} from '../../../Service/WebSocket/web-socket.service';
 import { MensajeriaService } from '../../../Service/mensajeria/mensajeria.service';
 import { Client } from '@stomp/stompjs';
-import { firstValueFrom } from 'rxjs';
+import { finalize, firstValueFrom } from 'rxjs';
 import { AuthService } from '../../../Service/auth/auth.service';
 import {
   avatarOrDefault,
@@ -39,11 +47,18 @@ import {
   mergeMessagesById,
   normalizeSearchText,
   isPreviewDeleted,
+  parsePollPayload,
   isUnseenCountWS,
+  isPollMessageLike,
+  PollOptionPayload,
+  PollOptionVoterPayload,
+  PollPayloadV1,
   joinMembersLine,
   parseAudioDurationMs,
   parseAudioPreviewText,
   resolveMediaUrl,
+  resolveTemporalExpiredPlaceholderText,
+  isTemporalExpiredMessageLike,
   shouldShowDateSeparatorForMessages,
   updateChatPreview,
   E2EDebugContext,
@@ -66,10 +81,18 @@ import { CallInviteWS } from '../../../Interface/CallInviteWS';
 import { MessagueSalirGrupoDTO } from '../../../Interface/MessagueSalirGrupoDTO';
 import { Router } from '@angular/router';
 import Swal from 'sweetalert2';
+import JSZip from 'jszip';
 import { PerfilUsuarioSavePayload } from '../perfil-usuario/perfil-usuario.component';
+import { PollDraftPayload } from '../poll-composer/poll-composer.component';
+import { ScheduleMessageDraftPayload } from '../schedule-message-composer/schedule-message-composer.component';
 import { SessionService } from '../../../Service/session/session.service';
 import { ChatListItemDTO } from '../../../Interface/ChatListItemDTO';
 import { MensajeReaccionDTO } from '../../../Interface/MensajeReaccionDTO';
+import {
+  PollVotesPanelData,
+  PollVotesPanelOption,
+  PollVotesPanelVoter,
+} from '../../../Interface/PollVotesPanel';
 
 // Bootstrap (modales)
 declare const bootstrap: any;
@@ -157,6 +180,38 @@ interface BuiltOutgoingImageE2E {
   expectedRecipientIds: number[];
 }
 
+interface FileE2EBasePayload {
+  type: 'E2E_FILE' | 'E2E_GROUP_FILE';
+  ivFile: string;
+  fileUrl: string;
+  fileMime?: string;
+  fileNombre?: string;
+  fileSizeBytes?: number;
+  captionIv?: string;
+  captionCiphertext?: string;
+  forEmisor: string;
+  forAdmin: string;
+}
+
+interface FileE2EIndividualPayload extends FileE2EBasePayload {
+  type: 'E2E_FILE';
+  forReceptor: string;
+}
+
+interface FileE2EGroupPayload extends FileE2EBasePayload {
+  type: 'E2E_GROUP_FILE';
+  forReceptores: Record<string, string>;
+}
+
+type FileE2EPayload = FileE2EIndividualPayload | FileE2EGroupPayload;
+
+interface BuiltOutgoingFileE2E {
+  payload: FileE2EPayload;
+  encryptedBlob: Blob;
+  forReceptoresKeys: string[];
+  expectedRecipientIds: number[];
+}
+
 interface ChatHistoryState {
   messages: MensajeDTO[];
   page: number;
@@ -211,6 +266,42 @@ interface MessageReactionViewItem {
   initials: string;
 }
 
+interface TemporaryMessageOption {
+  label: string;
+  seconds: number | null;
+  badge: string;
+}
+
+type ComposerActionType = 'archivo' | 'encuesta';
+
+interface ChatPollVoterView {
+  userId: number;
+  photoUrl: string | null;
+  initials: string;
+  votedAt?: string | null;
+}
+
+interface ChatPollOptionView {
+  id: string;
+  text: string;
+  count: number;
+  percent: number;
+  selected: boolean;
+  isLeading: boolean;
+  voters: ChatPollVoterView[];
+}
+
+interface PollVoteEntryView {
+  userId: number;
+  label: string;
+  fullName: string;
+  photoUrl: string | null;
+  initials: string;
+  votedAt: string | null;
+  votedAtLabel: string;
+  isCurrentUser: boolean;
+}
+
 /**
  * Representa los diferentes estados en los que puede estar un usuario.
  */
@@ -262,37 +353,62 @@ export class InicioComponent {
   public invitesPendientes: GroupInviteWS[] = []; // tarjetas “te invitaron…”
   public panelNotificacionesAbierto = false;
 
-  public gruposEscribiendo = new Set<number>(); // chatId → hay alguien escribiendo
+  public gruposEscribiendo = new Set<number>(); // chatId ? hay alguien escribiendo
   public quienEscribeEnGrupo = new Map<number, string>();
+  public gruposGrabandoAudio = new Set<number>(); // chatId ? hay alguien grabando audio
+  public quienGrabaAudioEnGrupo = new Map<number, string>();
 
   public trackMensaje = (_: number, m: MensajeDTO) => m.id ?? _;
   public trackIndex = (_: number, __: unknown) => _;
 
   public mensajeNuevo: string = '';
-  public readonly incomingReactionChoices = ['👍', '❤️', '😂', '😮', '😢'];
+  public readonly incomingReactionChoices = ['??', '??', '??', '??', '??'];
   private readonly incomingReactionChoicesSet = new Set(
     this.incomingReactionChoices
   );
   public recBars = Array.from({ length: 14 });
   public showEmojiPicker = false;
-  public showEmojiPickerMounted = false;
+  public showComposeActionsPopup = false;
+  public showTemporaryMessagePopup = false;
+  public showGroupPollComposer = false;
+  public showScheduleMessageComposer = false;
+  public showChatListHeaderMenu = false;
+  public readonly temporaryMessageOptions: TemporaryMessageOption[] = [
+    { label: 'Desactivar', seconds: null, badge: '' },
+    { label: '24 horas', seconds: 24 * 60 * 60, badge: '24h' },
+    { label: '7 horas', seconds: 7 * 60 * 60, badge: '7h' },
+    { label: '2 minutos', seconds: 2 * 60, badge: '2m' },
+  ];
   public attachmentUploading = false;
   public pendingAttachmentFile: File | null = null;
   public pendingAttachmentPreviewUrl: string | null = null;
   public pendingAttachmentIsImage = false;
+  public messageAreaDragActive = false;
+  public showFilePreview = false;
+  public filePreviewSrc = '';
+  public filePreviewName = '';
+  public filePreviewSize = '';
+  public filePreviewType = '';
+  public filePreviewMime = '';
 
   public chatActual: any = null;
   public usuariosEscribiendo: Set<number> = new Set();
+  public usuariosGrabandoAudio: Set<number> = new Set();
 
   @ViewChild('contenedorMensajes') private contenedorMensajes!: ElementRef;
   @ViewChild('messageInput')
   private messageInputRef?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('attachmentInput')
   private attachmentInputRef?: ElementRef<HTMLInputElement>;
+  @ViewChild('composeActionsAnchor')
+  private composeActionsAnchorRef?: ElementRef<HTMLElement>;
   @ViewChild('emojiAnchor')
   private emojiAnchorRef?: ElementRef<HTMLElement>;
+  @ViewChild('temporaryMessageAnchor')
+  private temporaryMessageAnchorRef?: ElementRef<HTMLElement>;
 
   public usuarioEscribiendo: boolean = false;
+  public usuarioGrabandoAudio: boolean = false;
 
   public estadoPropio = 'Conectado';
   public estadoActual: string = 'Conectado';
@@ -308,6 +424,7 @@ export class InicioComponent {
   public profileCodeTimeLeftSec = 0;
 
   public escribiendoHeader = '';
+  public audioGrabandoHeader = '';
 
   public audioStates = new Map<
     number,
@@ -353,13 +470,23 @@ export class InicioComponent {
       .length;
   }
 
+  public get blockedMeIdsArray(): number[] {
+    return Array.from(this.meHanBloqueadoIds || []);
+  }
+
+  public get leftGroupIdsArray(): number[] {
+    return Array.from(this.getLeftGroupIdsSet());
+  }
+
   public busquedaUsuario = '';
   public mostrarMenuOpciones = false;
   public openMensajeMenuId: number | null = null;
   private messageReactionsByMessageId = new Map<number, MessageReactionStateItem[]>();
+  private pollLocalSelectionByMessageId = new Map<number, Set<string>>();
   public openIncomingReactionPickerMessageId: number | null = null;
   public openReactionDetailsMessageId: number | null = null;
   public mensajeRespuestaObjetivo: MensajeDTO | null = null;
+  public mensajeEdicionObjetivo: MensajeDTO | null = null;
   public forwardModalOpen = false;
   public mensajeReenvioOrigen: MensajeDTO | null = null;
   public forwardSelectedChatIds = new Set<number>();
@@ -370,12 +497,23 @@ export class InicioComponent {
   public showMessageSearchPanel = false;
   public showMessageSearchPanelMounted = false;
   private messageSearchCloseTimer: any = null;
+  public showPollVotesPanel = false;
+  public showPollVotesPanelMounted = false;
+  public pollVotesPanelMessageId: number | null = null;
+  private pollVotesCloseTimer: any = null;
+  private scheduleCreateInFlight = false;
+  private scheduledDeliveryProbeTimers = new Set<ReturnType<typeof setTimeout>>();
   public highlightedMessageId: number | null = null;
   private highlightedMessageTimer: any = null;
   private messageSearchNavigationInFlight = false;
-  private emojiPickerCloseTimer: any = null;
   private composeCursorStart = 0;
   private composeCursorEnd = 0;
+  private messageAreaDragDepth = 0;
+  private readonly MAX_ATTACHMENT_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+  private readonly DELETED_MESSAGE_RETENTION_HOURS = 3;
+  private readonly DELETED_MESSAGE_RETENTION_MS =
+    this.DELETED_MESSAGE_RETENTION_HOURS * 60 * 60 * 1000;
+  private restoringDeletedMessageIds = new Set<number>();
   public allUsuariosMock: Array<{
     id: number;
     nombre: string;
@@ -412,9 +550,11 @@ export class InicioComponent {
   // ==========
   // PRIVATE FIELDS (solo uso interno)
   // ==========
+  private readonly MESSAGE_EDIT_WINDOW_MS = 30 * 60 * 1000;
   private suscritosEstado = new Set<number>();
   private mensajesMarcadosComoLeidosPendientes: number[] = [];
   private escribiendoTimeout: any;
+  private grabandoAudioTimeout: any;
   private callInfoTimer?: any;
   private notifsLoadedOnce = false;
   private aiWaitTicker?: any;
@@ -436,6 +576,13 @@ export class InicioComponent {
   private topbarEstadoSuscritos = new Set<number>();
   private enrichedUsers = new Set<number>();
   private HANDLED_INVITES_KEY = 'handledInviteIds';
+  private readonly LEFT_GROUP_IDS_KEY = 'leftGroupIds';
+  private readonly LEFT_GROUP_NOTICE_KEY = 'leftGroupNoticeByChat';
+  private readonly CHAT_DRAFTS_KEY = 'chatDraftsByChat';
+  private readonly TEMPORARY_CHAT_SETTINGS_KEY = 'chatTemporarySecondsByChat';
+  private draftByChatId = new Map<number, string>();
+  private temporarySecondsByChatId = new Map<number, number>();
+  private composerDraftPrefixVisible = false;
   private mediaRecorder?: MediaRecorder;
   private micStream?: MediaStream;
   private audioChunks: BlobPart[] = [];
@@ -460,6 +607,8 @@ export class InicioComponent {
   private stompClient!: Client;
 
   private typingSetHeader = new Set<string>();
+  private audioSetHeader = new Set<string>();
+  private lastAudioPingMs = 0;
   private e2eWsErrorsBound = false;
   private pendingGroupTextSendByChatId = new Map<number, PendingGroupTextSendContext>();
   private retryingGroupTextSendByChatId = new Set<number>();
@@ -469,6 +618,9 @@ export class InicioComponent {
   private decryptedImageUrlByCacheKey = new Map<string, string>();
   private decryptedImageCaptionByCacheKey = new Map<string, string>();
   private decryptingImageByCacheKey = new Map<string, Promise<string | null>>();
+  private decryptedFileUrlByCacheKey = new Map<string, string>();
+  private decryptedFileCaptionByCacheKey = new Map<string, string>();
+  private decryptingFileByCacheKey = new Map<string, Promise<string | null>>();
 
   public busquedaChat: string = '';
   public chatListFilter: ChatListFilter = 'TODOS';
@@ -498,6 +650,7 @@ export class InicioComponent {
     private sessionService: SessionService
   ) {
     window.addEventListener('beforeunload', () => {
+      this.persistActiveChatDraft();
       this.wsService.enviarEstadoDesconectado();
     });
   }
@@ -517,11 +670,13 @@ export class InicioComponent {
     this.inicializarDeteccionInactividad();
 
     if (!id) {
-      console.warn('⚠️ No hay usuario logueado');
+      console.warn('?? No hay usuario logueado');
       return;
     }
 
     this.usuarioActualId = parseInt(id, 10);
+    this.loadChatDraftsFromStorage();
+    this.loadTemporarySettingsFromStorage();
     void this.ensureLocalE2EKeysAndSyncPublicKey(this.usuarioActualId);
     void this.ensureAuditPublicKeyForE2E();
 
@@ -541,7 +696,7 @@ export class InicioComponent {
       } catch (e) {}
     }
 
-    // 🔐 Inicializa claves locales y pública bundle (si no existe)
+    // ?? Inicializa claves locales y pública bundle (si no existe)
 
     // Contador unseen inicial
     this.notificationService.unseenCount(this.usuarioActualId).subscribe({
@@ -549,7 +704,7 @@ export class InicioComponent {
         this.unseenCount = n;
         this.cdr.markForCheck();
       },
-      error: (e) => console.error('❌ unseenCount:', e),
+      error: (e) => console.error('? unseenCount:', e),
     });
 
     // Sincroniza lista de tarjetas (por si te perdiste WS)
@@ -561,10 +716,9 @@ export class InicioComponent {
       this.wsService.esperarConexion(() => {
         this.bindBanWsListener();
         this.bindE2EWsErrorListener();
-        // console.log('✅ WebSocket conectado, inicializando funciones');
         this.wsService.enviarEstadoConectado();
         this.prepararSuscripcionesWebRTC();
-        // 📞 Llamadas: invitaciones entrantes (cuando me llaman)
+        // ?? Llamadas: invitaciones entrantes (cuando me llaman)
         this.wsService.suscribirseALlamadasEntrantes(
           this.usuarioActualId,
           (invite) => {
@@ -605,7 +759,7 @@ export class InicioComponent {
                   this.callInfoMessage = null;
                 }
               } else {
-                // ⛔ Rechazada
+                // ? Rechazada
                 if (soyCaller) {
                   // SOLO el caller ve el mensaje
                   const nombre =
@@ -641,11 +795,11 @@ export class InicioComponent {
           }
         );
 
-        // 📞 Llamadas: fin (colgar)
+        // ?? Llamadas: fin (colgar)
         this.wsService.suscribirseAFinLlamada(this.usuarioActualId, (end) => {
           this.ngZone.run(() => {
             if (this.ultimaInvite && end.callId === this.ultimaInvite.callId) {
-              this.ultimaInvite = undefined; // ⬅️ quita el banner
+              this.ultimaInvite = undefined; // ?? quita el banner
               this.currentCallId = undefined;
               this.callInfoMessage = null;
               this.callStatusClass = null;
@@ -661,7 +815,7 @@ export class InicioComponent {
             const colgoElOtro = Number(end.byUserId) !== Number(yo);
 
             if (colgoElOtro) {
-              // 🧍 nombre del peer (si lo tienes en el chat actual)
+              // ?? nombre del peer (si lo tienes en el chat actual)
               const peer = this.chatActual?.receptor;
               const peerNombre =
                 ((peer?.nombre || '') + ' ' + (peer?.apellido || '')).trim() ||
@@ -690,7 +844,7 @@ export class InicioComponent {
           });
         });
 
-        // 🔔 Notificaciones (unseen / invites / responses)
+        // ?? Notificaciones (unseen / invites / responses)
         this.wsService.suscribirseANotificaciones(
           this.usuarioActualId,
           (raw: unknown) => {
@@ -701,7 +855,7 @@ export class InicioComponent {
                   uid != null &&
                   Number(uid) !== Number(this.usuarioActualId)
                 ) {
-                  return; // contador de otro usuario → ignorar
+                  return; // contador de otro usuario ? ignorar
                 }
                 this.unseenCount = raw.unseenCount;
               } else if (isGroupInviteWS(raw)) {
@@ -746,16 +900,16 @@ export class InicioComponent {
           }
         );
 
-        // 🔔 Reconfirmar unseen
+        // ?? Reconfirmar unseen
         this.notificationService.unseenCount(this.usuarioActualId).subscribe({
           next: (n) => {
             this.unseenCount = n;
             this.cdr.markForCheck();
           },
-          error: (e) => console.error('❌ unseenCount:', e),
+          error: (e) => console.error('? unseenCount:', e),
         });
 
-        // 📨 Mensajes nuevos (individual)
+        // ?? Mensajes nuevos (individual)
         this.wsService.suscribirseAChat(
           this.usuarioActualId,
           async (mensajeRaw: any) => {
@@ -768,13 +922,19 @@ export class InicioComponent {
               );
               return;
             }
-            const mensaje = mensajeRaw as MensajeDTO;
-            console.log('[INICIO] mensaje WS recibido (raw)', mensaje);
+            let mensaje = mensajeRaw as MensajeDTO;
+            const wsEmisorId = Number(
+              (mensaje as any)?.emisorId ?? (mensaje as any)?.emisor?.id ?? 0
+            );
+            const wsReceptorId = Number(
+              (mensaje as any)?.receptorId ?? (mensaje as any)?.receptor?.id ?? 0
+            );
+            const decryptInput = this.resolveDecryptInputFromMessageLike(mensaje);
             // NOTE: decrypting before entering ngZone run to keep it linear
             mensaje.contenido = await this.decryptContenido(
-              mensaje.contenido,
-              mensaje.emisorId,
-              mensaje.receptorId,
+              decryptInput,
+              wsEmisorId,
+              wsReceptorId,
               {
                 chatId: Number(mensaje?.chatId),
                 mensajeId: Number(mensaje?.id),
@@ -791,21 +951,49 @@ export class InicioComponent {
               mensajeId: Number(mensaje?.id),
               source: 'ws-individual-image',
             });
-            console.log('[INICIO] mensaje WS tras decrypt', mensaje);
-
+            await this.hydrateIncomingFileMessage(mensaje, {
+              chatId: Number(mensaje?.chatId),
+              mensajeId: Number(mensaje?.id),
+              source: 'ws-individual-file',
+            });
+            mensaje = this.normalizeMensajeEditadoFlag(mensaje);
             this.ngZone.run(async () => {
+              const isSystemIncoming = this.isSystemMessage(mensaje);
+              const isOwnGroupExpulsion =
+                this.maybeApplyGroupExpulsionStateFromMessage(mensaje);
+              if (isOwnGroupExpulsion) {
+                this.cdr.markForCheck();
+                return;
+              }
+              if (isSystemIncoming && this.isPrivateExpulsionNoticeSystemMessage(mensaje)) {
+                const chatId = Number(mensaje?.chatId || 0);
+                const receptorId = Number(mensaje?.receptorId || 0);
+                if (
+                  Number.isFinite(chatId) &&
+                  chatId > 0 &&
+                  receptorId === Number(this.usuarioActualId)
+                ) {
+                  const notice =
+                    String(mensaje?.contenido || '').trim() ||
+                    'Has sido expulsado del grupo';
+                  this.markCurrentUserOutOfGroup(
+                    chatId,
+                    notice,
+                    mensaje,
+                    false
+                  );
+                }
+                this.cdr.markForCheck();
+                return;
+              }
               const esDelChatActual =
                 this.chatActual && mensaje.chatId === this.chatActual.id;
-              console.log('[INICIO] routing mensaje', {
-                chatActualId: this.chatActual?.id,
-                mensajeChatId: mensaje.chatId,
-                esDelChatActual,
-                usuarioActualId: this.usuarioActualId,
-                emisorId: mensaje.emisorId,
-                receptorId: mensaje.receptorId,
-              });
-
-              if (mensaje.activo === false) return;
+              if (
+                mensaje.activo === false &&
+                !this.isTemporalExpiredMessage(mensaje)
+              ) {
+                return;
+              }
 
               if (esDelChatActual) {
                 const i = this.mensajesSeleccionados.findIndex(
@@ -834,9 +1022,6 @@ export class InicioComponent {
                   !mensaje.leido &&
                   mensaje.id != null
                 ) {
-                  console.log('[INICIO] marcar leido inmediato (chat abierto)', {
-                    mensajeId: mensaje.id,
-                  });
                   this.wsService.marcarMensajesComoLeidos([mensaje.id]);
                 }
 
@@ -846,7 +1031,7 @@ export class InicioComponent {
 
                 // preview in-place
                 const chat = this.chats.find((c) => c.id === mensaje.chatId);
-                if (chat) {
+                if (chat && this.shouldRefreshPreviewWithIncomingMessage(chat, mensaje)) {
                   const { preview, fecha, lastId } = computePreviewPatch(
                     mensaje,
                     chat,
@@ -867,26 +1052,25 @@ export class InicioComponent {
                 if (mensaje.receptorId === this.usuarioActualId) {
                   const item = this.chats.find((c) => c.id === mensaje.chatId);
                   if (item) {
-                    item.unreadCount = (item.unreadCount || 0) + 1;
-                    console.log('[INICIO] unreadCount++ chat existente', {
-                      chatId: mensaje.chatId,
-                      nuevoUnread: item.unreadCount,
-                      mensajeId: mensaje.id,
-                    });
-                    const { preview, fecha, lastId } = computePreviewPatch(
-                      mensaje,
-                      item,
-                      this.usuarioActualId
-                    );
-                    item.ultimaMensaje = preview;
-                    item.ultimaFecha = fecha;
-                    item.lastPreviewId = lastId;
-                    this.stampChatLastMessageFieldsFromMessage(item, mensaje);
-                    void this.syncChatItemLastPreviewMedia(
-                      item,
-                      mensaje,
-                      'ws-individual-list-existing'
-                    );
+                    if (!this.isMensajeEditado(mensaje) && !isSystemIncoming) {
+                      item.unreadCount = (item.unreadCount || 0) + 1;
+                    }
+                    if (this.shouldRefreshPreviewWithIncomingMessage(item, mensaje)) {
+                      const { preview, fecha, lastId } = computePreviewPatch(
+                        mensaje,
+                        item,
+                        this.usuarioActualId
+                      );
+                      item.ultimaMensaje = preview;
+                      item.ultimaFecha = fecha;
+                      item.lastPreviewId = lastId;
+                      this.stampChatLastMessageFieldsFromMessage(item, mensaje);
+                      void this.syncChatItemLastPreviewMedia(
+                        item,
+                        mensaje,
+                        'ws-individual-list-existing'
+                      );
+                    }
                   } else {
                     // Mensaje entrante para mi en otro chat (posible chat nuevo)
                     if (mensaje.receptorId === this.usuarioActualId) {
@@ -934,6 +1118,10 @@ export class InicioComponent {
                           ultimaMensajeAudioUrl: null,
                           ultimaMensajeAudioMime: null,
                           ultimaMensajeAudioDuracionMs: null,
+                          ultimaMensajeFileUrl: null,
+                          ultimaMensajeFileMime: null,
+                          ultimaMensajeFileNombre: null,
+                          ultimaMensajeFileSizeBytes: null,
                           __ultimaMensajeRaw: '',
                           __ultimaTipo: null,
                           __ultimaEsAudio: false,
@@ -944,6 +1132,13 @@ export class InicioComponent {
                           __ultimaImagenUrl: '',
                           __ultimaImagenPayloadKey: '',
                           __ultimaImagenDecryptOk: false,
+                          __ultimaEsArchivo: false,
+                          __ultimaArchivoUrl: '',
+                          __ultimaArchivoPayloadKey: '',
+                          __ultimaArchivoDecryptOk: false,
+                          __ultimaArchivoNombre: '',
+                          __ultimaArchivoMime: '',
+                          __ultimaArchivoCaption: '',
                         };
 
                         // Inserta el chat arriba
@@ -955,7 +1150,7 @@ export class InicioComponent {
                           Number(mensaje.chatId)
                         );
 
-                        // Suscribir estado del peer (string → normalizado)
+                        // Suscribir estado del peer (string ? normalizado)
                         if (
                           peerId &&
                           peerId !== this.usuarioActualId &&
@@ -980,30 +1175,48 @@ export class InicioComponent {
                       }
 
                       // Actualiza preview y contador de no leidos
-                      item.unreadCount = (item.unreadCount || 0) + 1;
-                      console.log('[INICIO] unreadCount++ chat creado en caliente', {
-                        chatId: item.id,
-                        nuevoUnread: item.unreadCount,
-                        mensajeId: mensaje.id,
-                      });
+                      if (!this.isMensajeEditado(mensaje) && !isSystemIncoming) {
+                        item.unreadCount = (item.unreadCount || 0) + 1;
+                      }
 
-                      const { preview, fecha, lastId } = computePreviewPatch(
-                        mensaje,
-                        item,
-                        this.usuarioActualId
-                      );
-                      item.ultimaMensaje = preview;
-                      item.ultimaFecha = fecha;
-                      item.lastPreviewId = lastId;
-                      this.stampChatLastMessageFieldsFromMessage(item, mensaje);
-                      void this.syncChatItemLastPreviewMedia(
-                        item,
-                        mensaje,
-                        'ws-individual-list-created'
-                      );
+                      if (this.shouldRefreshPreviewWithIncomingMessage(item, mensaje)) {
+                        const { preview, fecha, lastId } = computePreviewPatch(
+                          mensaje,
+                          item,
+                          this.usuarioActualId
+                        );
+                        item.ultimaMensaje = preview;
+                        item.ultimaFecha = fecha;
+                        item.lastPreviewId = lastId;
+                        this.stampChatLastMessageFieldsFromMessage(item, mensaje);
+                        void this.syncChatItemLastPreviewMedia(
+                          item,
+                          mensaje,
+                          'ws-individual-list-created'
+                        );
+                      }
 
                       this.cdr.markForCheck();
                     }
+                  }
+                } else if (mensaje.emisorId === this.usuarioActualId) {
+                  const item = this.chats.find((c) => c.id === mensaje.chatId);
+                  if (item && this.shouldRefreshPreviewWithIncomingMessage(item, mensaje)) {
+                    const { preview, fecha, lastId } = computePreviewPatch(
+                      mensaje,
+                      item,
+                      this.usuarioActualId
+                    );
+                    item.ultimaMensaje = preview;
+                    item.ultimaFecha = fecha;
+                    item.lastPreviewId = lastId;
+                    this.stampChatLastMessageFieldsFromMessage(item, mensaje);
+                    void this.syncChatItemLastPreviewMedia(
+                      item,
+                      mensaje,
+                      'ws-individual-own-outgoing-list'
+                    );
+                    this.cdr.markForCheck();
                   }
                 }
                 this.seedIncomingReactionsFromMessages([mensaje]);
@@ -1023,14 +1236,13 @@ export class InicioComponent {
 
         // Leidos
         this.wsService.suscribirseALeidos(this.usuarioActualId, (mensajeId) => {
-          console.log('[INICIO] ack leido recibido', { mensajeId });
           const mensaje = this.mensajesSeleccionados.find(
             (m) => m.id === mensajeId
           );
           if (mensaje) mensaje.leido = true;
         });
 
-        // 📝 Escribiendo... (individual + grupo)
+        // ?? Escribiendo... (individual + grupo)
         this.wsService.suscribirseAEscribiendo(
           this.usuarioActualId,
           (a: any, b?: any, c?: any) => {
@@ -1085,7 +1297,42 @@ export class InicioComponent {
           }
         );
 
-        // 🚫 Bloqueos
+        // ??? Grabando audio... (individual + grupo)
+        this.wsService.suscribirseAGrabandoAudio(
+          this.usuarioActualId,
+          (emisorId, grabandoAudio, chatId, emisorNombre) => {
+            this.ngZone.run(() => {
+              if (chatId) {
+                if (grabandoAudio) {
+                  this.gruposGrabandoAudio.add(chatId);
+                  if (emisorNombre)
+                    this.quienGrabaAudioEnGrupo.set(chatId, emisorNombre);
+                } else {
+                  this.gruposGrabandoAudio.delete(chatId);
+                  this.quienGrabaAudioEnGrupo.delete(chatId);
+                }
+                if (this.chatActual?.id === chatId)
+                  this.usuarioGrabandoAudio = grabandoAudio;
+                this.cdr.markForCheck();
+                return;
+              }
+
+              if (this.chatActual?.receptor?.id === emisorId) {
+                this.usuarioGrabandoAudio = grabandoAudio;
+              }
+              if (
+                !this.chatActual ||
+                this.chatActual.receptor?.id !== emisorId
+              ) {
+                if (grabandoAudio) this.usuariosGrabandoAudio.add(emisorId);
+                else this.usuariosGrabandoAudio.delete(emisorId);
+              }
+              this.cdr.markForCheck();
+            });
+          }
+        );
+
+        // ?? Bloqueos
         this.wsService.suscribirseABloqueos(this.usuarioActualId, (payload) => {
           this.ngZone.run(() => {
             if (payload.type === 'BLOCKED') {
@@ -1223,6 +1470,17 @@ export class InicioComponent {
               Number.isFinite(explicitAudioDurMs) && explicitAudioDurMs > 0
                 ? Math.round(explicitAudioDurMs)
                 : null,
+            ultimaMensajeFileUrl:
+              String((chat as any)?.ultimaMensajeFileUrl || '').trim() || null,
+            ultimaMensajeFileMime:
+              String((chat as any)?.ultimaMensajeFileMime || '').trim() || null,
+            ultimaMensajeFileNombre:
+              String((chat as any)?.ultimaMensajeFileNombre || '').trim() || null,
+            ultimaMensajeFileSizeBytes:
+              Number.isFinite(Number((chat as any)?.ultimaMensajeFileSizeBytes)) &&
+              Number((chat as any)?.ultimaMensajeFileSizeBytes) >= 0
+                ? Math.round(Number((chat as any)?.ultimaMensajeFileSizeBytes))
+                : null,
             __ultimaEsAudio: isAudio,
             __ultimaAudioSeg: seconds,
             __ultimaAudioDurMs:
@@ -1236,8 +1494,16 @@ export class InicioComponent {
             __ultimaImagenUrl: '',
             __ultimaImagenPayloadKey: '',
             __ultimaImagenDecryptOk: false,
+            __ultimaEsArchivo: false,
+            __ultimaArchivoUrl: '',
+            __ultimaArchivoPayloadKey: '',
+            __ultimaArchivoDecryptOk: false,
+            __ultimaArchivoNombre: '',
+            __ultimaArchivoMime: '',
+            __ultimaArchivoCaption: '',
           };
         });
+        this.applyDraftsToChatList();
 
         for (const chat of this.chats) {
           void this.syncChatItemLastPreviewMedia(chat, null, 'chat-list-initial');
@@ -1272,10 +1538,15 @@ export class InicioComponent {
                 return;
               }
 
+              const decryptInput = this.resolveDecryptInputFromMessageLike(mensaje);
               const decryptedContenido = await this.decryptContenido(
-                mensaje?.contenido,
-                mensaje?.emisorId,
-                mensaje?.receptorId,
+                decryptInput,
+                Number(
+                  (mensaje as any)?.emisorId ?? (mensaje as any)?.emisor?.id ?? 0
+                ),
+                Number(
+                  (mensaje as any)?.receptorId ?? (mensaje as any)?.receptor?.id ?? 0
+                ),
                 {
                   chatId: Number(mensaje?.chatId),
                   mensajeId: Number(mensaje?.id),
@@ -1292,6 +1563,11 @@ export class InicioComponent {
                 chatId: Number(parsed?.chatId),
                 mensajeId: Number(parsed?.id),
                 source: 'ws-group-image',
+              });
+              await this.hydrateIncomingFileMessage(parsed, {
+                chatId: Number(parsed?.chatId),
+                mensajeId: Number(parsed?.id),
+                source: 'ws-group-file',
               });
               this.ngZone.run(() => {
                 this.handleMensajeGrupal(parsed);
@@ -1317,7 +1593,7 @@ export class InicioComponent {
                 }
               });
             },
-            error: (err) => console.error('❌ Error estados:', err),
+            error: (err) => console.error('? Error estados:', err),
           });
         }
 
@@ -1340,9 +1616,23 @@ export class InicioComponent {
             (payloadPreviewText.startsWith('{') ||
               payloadPreviewText.startsWith('"{') ||
               payloadPreviewText.includes('\\"type\\"'));
+          const looksLikeEncryptedEnvelope =
+            !!payloadPreviewText &&
+            (payloadPreviewText.includes('"ciphertext"') ||
+              payloadPreviewText.includes('\\"ciphertext\\"')) &&
+            (payloadPreviewText.includes('"iv"') ||
+              payloadPreviewText.includes('\\"iv\\"')) &&
+            (payloadPreviewText.includes('"for') ||
+              payloadPreviewText.includes('\\"for'));
           const shouldDecryptObject =
             payloadPreview && typeof payloadPreview === 'object';
-          if (!shouldDecryptObject && !looksLikeE2EString) continue;
+          if (
+            !shouldDecryptObject &&
+            !looksLikeE2EString &&
+            !looksLikeEncryptedEnvelope
+          ) {
+            continue;
+          }
 
           this.decryptPreviewString(payloadPreview, {
             chatId: Number(chat?.id),
@@ -1350,7 +1640,7 @@ export class InicioComponent {
             source: 'chat-preview',
           }).then((decrypted: string) => {
             const trunc =
-              decrypted.length > 60 ? decrypted.substring(0, 59) + '⬦' : decrypted;
+              decrypted.length > 60 ? decrypted.substring(0, 59) + '?' : decrypted;
             const withPrefix = prf ? `${prf}${trunc}` : trunc;
             chat.ultimaMensaje = this.normalizeOwnPreviewPrefix(withPrefix, chat);
             void this.syncChatItemLastPreviewMedia(
@@ -1362,18 +1652,13 @@ export class InicioComponent {
           });
         }
       },
-      error: (err) => console.error('❌ Error chats:', err),
+      error: (err) => console.error('? Error chats:', err),
     });
   }
 
   private bindBanWsListener(): void {
     if (this.banWsBound) return;
     this.banWsBound = true;
-
-    console.log('[INICIO] binding ban WS listener', {
-      usuarioActualId: this.usuarioActualId,
-    });
-
     this.wsService.suscribirseABaneos(this.usuarioActualId, (payload) => {
       console.warn('[INICIO] baneo WS recibido', payload);
 
@@ -1385,6 +1670,7 @@ export class InicioComponent {
         allowOutsideClick: false,
         allowEscapeKey: false,
       }).then(() => {
+        this.persistActiveChatDraft();
         this.sessionService.logout({
           clearE2EKeys: false,
           clearAuditKeys: false,
@@ -1514,10 +1800,6 @@ export class InicioComponent {
       if (!pubBase64) return;
 
       await firstValueFrom(this.authService.updatePublicKey(userId, pubBase64));
-      console.log('[E2E][key-sync-ok]', {
-        userId: Number(userId),
-        generated,
-      });
       this.e2eSessionReady = true;
       if (this.perfilUsuario) this.perfilUsuario.hasPublicKey = true;
     } catch (err: any) {
@@ -1546,6 +1828,7 @@ export class InicioComponent {
         icon: 'error',
         confirmButtonColor: '#ef4444',
       }).then(() => {
+        this.persistActiveChatDraft();
         this.sessionService.logout({
           clearE2EKeys: false,
           clearAuditKeys: false,
@@ -1737,7 +2020,6 @@ export class InicioComponent {
       await firstValueFrom(this.authService.updatePublicKey(myId, pubBase64));
       this.e2eSessionReady = true;
       if (this.perfilUsuario) this.perfilUsuario.hasPublicKey = true;
-      console.log('[E2E][key-sync-retry-ok]', { userId: Number(myId) });
       return true;
     } catch (err: any) {
       this.e2eSessionReady = false;
@@ -1883,6 +2165,7 @@ export class InicioComponent {
         replySnippet: pending.replySnippet,
         replyAuthorName: pending.replyAuthorName,
       };
+      this.attachTemporaryMetadata(messagePayload);
 
       await this.logGroupWsPayloadBeforeSend(
         `retry-${pending.source}-${triggerCode}`.toLowerCase(),
@@ -1929,11 +2212,6 @@ export class InicioComponent {
           const chatItem = this.chats.find((c) => Number(c.id) === chatId);
           if (chatItem) {
             chatItem.unreadCount = unread;
-            console.log('[INICIO] recalculo unreadCount desde historial', {
-              chatId,
-              unread,
-              totalMensajes: (mensajes || []).length,
-            });
             this.cdr.markForCheck();
           }
         },
@@ -1949,20 +2227,21 @@ export class InicioComponent {
    * @param chat El chat (individual o grupal) seleccionado en la barra lateral.
    */
   public mostrarMensajes(chat: any): void {
+    this.persistActiveChatDraft();
     this.activeMainView = 'chat';
     this.showTopbarProfileMenu = false;
     this.cancelarRespuestaMensaje();
-    console.log('[INICIO] abrir chat', {
-      chatId: chat?.id,
-      esGrupo: !!chat?.esGrupo,
-      unreadAntes: chat?.unreadCount,
-    });
     this.chatSeleccionadoId = chat.id;
     this.chatActual = chat;
     this.showGroupInfoPanel = false;
     this.showGroupInfoPanelMounted = false;
     this.showMessageSearchPanel = false;
     this.showMessageSearchPanelMounted = false;
+    this.showPollVotesPanel = false;
+    this.showPollVotesPanelMounted = false;
+    this.pollVotesPanelMessageId = null;
+    this.showScheduleMessageComposer = false;
+    this.showChatListHeaderMenu = false;
     this.highlightedMessageId = null;
     this.openIncomingReactionPickerMessageId = null;
     this.openReactionDetailsMessageId = null;
@@ -1977,17 +2256,21 @@ export class InicioComponent {
     // Estado de mensajes / typing
     this.mensajesSeleccionados = [];
     this.usuarioEscribiendo = false;
+    this.usuarioGrabandoAudio = false;
     this.typingSetHeader.clear();
+    this.audioSetHeader.clear();
     this.escribiendoHeader = '';
+    this.audioGrabandoHeader = '';
 
     // === Persistencia local: grupos abandonados ===
-    const raw = localStorage.getItem('leftGroupIds');
-    const leftSet = new Set<number>(raw ? JSON.parse(raw) : []);
+    const leftSet = this.getLeftGroupIdsSet();
 
     // Fallback inmediato UX: si ya sabemos que lo dejaste, marcamos estado
     if (chat.esGrupo && leftSet.has(Number(chat.id))) {
       this.haSalidoDelGrupo = true;
-      this.mensajeNuevo = 'Has salido del grupo';
+      this.mensajeNuevo = this.getGroupExitNoticeForChat(Number(chat.id));
+    } else {
+      this.restoreDraftForChat(chat);
     }
 
     // Helper: carga inicial paginada (page=0,size=50)
@@ -2002,27 +2285,18 @@ export class InicioComponent {
         .subscribe({
           next: (res) => {
             if (!res?.esMiembro || res?.groupDeleted) {
-              this.haSalidoDelGrupo = true;
-              this.mensajeNuevo = 'Has salido del grupo';
-              leftSet.add(Number(chat.id));
-              localStorage.setItem(
-                'leftGroupIds',
-                JSON.stringify(Array.from(leftSet))
+              this.markCurrentUserOutOfGroup(
+                Number(chat.id),
+                this.getGroupExitNoticeForChat(Number(chat.id))
               );
             } else {
               // Si el back confirma que sigues siendo miembro, limpia estado local
-              if (leftSet.has(Number(chat.id))) {
-                leftSet.delete(Number(chat.id));
-                localStorage.setItem(
-                  'leftGroupIds',
-                  JSON.stringify(Array.from(leftSet))
-                );
-              }
+              this.clearCurrentUserOutOfGroup(Number(chat.id));
             }
             loadMessages(); // Carga mensajes (si quieres bloquear lectura cuando no eres miembro, quita esto)
           },
           error: (err) => {
-            console.error('❌ esMiembroDeGrupo:', err);
+            console.error('? esMiembroDeGrupo:', err);
             // En errores críticos, mantenemos el fallback local y aún así intentamos cargar
             loadMessages();
           },
@@ -2047,6 +2321,55 @@ export class InicioComponent {
     this.cryptoService,
     debugContext
   );
+}
+
+private resolveDecryptInputFromMessageLike(messageLike: any): unknown {
+  if (!messageLike || typeof messageLike !== 'object') {
+    return messageLike?.contenido ?? messageLike ?? '';
+  }
+
+  const direct = messageLike?.contenido;
+  if (direct !== undefined && direct !== null) return direct;
+
+  const nestedCandidates: unknown[] = [
+    messageLike?.payload?.contenido,
+    messageLike?.payload?.content,
+    messageLike?.payload?.data,
+    messageLike?.payload?.body,
+    messageLike?.content?.contenido,
+    messageLike?.content,
+    messageLike?.data?.contenido,
+    messageLike?.data,
+    messageLike?.body?.contenido,
+    messageLike?.body,
+    messageLike?.mensaje?.contenido,
+    messageLike?.mensaje,
+  ];
+  for (const candidate of nestedCandidates) {
+    if (candidate === undefined || candidate === null) continue;
+    if (typeof candidate !== 'string') return candidate;
+    if (candidate.trim()) return candidate;
+  }
+
+  const payloadType = String(
+    messageLike?.type ?? messageLike?.payloadType ?? messageLike?.e2eType ?? ''
+  )
+    .trim()
+    .toUpperCase();
+  if (payloadType.startsWith('E2E')) return messageLike;
+
+  const hasCiphertext =
+    typeof messageLike?.ciphertext === 'string' && !!messageLike.ciphertext.trim();
+  const hasIv = typeof messageLike?.iv === 'string' && !!messageLike.iv.trim();
+  const hasEnvelope =
+    (typeof messageLike?.forEmisor === 'string' && !!messageLike.forEmisor.trim()) ||
+    (typeof messageLike?.forReceptor === 'string' && !!messageLike.forReceptor.trim()) ||
+    (typeof messageLike?.forAdmin === 'string' && !!messageLike.forAdmin.trim()) ||
+    (messageLike?.forReceptores &&
+      typeof messageLike.forReceptores === 'object' &&
+      Object.keys(messageLike.forReceptores).length > 0);
+
+  return hasCiphertext && hasIv && hasEnvelope ? messageLike : '';
 }
 
 private async decryptPreviewString(
@@ -2866,8 +3189,783 @@ private async decryptPreviewString(
     };
   }
 
+  private parseFileE2EPayload(contenido: unknown): FileE2EPayload | null {
+    let payload: any = null;
+    if (typeof contenido === 'string') {
+      const trimmed = contenido.trimStart();
+      if (!trimmed.startsWith('{')) return null;
+      try {
+        payload = JSON.parse(trimmed);
+      } catch {
+        return null;
+      }
+    } else if (contenido && typeof contenido === 'object') {
+      payload = contenido;
+    } else {
+      return null;
+    }
+
+    const payloadType = String(payload?.type || '').trim().toUpperCase();
+    if (payloadType !== 'E2E_FILE' && payloadType !== 'E2E_GROUP_FILE') {
+      return null;
+    }
+    if (typeof payload?.ivFile !== 'string' || !payload.ivFile.trim()) return null;
+    if (typeof payload?.forEmisor !== 'string' || !payload.forEmisor.trim()) return null;
+    if (typeof payload?.forAdmin !== 'string' || !payload.forAdmin.trim()) return null;
+
+    if (payloadType === 'E2E_FILE') {
+      if (typeof payload?.forReceptor !== 'string' || !payload.forReceptor.trim()) {
+        return null;
+      }
+      return {
+        type: 'E2E_FILE',
+        ivFile: payload.ivFile,
+        fileUrl: String(payload?.fileUrl || ''),
+        fileMime: typeof payload?.fileMime === 'string' ? payload.fileMime : undefined,
+        fileNombre:
+          typeof payload?.fileNombre === 'string' ? payload.fileNombre : undefined,
+        fileSizeBytes: Number.isFinite(Number(payload?.fileSizeBytes))
+          ? Number(payload.fileSizeBytes)
+          : undefined,
+        captionIv: typeof payload?.captionIv === 'string' ? payload.captionIv : undefined,
+        captionCiphertext:
+          typeof payload?.captionCiphertext === 'string'
+            ? payload.captionCiphertext
+            : undefined,
+        forEmisor: payload.forEmisor,
+        forAdmin: payload.forAdmin,
+        forReceptor: payload.forReceptor,
+      };
+    }
+
+    const forReceptores =
+      payload?.forReceptores && typeof payload.forReceptores === 'object'
+        ? (payload.forReceptores as Record<string, string>)
+        : null;
+    if (!forReceptores) return null;
+
+    return {
+      type: 'E2E_GROUP_FILE',
+      ivFile: payload.ivFile,
+      fileUrl: String(payload?.fileUrl || ''),
+      fileMime: typeof payload?.fileMime === 'string' ? payload.fileMime : undefined,
+      fileNombre:
+        typeof payload?.fileNombre === 'string' ? payload.fileNombre : undefined,
+      fileSizeBytes: Number.isFinite(Number(payload?.fileSizeBytes))
+        ? Number(payload.fileSizeBytes)
+        : undefined,
+      captionIv: typeof payload?.captionIv === 'string' ? payload.captionIv : undefined,
+      captionCiphertext:
+        typeof payload?.captionCiphertext === 'string'
+          ? payload.captionCiphertext
+          : undefined,
+      forEmisor: payload.forEmisor,
+      forAdmin: payload.forAdmin,
+      forReceptores,
+    };
+  }
+
+  private buildFileE2ECacheKey(payload: FileE2EPayload): string {
+    return [
+      payload.type,
+      String(this.usuarioActualId),
+      String(payload.ivFile || ''),
+      String(payload.fileUrl || ''),
+      String(payload.fileNombre || ''),
+      String(payload.captionIv || ''),
+      String(payload.fileSizeBytes ?? ''),
+    ].join('|');
+  }
+
+  private async resolveFileEnvelopeForCurrentUser(
+    payload: FileE2EPayload,
+    emisorId: number,
+    myPrivKey: CryptoKey
+  ): Promise<string | null> {
+    const isSender = Number(emisorId) === Number(this.usuarioActualId);
+    const orderedCandidates: string[] = [];
+
+    const pushIfAny = (candidate: unknown) => {
+      if (typeof candidate !== 'string') return;
+      const clean = candidate.trim();
+      if (!clean) return;
+      if (orderedCandidates.includes(clean)) return;
+      orderedCandidates.push(clean);
+    };
+
+    if (isSender) {
+      pushIfAny(payload.forEmisor);
+    }
+
+    if (payload.type === 'E2E_FILE') {
+      if (!isSender) pushIfAny(payload.forReceptor);
+      pushIfAny(payload.forEmisor);
+      pushIfAny(payload.forReceptor);
+    } else {
+      const direct = payload.forReceptores?.[String(this.usuarioActualId)];
+      pushIfAny(direct);
+      if (!isSender) {
+        for (const candidate of Object.values(payload.forReceptores || {})) {
+          pushIfAny(candidate);
+        }
+      }
+      pushIfAny(payload.forEmisor);
+      for (const candidate of Object.values(payload.forReceptores || {})) {
+        pushIfAny(candidate);
+      }
+    }
+
+    for (const candidate of orderedCandidates) {
+      try {
+        await this.cryptoService.decryptRSA(candidate, myPrivKey);
+        return candidate;
+      } catch {
+        // seguimos intentando hasta encontrar una llave válida
+      }
+    }
+
+    return null;
+  }
+
+  private async decryptFileE2EPayloadToObjectUrl(
+    payload: FileE2EPayload,
+    emisorId: number,
+    debugContext?: E2EDebugContext
+  ): Promise<{ objectUrl: string | null; caption: string }> {
+    const cacheKey = this.buildFileE2ECacheKey(payload);
+    const cachedUrl = this.decryptedFileUrlByCacheKey.get(cacheKey) || null;
+    const cachedCaption = this.decryptedFileCaptionByCacheKey.get(cacheKey) || '';
+    if (cachedUrl) {
+      return { objectUrl: cachedUrl, caption: cachedCaption };
+    }
+
+    const inFlight = this.decryptingFileByCacheKey.get(cacheKey);
+    if (inFlight) {
+      const objectUrl = await inFlight;
+      return {
+        objectUrl,
+        caption: this.decryptedFileCaptionByCacheKey.get(cacheKey) || '',
+      };
+    }
+
+    const decryptPromise = (async (): Promise<string | null> => {
+      try {
+        const privKeyBase64 = String(
+          localStorage.getItem(`privateKey_${this.usuarioActualId}`) || ''
+        ).trim();
+        if (!privKeyBase64) return null;
+
+        const myPrivKey = await this.cryptoService.importPrivateKey(privKeyBase64);
+        const aesEnvelope = await this.resolveFileEnvelopeForCurrentUser(
+          payload,
+          emisorId,
+          myPrivKey
+        );
+        if (!aesEnvelope) return null;
+
+        const aesRawBase64 = await this.cryptoService.decryptRSA(
+          aesEnvelope,
+          myPrivKey
+        );
+        const aesKey = await this.cryptoService.importAESKey(aesRawBase64);
+
+        if (payload.captionCiphertext && payload.captionIv) {
+          try {
+            const caption = await this.cryptoService.decryptAES(
+              payload.captionCiphertext,
+              payload.captionIv,
+              aesKey
+            );
+            this.decryptedFileCaptionByCacheKey.set(
+              cacheKey,
+              String(caption || '').trim()
+            );
+          } catch {
+            this.decryptedFileCaptionByCacheKey.set(cacheKey, '');
+          }
+        } else {
+          this.decryptedFileCaptionByCacheKey.set(cacheKey, '');
+        }
+
+        const encryptedUrl = resolveMediaUrl(
+          payload.fileUrl,
+          environment.backendBaseUrl
+        );
+        if (!encryptedUrl) return null;
+
+        const response = await fetch(encryptedUrl);
+        if (!response.ok) {
+          console.warn('[E2E][file-decrypt-fetch-failed]', {
+            status: Number(response.status),
+            chatId: Number(debugContext?.chatId),
+            mensajeId: Number(debugContext?.mensajeId),
+            source: debugContext?.source || 'unknown',
+          });
+          return null;
+        }
+
+        const encryptedBytes = await response.arrayBuffer();
+        const decryptedBuffer = await this.cryptoService.decryptAESBinary(
+          encryptedBytes,
+          payload.ivFile,
+          aesKey
+        );
+        const mime =
+          String(payload.fileMime || 'application/octet-stream').trim() ||
+          'application/octet-stream';
+        const objectUrl = URL.createObjectURL(
+          new Blob([decryptedBuffer], { type: mime })
+        );
+        this.decryptedFileUrlByCacheKey.set(cacheKey, objectUrl);
+        return objectUrl;
+      } catch (err) {
+        console.error('[E2E][file-decrypt-failed]', {
+          chatId: Number(debugContext?.chatId),
+          mensajeId: Number(debugContext?.mensajeId),
+          source: debugContext?.source || 'unknown',
+          error: err,
+        });
+        return null;
+      } finally {
+        this.decryptingFileByCacheKey.delete(cacheKey);
+      }
+    })();
+
+    this.decryptingFileByCacheKey.set(cacheKey, decryptPromise);
+    const objectUrl = await decryptPromise;
+    return {
+      objectUrl,
+      caption: this.decryptedFileCaptionByCacheKey.get(cacheKey) || '',
+    };
+  }
+
+  private async hydrateIncomingFileMessage(
+    mensaje: MensajeDTO,
+    debugContext?: E2EDebugContext
+  ): Promise<void> {
+    if (String(mensaje?.tipo || 'TEXT').toUpperCase() !== 'FILE') return;
+
+    const payload = this.parseFileE2EPayload(mensaje?.contenido);
+    if (!payload) {
+      (mensaje as any).__fileE2EEncrypted = false;
+      return;
+    }
+
+    (mensaje as any).__fileE2EEncrypted = true;
+    if (payload.fileMime && !mensaje.fileMime) {
+      mensaje.fileMime = payload.fileMime;
+    }
+    if (payload.fileNombre && !mensaje.fileNombre) {
+      mensaje.fileNombre = payload.fileNombre;
+    }
+    if (
+      Number.isFinite(Number(payload.fileSizeBytes)) &&
+      !Number.isFinite(Number(mensaje.fileSizeBytes))
+    ) {
+      mensaje.fileSizeBytes = Number(payload.fileSizeBytes);
+    }
+    if (payload.fileUrl) {
+      mensaje.fileUrl = payload.fileUrl;
+    }
+
+    const decrypted = await this.decryptFileE2EPayloadToObjectUrl(
+      payload,
+      Number(mensaje?.emisorId),
+      debugContext
+    );
+    mensaje.contenido = decrypted.caption || '';
+    if (decrypted.objectUrl) {
+      mensaje.fileDataUrl = decrypted.objectUrl;
+      (mensaje as any).__fileE2EDecryptOk = true;
+      return;
+    }
+    mensaje.fileDataUrl = null;
+    (mensaje as any).__fileE2EDecryptOk = false;
+  }
+
+  private async buildOutgoingE2EFileForIndividual(
+    receptorId: number,
+    file: File,
+    caption: string
+  ): Promise<BuiltOutgoingFileE2E> {
+    const originalFileMime =
+      String(file.type || '').trim() || 'application/octet-stream';
+    const receptorDTO = await firstValueFrom(this.authService.getById(receptorId));
+    const receptorPubKeyBase64 = String(receptorDTO?.publicKey || '').trim();
+    const emisorPubKeyBase64 = String(
+      localStorage.getItem(`publicKey_${this.usuarioActualId}`) || ''
+    ).trim();
+
+    if (!receptorPubKeyBase64 || !emisorPubKeyBase64) {
+      throw new Error('E2E_FILE_KEYS_MISSING');
+    }
+
+    const aesKey = await this.cryptoService.generateAESKey();
+    const fileRaw = await file.arrayBuffer();
+    const encryptedFile = await this.cryptoService.encryptAESBinary(fileRaw, aesKey);
+    const encryptedBlob = new Blob([encryptedFile.ciphertext], {
+      type: 'application/octet-stream',
+    });
+
+    const aesKeyRawBase64 = await this.cryptoService.exportAESKey(aesKey);
+    const receptorRsaKey = await this.cryptoService.importPublicKey(
+      receptorPubKeyBase64
+    );
+    const emisorRsaKey = await this.cryptoService.importPublicKey(emisorPubKeyBase64);
+
+    await this.ensureAuditPublicKeyForE2E();
+    const adminPubKeyBase64 = this.getStoredAuditPublicKey();
+    if (!adminPubKeyBase64) {
+      throw new Error('E2E_FILE_ADMIN_KEY_MISSING');
+    }
+    const adminRsaKey = await this.cryptoService.importPublicKey(adminPubKeyBase64);
+
+    const normalizedCaption = String(caption || '').trim();
+    let captionIv: string | undefined;
+    let captionCiphertext: string | undefined;
+    if (normalizedCaption) {
+      const encryptedCaption = await this.cryptoService.encryptAES(
+        normalizedCaption,
+        aesKey
+      );
+      captionIv = encryptedCaption.iv;
+      captionCiphertext = encryptedCaption.ciphertext;
+    }
+
+    const payload: FileE2EIndividualPayload = {
+      type: 'E2E_FILE',
+      ivFile: encryptedFile.iv,
+      fileUrl: '',
+      fileMime: originalFileMime,
+      fileNombre: file.name,
+      fileSizeBytes: Number(file.size || 0) || 0,
+      captionIv,
+      captionCiphertext,
+      forEmisor: await this.cryptoService.encryptRSA(aesKeyRawBase64, emisorRsaKey),
+      forAdmin: await this.cryptoService.encryptRSA(aesKeyRawBase64, adminRsaKey),
+      forReceptor: await this.cryptoService.encryptRSA(
+        aesKeyRawBase64,
+        receptorRsaKey
+      ),
+    };
+
+    return {
+      payload,
+      encryptedBlob,
+      forReceptoresKeys: [],
+      expectedRecipientIds: [Number(receptorId)].filter(
+        (id) => Number.isFinite(id) && id > 0
+      ),
+    };
+  }
+
+  private async buildOutgoingE2EFileForGroup(
+    chatItem: any,
+    file: File,
+    caption: string
+  ): Promise<BuiltOutgoingFileE2E> {
+    const originalFileMime =
+      String(file.type || '').trim() || 'application/octet-stream';
+    const myId = this.getMyUserId ? this.getMyUserId() : this.usuarioActualId;
+    const emisorPubKeyBase64 = String(
+      localStorage.getItem(`publicKey_${myId}`) || ''
+    ).trim();
+    if (!emisorPubKeyBase64) {
+      throw new Error('E2E_FILE_SENDER_KEY_MISSING');
+    }
+
+    const memberIds = await this.resolveGroupMemberIdsForEncryption(chatItem, myId);
+    if (memberIds.length === 0) {
+      throw new Error('E2E_FILE_GROUP_NO_RECIPIENTS');
+    }
+
+    const aesKey = await this.cryptoService.generateAESKey();
+    const fileRaw = await file.arrayBuffer();
+    const encryptedFile = await this.cryptoService.encryptAESBinary(fileRaw, aesKey);
+    const encryptedBlob = new Blob([encryptedFile.ciphertext], {
+      type: 'application/octet-stream',
+    });
+    const aesKeyRawBase64 = await this.cryptoService.exportAESKey(aesKey);
+
+    const emisorRsaKey = await this.cryptoService.importPublicKey(emisorPubKeyBase64);
+    const forReceptores: Record<string, string> = {};
+    await Promise.all(
+      memberIds.map(async (uid) => {
+        const dto = await firstValueFrom(this.authService.getById(uid));
+        const pub = String(dto?.publicKey || '').trim();
+        if (!pub) {
+          throw new Error(`E2E_FILE_GROUP_MEMBER_KEY_MISSING:${uid}`);
+        }
+        const rsa = await this.cryptoService.importPublicKey(pub);
+        forReceptores[String(uid)] = await this.cryptoService.encryptRSA(
+          aesKeyRawBase64,
+          rsa
+        );
+      })
+    );
+
+    await this.ensureAuditPublicKeyForE2E();
+    const adminPubKeyBase64 = this.getStoredAuditPublicKey();
+    if (!adminPubKeyBase64) {
+      throw new Error('E2E_FILE_ADMIN_KEY_MISSING');
+    }
+    const adminRsaKey = await this.cryptoService.importPublicKey(adminPubKeyBase64);
+
+    const normalizedCaption = String(caption || '').trim();
+    let captionIv: string | undefined;
+    let captionCiphertext: string | undefined;
+    if (normalizedCaption) {
+      const encryptedCaption = await this.cryptoService.encryptAES(
+        normalizedCaption,
+        aesKey
+      );
+      captionIv = encryptedCaption.iv;
+      captionCiphertext = encryptedCaption.ciphertext;
+    }
+
+    const payload: FileE2EGroupPayload = {
+      type: 'E2E_GROUP_FILE',
+      ivFile: encryptedFile.iv,
+      fileUrl: '',
+      fileMime: originalFileMime,
+      fileNombre: file.name,
+      fileSizeBytes: Number(file.size || 0) || 0,
+      captionIv,
+      captionCiphertext,
+      forEmisor: await this.cryptoService.encryptRSA(aesKeyRawBase64, emisorRsaKey),
+      forAdmin: await this.cryptoService.encryptRSA(aesKeyRawBase64, adminRsaKey),
+      forReceptores,
+    };
+
+    return {
+      payload,
+      encryptedBlob,
+      forReceptoresKeys: Object.keys(forReceptores),
+      expectedRecipientIds: [...memberIds].sort((a, b) => a - b),
+    };
+  }
+
   public isSystemMessage(mensaje: any): boolean {
     return isSystemMessageLike(mensaje);
+  }
+
+  public isTemporalExpiredMessage(mensaje: any): boolean {
+    return isTemporalExpiredMessageLike(mensaje);
+  }
+
+  public temporalExpiredPlaceholderText(mensaje: any): string {
+    return resolveTemporalExpiredPlaceholderText(mensaje);
+  }
+
+  private parseTimestampToMs(raw: unknown): number | null {
+    if (raw === null || raw === undefined) return null;
+    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
+      return Math.round(raw);
+    }
+    const text = String(raw || '').trim();
+    if (!text) return null;
+    if (/^\d{10,13}$/.test(text)) {
+      const n = Number(text);
+      if (Number.isFinite(n) && n > 0) {
+        return text.length <= 10 ? n * 1000 : n;
+      }
+    }
+    const ms = Date.parse(text);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  private resolveDeletedMessageAtMs(mensaje: any): number | null {
+    if (!mensaje) return null;
+    const candidates = [
+      (mensaje as any)?.__deletedAtMs,
+      (mensaje as any)?.deletedAt,
+      (mensaje as any)?.deleted_at,
+      (mensaje as any)?.fechaEliminacion,
+      (mensaje as any)?.fecha_eliminacion,
+      (mensaje as any)?.fechaBorrado,
+      (mensaje as any)?.fecha_borrado,
+      (mensaje as any)?.updatedAt,
+      (mensaje as any)?.fechaEdicion,
+      (mensaje as any)?.editedAt,
+    ];
+    for (const candidate of candidates) {
+      const parsed = this.parseTimestampToMs(candidate);
+      if (Number.isFinite(parsed) && Number(parsed) > 0) return Number(parsed);
+    }
+    return null;
+  }
+
+  private normalizeDeletedMessageForRetention(
+    mensaje: MensajeDTO,
+    fallbackDeletedAtMs?: number
+  ): MensajeDTO {
+    if (!mensaje || mensaje.activo !== false || this.isTemporalExpiredMessage(mensaje)) {
+      return mensaje;
+    }
+    const resolvedDeletedAtMs = this.resolveDeletedMessageAtMs(mensaje);
+    if (Number.isFinite(resolvedDeletedAtMs) && Number(resolvedDeletedAtMs) > 0) {
+      return {
+        ...(mensaje || {}),
+        __deletedAtMs: Math.round(Number(resolvedDeletedAtMs)),
+      } as MensajeDTO;
+    }
+    const createdAtMs = this.getMensajeCreatedAtMs(mensaje);
+    const fallback =
+      Number.isFinite(Number(fallbackDeletedAtMs)) && Number(fallbackDeletedAtMs) > 0
+        ? Number(fallbackDeletedAtMs)
+        : Number.isFinite(Number(createdAtMs)) && Number(createdAtMs) > 0
+          ? Number(createdAtMs)
+          : Date.now();
+    return {
+      ...(mensaje || {}),
+      __deletedAtMs: Math.round(fallback),
+    } as MensajeDTO;
+  }
+
+  private shouldPurgeDeletedMessageFromTimeline(mensaje: any): boolean {
+    if (!mensaje || mensaje.activo !== false || this.isTemporalExpiredMessage(mensaje)) {
+      return false;
+    }
+    const deletedAtMs = this.resolveDeletedMessageAtMs(mensaje);
+    if (!Number.isFinite(deletedAtMs) || Number(deletedAtMs) <= 0) {
+      return false;
+    }
+    return Date.now() - Number(deletedAtMs) >= this.DELETED_MESSAGE_RETENTION_MS;
+  }
+
+  public canUndoDeletedMessage(mensaje: MensajeDTO): boolean {
+    if (!mensaje || mensaje.activo !== false) return false;
+    if (this.isTemporalExpiredMessage(mensaje)) return false;
+    if (Number(mensaje.emisorId) !== Number(this.usuarioActualId)) return false;
+    const id = Number(mensaje.id);
+    if (!Number.isFinite(id) || id <= 0) return false;
+    const normalized = this.normalizeDeletedMessageForRetention(
+      { ...(mensaje || {}) } as MensajeDTO
+    );
+    return !this.shouldPurgeDeletedMessageFromTimeline(normalized);
+  }
+
+  public isUndoDeletedMessageInFlight(mensaje: MensajeDTO): boolean {
+    const id = Number(mensaje?.id);
+    return Number.isFinite(id) && id > 0 && this.restoringDeletedMessageIds.has(id);
+  }
+
+  private aplicarRestauracionEnUI(mensaje: MensajeDTO): void {
+    const restoredId = Number(mensaje?.id);
+    if (!Number.isFinite(restoredId) || restoredId <= 0) return;
+
+    const mergedPayload = this.normalizeMensajeEditadoFlag({
+      ...(mensaje || {}),
+      activo: true,
+      __deletedAtMs: null,
+      deletedAt: null,
+      deleted_at: null,
+      fechaEliminacion: null,
+      fecha_eliminacion: null,
+    } as MensajeDTO);
+
+    const idxMsg = this.mensajesSeleccionados.findIndex(
+      (m) => Number(m.id) === restoredId
+    );
+    if (idxMsg !== -1) {
+      this.mensajesSeleccionados = [
+        ...this.mensajesSeleccionados.slice(0, idxMsg),
+        { ...this.mensajesSeleccionados[idxMsg], ...mergedPayload },
+        ...this.mensajesSeleccionados.slice(idxMsg + 1),
+      ];
+      this.syncActiveHistoryStateMessages();
+    }
+
+    const chatId = Number(mergedPayload.chatId ?? this.chatActual?.id ?? 0);
+    if (Number.isFinite(chatId) && chatId > 0) {
+      const chat = this.chats.find((c) => Number(c.id) === chatId);
+      if (chat && this.shouldRefreshPreviewWithIncomingMessage(chat, mergedPayload)) {
+        const { preview, fecha, lastId } = computePreviewPatch(
+          mergedPayload,
+          chat,
+          this.usuarioActualId
+        );
+        chat.ultimaMensaje = preview;
+        chat.ultimaFecha = fecha;
+        chat.lastPreviewId = lastId;
+        this.stampChatLastMessageFieldsFromMessage(chat, mergedPayload);
+        void this.syncChatItemLastPreviewMedia(
+          chat,
+          mergedPayload,
+          'undo-delete-message'
+        );
+      }
+    }
+
+    this.cdr.markForCheck();
+  }
+
+  public deshacerEliminarMensaje(mensaje: MensajeDTO, event?: MouseEvent): void {
+    event?.stopPropagation();
+    if (!this.canUndoDeletedMessage(mensaje)) return;
+
+    const messageId = Number(mensaje.id);
+    if (!Number.isFinite(messageId) || messageId <= 0) return;
+    if (this.restoringDeletedMessageIds.has(messageId)) return;
+
+    this.restoringDeletedMessageIds.add(messageId);
+    this.cdr.markForCheck();
+
+    this.chatService
+      .restaurarMensaje(messageId)
+      .pipe(
+        finalize(() => {
+          this.restoringDeletedMessageIds.delete(messageId);
+          this.cdr.markForCheck();
+        })
+      )
+      .subscribe({
+        next: async (restored) => {
+          if (restored && restored.activo === false) {
+            this.showToast(
+              'No se pudo restaurar el mensaje porque ya venció la ventana de 3 horas.',
+              'warning',
+              'Mensajes'
+            );
+            return;
+          }
+
+          const merged: MensajeDTO = {
+            ...(mensaje || {}),
+            ...(restored || {}),
+            id: messageId,
+            chatId:
+              (restored as any)?.chatId ??
+              mensaje.chatId ??
+              this.chatActual?.id,
+            emisorId:
+              (restored as any)?.emisorId ??
+              mensaje.emisorId ??
+              this.usuarioActualId,
+            activo: true,
+          } as MensajeDTO;
+
+          const restoredChatId = Number((merged as any)?.chatId ?? 0);
+          const restoredEmisorId = Number(
+            (merged as any)?.emisorId ?? (merged as any)?.emisor?.id ?? 0
+          );
+          const restoredReceptorId = Number(
+            (merged as any)?.receptorId ?? (merged as any)?.receptor?.id ?? 0
+          );
+
+          try {
+            const decryptInput = this.resolveDecryptInputFromMessageLike(merged);
+            merged.contenido = await this.decryptContenido(
+              decryptInput,
+              restoredEmisorId,
+              restoredReceptorId,
+              {
+                chatId: restoredChatId,
+                mensajeId: messageId,
+                source: 'undo-delete-rest',
+              }
+            );
+            await this.hydrateIncomingAudioMessage(merged, {
+              chatId: restoredChatId,
+              mensajeId: messageId,
+              source: 'undo-delete-rest-audio',
+            });
+            await this.hydrateIncomingImageMessage(merged, {
+              chatId: restoredChatId,
+              mensajeId: messageId,
+              source: 'undo-delete-rest-image',
+            });
+            await this.hydrateIncomingFileMessage(merged, {
+              chatId: restoredChatId,
+              mensajeId: messageId,
+              source: 'undo-delete-rest-file',
+            });
+          } catch (e) {
+            console.warn('[undo-delete] no se pudo descifrar/restaurar media', {
+              messageId,
+              chatId: restoredChatId,
+              error: e,
+            });
+          }
+
+          this.aplicarRestauracionEnUI(merged);
+
+          const targetChatId = Number(merged.chatId ?? 0);
+          if (Number.isFinite(targetChatId) && targetChatId > 0) {
+            this.refrescarPreviewDesdeServidor(targetChatId);
+          }
+
+          this.showToast('Mensaje restaurado.', 'success', 'Mensajes', 1800);
+        },
+        error: (err) => {
+          const backendMsg = String(
+            err?.error?.mensaje || err?.error?.message || err?.message || ''
+          ).trim();
+          this.showToast(
+            backendMsg || 'No se pudo restaurar el mensaje.',
+            'warning',
+            'Mensajes'
+          );
+        },
+      });
+  }
+
+  public isMensajeEditado(mensaje: any): boolean {
+    if (!mensaje || mensaje.activo === false) return false;
+    const rawFlags = [
+      mensaje?.editado,
+      mensaje?.edited,
+      mensaje?.esEditado,
+      mensaje?.modificado,
+    ];
+    for (const flag of rawFlags) {
+      if (flag === true) return true;
+      if (String(flag || '').toLowerCase() === 'true') return true;
+    }
+    const editedAt = String(
+      mensaje?.fechaEdicion ??
+        mensaje?.editedAt ??
+        mensaje?.fechaEditado ??
+        mensaje?.updatedAt ??
+        ''
+    ).trim();
+    return !!editedAt;
+  }
+
+  private normalizeMensajeEditadoFlag(mensaje: any): MensajeDTO {
+    const base = (mensaje || {}) as MensajeDTO;
+    const isEdited = this.isMensajeEditado(base);
+    const editedAt = String(
+      (base as any)?.fechaEdicion ??
+        (base as any)?.editedAt ??
+        (base as any)?.fechaEditado ??
+        (base as any)?.updatedAt ??
+        ''
+    ).trim();
+    return {
+      ...base,
+      editado: isEdited,
+      edited: isEdited,
+      fechaEdicion: editedAt || null,
+      editedAt: editedAt || null,
+    };
+  }
+
+  private shouldRefreshPreviewWithIncomingMessage(
+    chatItem: any,
+    mensaje: MensajeDTO
+  ): boolean {
+    const incomingId = Number(mensaje?.id);
+    if (!Number.isFinite(incomingId) || incomingId <= 0) {
+      return !this.isMensajeEditado(mensaje);
+    }
+    const currentLastId = Number(
+      chatItem?.lastPreviewId ?? chatItem?.ultimaMensajeId ?? 0
+    );
+    const hasCurrentLastId = Number.isFinite(currentLastId) && currentLastId > 0;
+    if (!hasCurrentLastId) return true;
+    if (this.isMensajeEditado(mensaje)) return currentLastId === incomingId;
+    return incomingId >= currentLastId;
   }
 
   private resolveGroupMemberDisplayName(groupId: number, userId: number): string {
@@ -2893,6 +3991,527 @@ private async decryptPreviewString(
     }
 
     return this.obtenerNombrePorId(targetUserId) || `Usuario ${targetUserId}`;
+  }
+
+  private getChatDraftStorageKey(): string {
+    const userId = Number(this.usuarioActualId);
+    return Number.isFinite(userId) && userId > 0
+      ? `${this.CHAT_DRAFTS_KEY}:${userId}`
+      : this.CHAT_DRAFTS_KEY;
+  }
+
+  private normalizeChatDraftText(raw: unknown): string {
+    return String(raw || '').replace(/\r\n?/g, '\n');
+  }
+
+  private loadChatDraftsFromStorage(): void {
+    this.draftByChatId.clear();
+    try {
+      const raw = localStorage.getItem(this.getChatDraftStorageKey());
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return;
+
+      for (const [chatIdRaw, draftRaw] of Object.entries(parsed)) {
+        const chatId = Number(chatIdRaw);
+        const text = this.normalizeChatDraftText(draftRaw);
+        if (!Number.isFinite(chatId) || chatId <= 0) continue;
+        if (!text.trim()) continue;
+        this.draftByChatId.set(chatId, text);
+      }
+    } catch {}
+  }
+
+  private persistChatDraftsToStorage(): void {
+    const payload: Record<string, string> = {};
+    for (const [chatId, draft] of this.draftByChatId.entries()) {
+      const id = Number(chatId);
+      const text = this.normalizeChatDraftText(draft);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      if (!text.trim()) continue;
+      payload[String(id)] = text;
+    }
+    const storageKey = this.getChatDraftStorageKey();
+    if (Object.keys(payload).length === 0) {
+      localStorage.removeItem(storageKey);
+      return;
+    }
+    localStorage.setItem(storageKey, JSON.stringify(payload));
+  }
+
+  private getStoredDraftForChat(chatId: number): string {
+    const id = Number(chatId);
+    if (!Number.isFinite(id) || id <= 0) return '';
+    return String(this.draftByChatId.get(id) || '');
+  }
+
+  private setStoredDraftForChat(chatId: number, draft: string): void {
+    const id = Number(chatId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const text = this.normalizeChatDraftText(draft);
+    if (text.trim()) {
+      this.draftByChatId.set(id, text);
+    } else {
+      this.draftByChatId.delete(id);
+    }
+    this.syncChatListItemDraftState(id);
+    this.persistChatDraftsToStorage();
+  }
+
+  private clearStoredDraftForChat(chatId: number): void {
+    this.setStoredDraftForChat(chatId, '');
+  }
+
+  private syncChatListItemDraftState(chatId: number): void {
+    const id = Number(chatId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const draft = this.getStoredDraftForChat(id);
+    const normalized = draft.trim() ? draft : null;
+    const chatItem = (this.chats || []).find((c: any) => Number(c?.id) === id);
+    if (chatItem) {
+      chatItem.draftMensaje = normalized;
+    }
+    if (Number(this.chatActual?.id) === id) {
+      this.chatActual.draftMensaje = normalized;
+    }
+  }
+
+  private applyDraftsToChatList(): void {
+    for (const chat of this.chats || []) {
+      const chatId = Number(chat?.id);
+      if (!Number.isFinite(chatId) || chatId <= 0) {
+        chat.draftMensaje = null;
+        continue;
+      }
+      const draft = this.getStoredDraftForChat(chatId);
+      chat.draftMensaje = draft.trim() ? draft : null;
+    }
+  }
+
+  private persistActiveChatDraft(): void {
+    const chatId = Number(this.chatActual?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+    this.setStoredDraftForChat(chatId, this.mensajeNuevo || '');
+  }
+
+  private restoreDraftForChat(chat: any): void {
+    const chatId = Number(chat?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) {
+      this.mensajeNuevo = '';
+      this.composerDraftPrefixVisible = false;
+      this.composeCursorStart = 0;
+      this.composeCursorEnd = 0;
+      return;
+    }
+    const draft = this.getStoredDraftForChat(chatId);
+    this.mensajeNuevo = draft;
+    this.composerDraftPrefixVisible = !!draft.trim();
+    this.composeCursorStart = draft.length;
+    this.composeCursorEnd = draft.length;
+    this.syncChatListItemDraftState(chatId);
+  }
+
+  private getTemporarySettingsStorageKey(): string {
+    const userId = Number(this.usuarioActualId);
+    return Number.isFinite(userId) && userId > 0
+      ? `${this.TEMPORARY_CHAT_SETTINGS_KEY}:${userId}`
+      : this.TEMPORARY_CHAT_SETTINGS_KEY;
+  }
+
+  private loadTemporarySettingsFromStorage(): void {
+    this.temporarySecondsByChatId.clear();
+    try {
+      const raw = localStorage.getItem(this.getTemporarySettingsStorageKey());
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return;
+
+      for (const [chatIdRaw, secondsRaw] of Object.entries(parsed)) {
+        const chatId = Number(chatIdRaw);
+        const seconds = Number(secondsRaw);
+        if (!Number.isFinite(chatId) || chatId <= 0) continue;
+        if (!Number.isFinite(seconds) || seconds <= 0) continue;
+        this.temporarySecondsByChatId.set(chatId, seconds);
+      }
+    } catch {}
+  }
+
+  private persistTemporarySettingsToStorage(): void {
+    const payload: Record<string, number> = {};
+    for (const [chatId, seconds] of this.temporarySecondsByChatId.entries()) {
+      const id = Number(chatId);
+      const value = Number(seconds);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      if (!Number.isFinite(value) || value <= 0) continue;
+      payload[String(id)] = value;
+    }
+    const storageKey = this.getTemporarySettingsStorageKey();
+    if (Object.keys(payload).length === 0) {
+      localStorage.removeItem(storageKey);
+      return;
+    }
+    localStorage.setItem(storageKey, JSON.stringify(payload));
+  }
+
+  private getTemporarySecondsForChat(chatIdRaw: unknown): number | null {
+    const chatId = Number(chatIdRaw);
+    if (!Number.isFinite(chatId) || chatId <= 0) return null;
+    const value = Number(this.temporarySecondsByChatId.get(chatId) || 0);
+    if (!Number.isFinite(value) || value <= 0) return null;
+    return value;
+  }
+
+  private setTemporarySecondsForChat(chatIdRaw: unknown, secondsRaw: unknown): void {
+    const chatId = Number(chatIdRaw);
+    const seconds = Number(secondsRaw);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      this.temporarySecondsByChatId.delete(chatId);
+      this.persistTemporarySettingsToStorage();
+      this.cdr.markForCheck();
+      return;
+    }
+    this.temporarySecondsByChatId.set(chatId, seconds);
+    this.persistTemporarySettingsToStorage();
+    this.cdr.markForCheck();
+  }
+
+  private getActiveChatTemporarySeconds(): number | null {
+    return this.getTemporarySecondsForChat(this.chatActual?.id);
+  }
+
+  private formatTemporaryBadge(secondsRaw: number): string {
+    const seconds = Number(secondsRaw);
+    if (!Number.isFinite(seconds) || seconds <= 0) return '';
+    if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+    if (seconds % 60 === 0) return `${seconds / 60}m`;
+    return `${seconds}s`;
+  }
+
+  private attachTemporaryMetadata<T extends object>(payload: T): T {
+    const payloadAny = payload as any;
+    const chatId = Number(payloadAny?.['chatId'] ?? this.chatActual?.id);
+    const seconds = this.getTemporarySecondsForChat(chatId);
+    if (!seconds) return payload;
+    payloadAny['mensajeTemporal'] = true;
+    payloadAny['mensajeTemporalSegundos'] = seconds;
+    return payload;
+  }
+
+  private closeTemporaryMessagePopup(): void {
+    this.showTemporaryMessagePopup = false;
+  }
+
+  private getLeftGroupIdsStorageKey(): string {
+    const userId = Number(this.usuarioActualId);
+    return Number.isFinite(userId) && userId > 0
+      ? `${this.LEFT_GROUP_IDS_KEY}:${userId}`
+      : this.LEFT_GROUP_IDS_KEY;
+  }
+
+  private getLeftGroupNoticeStorageKey(): string {
+    const userId = Number(this.usuarioActualId);
+    return Number.isFinite(userId) && userId > 0
+      ? `${this.LEFT_GROUP_NOTICE_KEY}:${userId}`
+      : this.LEFT_GROUP_NOTICE_KEY;
+  }
+
+  private getLeftGroupIdsSet(): Set<number> {
+    try {
+      const raw = localStorage.getItem(this.getLeftGroupIdsStorageKey());
+      const parsed = raw ? JSON.parse(raw) : [];
+      const ids = Array.isArray(parsed)
+        ? parsed
+            .map((v: any) => Number(v))
+            .filter((v: number) => Number.isFinite(v) && v > 0)
+        : [];
+      return new Set<number>(ids);
+    } catch {
+      return new Set<number>();
+    }
+  }
+
+  private persistLeftGroupIdsSet(leftSet: Set<number>): void {
+    const values = Array.from(leftSet).filter(
+      (v) => Number.isFinite(Number(v)) && Number(v) > 0
+    );
+    localStorage.setItem(this.getLeftGroupIdsStorageKey(), JSON.stringify(values));
+  }
+
+  private getLeftGroupNoticeMap(): Record<string, string> {
+    try {
+      const raw = localStorage.getItem(this.getLeftGroupNoticeStorageKey());
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return {};
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        const chatId = Number(k);
+        const text = String(v || '').trim();
+        if (!Number.isFinite(chatId) || chatId <= 0) continue;
+        if (!text) continue;
+        out[String(chatId)] = text;
+      }
+      return out;
+    } catch {
+      return {};
+    }
+  }
+
+  private persistLeftGroupNoticeMap(map: Record<string, string>): void {
+    const cleaned: Record<string, string> = {};
+    for (const [k, v] of Object.entries(map || {})) {
+      const chatId = Number(k);
+      const text = String(v || '').trim();
+      if (!Number.isFinite(chatId) || chatId <= 0) continue;
+      if (!text) continue;
+      cleaned[String(chatId)] = text;
+    }
+    localStorage.setItem(
+      this.getLeftGroupNoticeStorageKey(),
+      JSON.stringify(cleaned)
+    );
+  }
+
+  private getLeftGroupNotice(chatId: number): string | null {
+    const id = Number(chatId);
+    if (!Number.isFinite(id) || id <= 0) return null;
+    const map = this.getLeftGroupNoticeMap();
+    const txt = String(map[String(id)] || '').trim();
+    return txt || null;
+  }
+
+  private setLeftGroupNotice(chatId: number, notice: string): void {
+    const id = Number(chatId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const normalized = String(notice || '').trim() || 'Has salido del grupo';
+    const map = this.getLeftGroupNoticeMap();
+    map[String(id)] = normalized;
+    this.persistLeftGroupNoticeMap(map);
+  }
+
+  private clearLeftGroupNotice(chatId: number): void {
+    const id = Number(chatId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const map = this.getLeftGroupNoticeMap();
+    if (map[String(id)] == null) return;
+    delete map[String(id)];
+    this.persistLeftGroupNoticeMap(map);
+  }
+
+  private getGroupExitNoticeForChat(chatId: number): string {
+    return this.getLeftGroupNotice(chatId) || 'Has salido del grupo';
+  }
+
+  private markCurrentUserOutOfGroup(
+    chatId: number,
+    notice: string,
+    systemMessage?: Partial<MensajeDTO> | null,
+    syncChatPreview = true
+  ): void {
+    const id = Number(chatId);
+    if (!Number.isFinite(id) || id <= 0) return;
+
+    const normalizedNotice =
+      String(notice || '').trim() || 'Has salido del grupo';
+
+    const leftSet = this.getLeftGroupIdsSet();
+    leftSet.add(id);
+    this.persistLeftGroupIdsSet(leftSet);
+    this.setLeftGroupNotice(id, normalizedNotice);
+
+    const chatItem = (this.chats || []).find((c) => Number(c?.id) === id);
+    const shouldSyncPreview =
+      syncChatPreview && !/^has sido expulsad[oa]\b/i.test(normalizedNotice);
+    if (chatItem && shouldSyncPreview) {
+      chatItem.ultimaMensaje = normalizedNotice;
+      chatItem.ultimaMensajeTipo = 'SYSTEM';
+      chatItem.__ultimaTipo = 'SYSTEM';
+      chatItem.__ultimaMensajeRaw = normalizedNotice;
+
+      const nowIso = new Date().toISOString();
+      const patchedMessage: Partial<MensajeDTO> = {
+        id: Number(systemMessage?.id || chatItem?.lastPreviewId || 0) || undefined,
+        chatId: id,
+        emisorId:
+          Number(systemMessage?.emisorId || this.usuarioActualId || 0) || undefined,
+        receptorId: id,
+        contenido: normalizedNotice,
+        fechaEnvio: String(systemMessage?.fechaEnvio || nowIso),
+        tipo: 'SYSTEM',
+        esSistema: true,
+        systemEvent: String(systemMessage?.systemEvent || '').trim() || 'GROUP_MEMBER_EXPELLED',
+      };
+      chatItem.ultimaFecha = patchedMessage.fechaEnvio || chatItem.ultimaFecha || nowIso;
+      this.stampChatLastMessageFieldsFromMessage(chatItem, patchedMessage);
+    }
+
+    if (this.chatActual?.esGrupo && Number(this.chatActual?.id) === id) {
+      this.haSalidoDelGrupo = true;
+      this.mensajeNuevo = normalizedNotice;
+    }
+  }
+
+  private clearCurrentUserOutOfGroup(chatId: number): void {
+    const id = Number(chatId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const prevNotice = this.getGroupExitNoticeForChat(id);
+    const leftSet = this.getLeftGroupIdsSet();
+    if (leftSet.has(id)) {
+      leftSet.delete(id);
+      this.persistLeftGroupIdsSet(leftSet);
+    }
+    this.clearLeftGroupNotice(id);
+
+    if (this.chatActual?.esGrupo && Number(this.chatActual?.id) === id) {
+      this.haSalidoDelGrupo = false;
+      const currentComposerText = String(this.mensajeNuevo || '').trim();
+      if (
+        currentComposerText === String(prevNotice || '').trim() ||
+        /^has sido expulsad[oa]\b/i.test(currentComposerText) ||
+        /^has salido del grupo$/i.test(currentComposerText)
+      ) {
+        this.mensajeNuevo = '';
+      }
+    }
+  }
+
+  private resolveGroupNameById(groupId: number): string {
+    const id = Number(groupId);
+    if (!Number.isFinite(id) || id <= 0) return '';
+    if (this.chatActual?.esGrupo && Number(this.chatActual?.id) === id) {
+      const activeName = String(
+        this.chatActual?.nombreGrupo || this.chatActual?.nombre || ''
+      ).trim();
+      if (activeName) return activeName;
+    }
+    const listItem = (this.chats || []).find((c) => Number(c?.id) === id);
+    return String(listItem?.nombreGrupo || listItem?.nombre || '').trim();
+  }
+
+  private extractGroupExpulsionTargetUserId(mensaje: any): number {
+    const candidateFields = [
+      'targetUserId',
+      'targetId',
+      'usuarioObjetivoId',
+      'miembroId',
+      'memberId',
+      'removedUserId',
+      'removedMemberId',
+      'expulsadoId',
+      'kickedUserId',
+      'affectedUserId',
+      'userIdObjetivo',
+    ];
+    for (const key of candidateFields) {
+      const value = Number((mensaje as any)?.[key]);
+      if (Number.isFinite(value) && value > 0) return value;
+    }
+    return 0;
+  }
+
+  private resolveExpulsorDisplayName(mensaje: any, groupId: number): string {
+    const directFields = [
+      (mensaje as any)?.expulsorNombreCompleto,
+      (mensaje as any)?.actorNombreCompleto,
+      (mensaje as any)?.adminNombreCompleto,
+      (mensaje as any)?.expulsorNombre,
+      (mensaje as any)?.actorNombre,
+      (mensaje as any)?.adminNombre,
+    ];
+    for (const value of directFields) {
+      const txt = String(value || '').trim();
+      if (txt) return txt;
+    }
+
+    const emisorNombre = String(mensaje?.emisorNombre || '').trim();
+    const emisorApellido = String(mensaje?.emisorApellido || '').trim();
+    const full = `${emisorNombre} ${emisorApellido}`.trim();
+    if (full && !/^(yo|t[uú])$/i.test(full)) return full;
+
+    const emisorId = Number(mensaje?.emisorId);
+    if (Number.isFinite(emisorId) && emisorId > 0) {
+      const byId = this.resolveGroupMemberDisplayName(groupId, emisorId);
+      if (byId && !/^(yo|t[uú])$/i.test(byId)) return byId;
+    }
+    return '';
+  }
+
+  private resolveExpelledNoticeFromMessage(mensaje: any): string {
+    const direct = String(mensaje?.contenido || '').trim();
+    if (/^has sido expulsad[oa]\b/i.test(direct)) return direct;
+
+    const groupId = Number(mensaje?.chatId || 0);
+    const groupName = this.resolveGroupNameById(groupId);
+    const expulsor = this.resolveExpulsorDisplayName(mensaje, groupId);
+    let notice = groupName
+      ? `Has sido expulsado de "${groupName}"`
+      : 'Has sido expulsado del grupo';
+    if (expulsor) {
+      notice += ` por "${expulsor}"`;
+    }
+    return notice;
+  }
+
+  private isCurrentUserExpelledFromGroupMessage(mensaje: any): boolean {
+    if (!this.isSystemMessage(mensaje)) return false;
+    const chatId = Number(mensaje?.chatId || 0);
+    if (!Number.isFinite(chatId) || chatId <= 0) return false;
+
+    const isGroupChat =
+      (!!this.chatActual?.esGrupo && Number(this.chatActual?.id) === chatId) ||
+      !!(this.chats || []).find(
+        (c) => Number(c?.id) === chatId && !!c?.esGrupo
+      );
+    if (!isGroupChat) return false;
+
+    const currentId = Number(this.usuarioActualId);
+    const targetUserId = this.extractGroupExpulsionTargetUserId(mensaje);
+    if (targetUserId > 0) {
+      return targetUserId === currentId;
+    }
+
+    const eventCode = String(mensaje?.systemEvent || mensaje?.evento || '')
+      .trim()
+      .toUpperCase();
+    const expulsionEvents = new Set([
+      'GROUP_MEMBER_EXPELLED',
+      'GROUP_MEMBER_KICKED',
+      'GROUP_USER_EXPELLED',
+      'GROUP_USER_KICKED',
+    ]);
+    if (!expulsionEvents.has(eventCode)) return false;
+
+    const receptorId = Number(mensaje?.receptorId || 0);
+    return receptorId > 0 && receptorId === currentId;
+  }
+
+  private maybeApplyGroupExpulsionStateFromMessage(mensaje: any): boolean {
+    if (!this.isCurrentUserExpelledFromGroupMessage(mensaje)) return false;
+    const chatId = Number(mensaje?.chatId || 0);
+    if (!chatId) return false;
+    const notice = this.resolveExpelledNoticeFromMessage(mensaje);
+    this.markCurrentUserOutOfGroup(
+      chatId,
+      notice,
+      mensaje as MensajeDTO,
+      false
+    );
+    return true;
+  }
+
+  private isPrivateExpulsionNoticeSystemMessage(mensaje: any): boolean {
+    if (!this.isSystemMessage(mensaje)) return false;
+    const content = String(mensaje?.contenido || '').trim();
+    if (!/^has sido expulsad[oa]\b/i.test(content)) return false;
+    const chatId = Number(mensaje?.chatId || 0);
+    if (!Number.isFinite(chatId) || chatId <= 0) return false;
+    const isGroupChat =
+      (!!this.chatActual?.esGrupo && Number(this.chatActual?.id) === chatId) ||
+      !!(this.chats || []).find(
+        (c) => Number(c?.id) === chatId && !!c?.esGrupo
+      );
+    return isGroupChat;
   }
 
   private buildLocalGroupLeaveSystemMessage(
@@ -2963,14 +4582,37 @@ private async decryptPreviewString(
   ): Promise<MensajeDTO[]> {
     const lista = Array.isArray(mensajes) ? [...mensajes] : [];
     for (const m of lista) {
+      Object.assign(m, this.normalizeMensajeEditadoFlag(m));
       if (this.isSystemMessage(m)) {
+        const hideOwnExpulsion = this.maybeApplyGroupExpulsionStateFromMessage(m);
+        if (hideOwnExpulsion) {
+          (m as any).__hideFromTimeline = true;
+          continue;
+        }
+        if (this.isPrivateExpulsionNoticeSystemMessage(m)) {
+          (m as any).__hideFromTimeline = true;
+          continue;
+        }
         m.contenido = String(m?.contenido ?? '').trim();
         continue;
       }
+      if (Number((m as any)?.activo) === 0 && !this.isTemporalExpiredMessage(m)) {
+        const normalizedDeleted = this.normalizeDeletedMessageForRetention(
+          m as MensajeDTO
+        );
+        Object.assign(m, normalizedDeleted);
+        if (this.shouldPurgeDeletedMessageFromTimeline(normalizedDeleted)) {
+          (m as any).__hideFromTimeline = true;
+        } else {
+          m.contenido = String(m?.contenido ?? '').trim();
+        }
+        continue;
+      }
+      const decryptInput = this.resolveDecryptInputFromMessageLike(m);
       m.contenido = await this.decryptContenido(
-        m?.contenido,
-        Number(m?.emisorId),
-        Number(m?.receptorId),
+        decryptInput,
+        Number((m as any)?.emisorId ?? (m as any)?.emisor?.id ?? 0),
+        Number((m as any)?.receptorId ?? (m as any)?.receptor?.id ?? 0),
         {
           chatId,
           mensajeId: Number(m?.id),
@@ -2987,8 +4629,15 @@ private async decryptPreviewString(
         mensajeId: Number(m?.id),
         source: `${source}-image`,
       });
+      await this.hydrateIncomingFileMessage(m as MensajeDTO, {
+        chatId,
+        mensajeId: Number(m?.id),
+        source: `${source}-file`,
+      });
     }
-    const result = lista as MensajeDTO[];
+    const result = (lista as MensajeDTO[]).filter(
+      (m) => !(m as any)?.__hideFromTimeline
+    );
     if (!esGrupo) return result;
     const filtered = result.filter(
       (m) => this.isSystemMessage(m) || !this.isEncryptedHiddenPlaceholder(m?.contenido)
@@ -3020,7 +4669,7 @@ private async decryptPreviewString(
     }
   }
 
-  private loadInitialMessagesPage(chat: any, leftSet: Set<number>): void {
+  private loadInitialMessagesPage(chat: any, _leftSet: Set<number>): void {
     const chatId = Number(chat?.id);
     const esGrupo = !!chat?.esGrupo;
     if (!Number.isFinite(chatId) || chatId <= 0) return;
@@ -3064,10 +4713,6 @@ private async decryptPreviewString(
             )
             .map((m) => m.id as number);
           if (noLeidos.length > 0) {
-            console.log('[INICIO] marcar leidos al abrir chat', {
-              chatId,
-              noLeidos,
-            });
             this.wsService.marcarMensajesComoLeidos(noLeidos);
           }
         }
@@ -3075,9 +4720,6 @@ private async decryptPreviewString(
         const item = this.chats.find((c) => c.id === chatId);
         if (item) {
           item.unreadCount = 0;
-          console.log('[INICIO] unreadCount reset por abrir chat', {
-            chatId,
-          });
         }
 
         if (esGrupo) {
@@ -3100,6 +4742,26 @@ private async decryptPreviewString(
             );
             this.cdr.markForCheck();
           });
+
+          this.wsService.suscribirseAGrabandoAudioGrupo(chatId, (data: any) => {
+            if (!this.chatActual || this.chatActual.id !== data.chatId) return;
+            if (Number(data.emisorId) === this.usuarioActualId) return;
+
+            const nombre =
+              (
+                data.emisorNombre ||
+                getNombrePorId(this.chats, data.emisorId) ||
+                'Alguien'
+              ).trim() + (data.emisorApellido ? ` ${data.emisorApellido}` : '');
+
+            if (data.grabandoAudio) this.audioSetHeader.add(nombre);
+            else this.audioSetHeader.delete(nombre);
+
+            this.audioGrabandoHeader = this.buildAudioHeaderText(
+              Array.from(this.audioSetHeader)
+            );
+            this.cdr.markForCheck();
+          });
         }
 
         this.scrollAlFinal();
@@ -3110,10 +4772,10 @@ private async decryptPreviewString(
         state.initialized = false;
         console.error('[INICIO] error al obtener mensajes:', err);
         if (esGrupo && (err.status === 403 || err.status === 404)) {
-          this.haSalidoDelGrupo = true;
-          this.mensajeNuevo = 'Has salido del grupo';
-          leftSet.add(chatId);
-          localStorage.setItem('leftGroupIds', JSON.stringify(Array.from(leftSet)));
+          this.markCurrentUserOutOfGroup(
+            chatId,
+            this.getGroupExitNoticeForChat(chatId)
+          );
         }
       },
     });
@@ -3358,9 +5020,6 @@ private async decryptPreviewString(
             this.extractAuditPublicKeyFromSource(resp?.result);
           if (key) {
             this.persistAuditPublicKeyLocal(key);
-            console.log('[E2E][audit-key-load-ok]', {
-              keyLength: key.length,
-            });
           } else {
             console.warn('[E2E][audit-key-load-empty-response]');
           }
@@ -3543,18 +5202,6 @@ private async decryptPreviewString(
     const parsed = this.classifyOutgoingGroupPayload(contenido);
     const forReceptoresKeys = overrideForReceptoresKeys ?? parsed.forReceptoresKeys;
     const hash12 = await this.hash12ForContent(contenido);
-
-    console.log('[E2E][ws-group-before-send]', {
-      source,
-      chatId: Number(mensaje?.chatId),
-      emisorId: Number(mensaje?.emisorId),
-      tipo: String(mensaje?.tipo || ''),
-      payloadClass: parsed.payloadClass,
-      len: contenido.length,
-      hash12,
-      forReceptoresKeys,
-      forReceptoresCount: forReceptoresKeys.length,
-    });
   }
 
   private async buildOutgoingE2EContent(
@@ -3610,7 +5257,7 @@ private async decryptPreviewString(
           adminPubKeyBase64
         );
         const adminEnvelopeEncrypted = await this.cryptoService.encryptRSA(
-          plainText,
+          aesKeyRawBase64,
           adminRsaKey
         );
 
@@ -3660,13 +5307,6 @@ private async decryptPreviewString(
           'No hay miembros receptores válidos para cifrar E2E_GROUP.'
         );
       }
-      console.log('[E2E][encrypt-group-members]', {
-        groupId: Number(chatItem?.id),
-        senderId: Number(myId),
-        memberIds,
-        memberCount: memberIds.length,
-      });
-
       const aesKey = await this.cryptoService.generateAESKey();
       const { iv, ciphertext } = await this.cryptoService.encryptAES(
         plainText,
@@ -3701,13 +5341,6 @@ private async decryptPreviewString(
           );
         })
       );
-      console.log('[E2E][encrypt-group-envelopes-built]', {
-        groupId: Number(chatItem?.id),
-        expected: memberIds.length,
-        generated: Object.keys(forReceptores).length,
-        envelopeUserIds: Object.keys(forReceptores),
-      });
-
       if (
         memberIds.length > 0 &&
         Object.keys(forReceptores).length !== memberIds.length
@@ -3728,7 +5361,7 @@ private async decryptPreviewString(
         adminPubKeyBase64
       );
       const adminEnvelopeEncrypted = await this.cryptoService.encryptRSA(
-        plainText,
+        aesKeyRawBase64,
         adminRsaKey
       );
 
@@ -3814,27 +5447,12 @@ private async decryptPreviewString(
 
     try {
       let { detailMembers, freshMemberIds } = await fetchDetailMemberIds();
-      console.log('[E2E][members-resolve]', {
-        groupId,
-        senderId: Number(myId),
-        localMemberIds: localPlusSeed,
-        freshMemberIds,
-        localCount: localPlusSeed.length,
-        freshCount: freshMemberIds.length,
-      });
-
       if (freshMemberIds.length === 0 && localPlusSeed.length === 0) {
         // Primeros instantes tras crear grupo: el detalle puede tardar en reflejar miembros.
         await new Promise((resolve) => setTimeout(resolve, 350));
         const retry = await fetchDetailMemberIds();
         detailMembers = retry.detailMembers;
         freshMemberIds = retry.freshMemberIds;
-        console.log('[E2E][members-resolve-retry]', {
-          groupId,
-          senderId: Number(myId),
-          freshMemberIds,
-          freshCount: freshMemberIds.length,
-        });
       }
 
       if (freshMemberIds.length === 0) return localPlusSeed;
@@ -3952,6 +5570,7 @@ private async decryptPreviewString(
         replySnippet,
         replyAuthorName,
       };
+      this.attachTemporaryMetadata(mensaje);
 
       const strictValidation = this.validateOutgoingGroupPayloadStrict(
         mensaje.contenido,
@@ -4024,6 +5643,8 @@ private async decryptPreviewString(
       );
       this.wsService.enviarMensajeGrupal(mensaje);
       this.mensajeNuevo = '';
+      this.composerDraftPrefixVisible = false;
+      this.clearStoredDraftForChat(chatId);
       this.cancelarRespuestaMensaje();
       return;
       } finally {
@@ -4053,6 +5674,7 @@ private async decryptPreviewString(
         replySnippet,
         replyAuthorName,
       };
+      this.attachTemporaryMetadata(mensaje);
 
       const chatItem =
         (this.chats || []).find((c: any) => Number(c.id) === chatId) ||
@@ -4068,10 +5690,12 @@ private async decryptPreviewString(
 
       this.wsService.enviarMensajeIndividual(mensaje);
       this.mensajeNuevo = '';
+      this.composerDraftPrefixVisible = false;
+      this.clearStoredDraftForChat(chatId);
       this.cancelarRespuestaMensaje();
     };
 
-    // Ya existe el chat → enviar directamente
+    // Ya existe el chat ? enviar directamente
     if (this.chatActual.id) {
       await sendToExisting(Number(this.chatActual.id));
       return;
@@ -4138,7 +5762,7 @@ private async decryptPreviewString(
         }
       },
       error: (e) => {
-        console.error('❌ crearChatIndividual:', e);
+        console.error('? crearChatIndividual:', e);
         // Si tu API devuelve 409 "ya existe", aqui podrias buscar ese chat y llamar a sendToExisting(foundId)
       },
     });
@@ -4203,10 +5827,10 @@ private async decryptPreviewString(
       next: (rows) => {
         this.topbarResults = (rows || []) as UserWithEstado[];
         this.topbarOpen = true;
-        this.fetchEstadosForTopbarResults(); // ⬅️ pide estados + WS live
+        this.fetchEstadosForTopbarResults(); // ?? pide estados + WS live
       },
       error: (e) => {
-        console.error('🔎 searchUsuarios error:', e);
+        console.error('?? searchUsuarios error:', e);
         this.topbarResults = [];
         this.topbarOpen = true;
       },
@@ -4242,6 +5866,8 @@ private async decryptPreviewString(
    * Si ya hay chat, lo abre. Si no, crea una visualización temporal antes del primer mensaje.
    */
   public onTopbarResultClick(u: UsuarioDTO): void {
+    this.persistActiveChatDraft();
+
     // 1) Cierra el panel y limpia estado del buscador
     this.topbarOpen = false;
     this.topbarResults = [];
@@ -4257,6 +5883,8 @@ private async decryptPreviewString(
       this.mostrarMensajes(existente);
       return;
     }
+
+    this.resetEdicion();
 
     // 3) Prepara un "chat temporal" (sin id) para mostrar el header y el placeholder
     const nombre = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim();
@@ -4281,10 +5909,15 @@ private async decryptPreviewString(
     this.chatSeleccionadoId = 0; // sentinel
     this.mensajesSeleccionados = [];
     this.usuarioEscribiendo = false;
+    this.usuarioGrabandoAudio = false;
     this.escribiendoHeader = '';
+    this.audioGrabandoHeader = '';
     this.typingSetHeader?.clear?.();
+    this.audioSetHeader?.clear?.();
+    this.composeCursorStart = 0;
+    this.composeCursorEnd = 0;
 
-    // Suscribir estado del receptor (WS string → normalizado)
+    // Suscribir estado del receptor (WS string ? normalizado)
     if (u.id && u.id !== myId && !this.suscritosEstado.has(u.id)) {
       this.suscritosEstado.add(u.id);
       this.wsService.suscribirseAEstado(u.id, (estadoStr: string) => {
@@ -4334,6 +5967,61 @@ private async decryptPreviewString(
     }
   }
 
+  private buildAudioHeaderText(names: string[]): string {
+    if (!names.length) return '';
+    if (names.length === 1) return `${names[0]} está grabando audio...`;
+    if (names.length === 2)
+      return `${names[0]} y ${names[1]} están grabando audio...`;
+    return `${names[0]}, ${names[1]} y ${
+      names.length - 2
+    } más están grabando audio...`;
+  }
+
+  /**
+   * Notifica por WebSockets que el usuario actual está grabando audio.
+   */
+  public notificarGrabandoAudio(grabandoAudio: boolean): void {
+    if (!this.chatActual) return;
+    if (this.haSalidoDelGrupo) return;
+
+    clearTimeout(this.grabandoAudioTimeout);
+
+    if (this.chatActual.esGrupo) {
+      this.wsService.enviarGrabandoAudioGrupo(
+        this.usuarioActualId,
+        this.chatActual.id,
+        grabandoAudio
+      );
+      if (grabandoAudio) {
+        this.grabandoAudioTimeout = setTimeout(() => {
+          this.wsService.enviarGrabandoAudioGrupo(
+            this.usuarioActualId,
+            this.chatActual.id,
+            false
+          );
+        }, 1500);
+      }
+      return;
+    }
+
+    const receptorId = this.chatActual.receptor?.id;
+    if (!receptorId) return;
+    this.wsService.enviarGrabandoAudio(
+      this.usuarioActualId,
+      receptorId,
+      grabandoAudio
+    );
+    if (grabandoAudio) {
+      this.grabandoAudioTimeout = setTimeout(() => {
+        this.wsService.enviarGrabandoAudio(
+          this.usuarioActualId,
+          receptorId,
+          false
+        );
+      }, 1500);
+    }
+  }
+
   /**
    * Cambia el estatus global del usuario (Conectado, Ausente, Desconectado) y notifica a la red.
    */
@@ -4351,7 +6039,6 @@ private async decryptPreviewString(
       });
 
       this.estadoActual = nuevoEstado;
-      // console.log(`🔁 Estado cambiado a: ${nuevoEstado}`);
     }
   }
 
@@ -4360,22 +6047,14 @@ private async decryptPreviewString(
    */
   public eliminarMensaje(mensaje: MensajeDTO): void {
     if (!mensaje.id || mensaje.activo === false) return;
-    console.log('[INICIO] eliminarMensaje click', {
-      mensajeId: mensaje.id,
-      chatId: mensaje.chatId,
-      emisorId: mensaje.emisorId,
-      receptorId: mensaje.receptorId,
-      activo: mensaje.activo,
+    const deletedAtMs = Date.now();
+    this.aplicarEliminacionEnUI({
+      ...(mensaje || {}),
+      activo: false,
+      chatId: mensaje.chatId ?? this.chatActual?.id,
+      __deletedAtMs: deletedAtMs,
+      deletedAt: new Date(deletedAtMs).toISOString(),
     });
-
-    const i = this.mensajesSeleccionados.findIndex((m) => m.id === mensaje.id);
-    if (i !== -1) {
-      this.mensajesSeleccionados = [
-        ...this.mensajesSeleccionados.slice(0, i),
-        { ...this.mensajesSeleccionados[i], activo: false },
-        ...this.mensajesSeleccionados.slice(i + 1),
-      ];
-    }
 
     const payloadEliminar: MensajeDTO = {
       id: mensaje.id,
@@ -4396,13 +6075,250 @@ private async decryptPreviewString(
     if (this.openReactionDetailsMessageId === Number(mensaje.id)) {
       this.openReactionDetailsMessageId = null;
     }
-    console.log('[INICIO] eliminarMensaje payload enviado', payloadEliminar);
     this.openMensajeMenuId = null;
+    if (Number(this.mensajeEdicionObjetivo?.id) === Number(mensaje.id)) {
+      this.cancelarEdicionMensaje();
+    }
+  }
+
+  private getMensajeCreatedAtMs(mensaje: MensajeDTO): number | null {
+    const raw = String(
+      (mensaje as any)?.fechaEnvio ??
+        (mensaje as any)?.fecha ??
+        (mensaje as any)?.createdAt ??
+        ''
+    ).trim();
+    if (!raw) return null;
+    const ms = Date.parse(raw);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  private isEditWindowExpired(mensaje: MensajeDTO): boolean {
+    const createdAtMs = this.getMensajeCreatedAtMs(mensaje);
+    if (!Number.isFinite(createdAtMs)) return true;
+    return Date.now() - Number(createdAtMs) > this.MESSAGE_EDIT_WINDOW_MS;
+  }
+
+  public canEditMensaje(mensaje: MensajeDTO): boolean {
+    if (!mensaje || mensaje.activo === false) return false;
+    if (Number(mensaje.emisorId) !== Number(this.usuarioActualId)) return false;
+    if (String(mensaje.tipo || 'TEXT').toUpperCase() !== 'TEXT') return false;
+    if (this.isPollMessage(mensaje)) return false;
+    if (this.isEditWindowExpired(mensaje)) return false;
+    const id = Number(mensaje.id);
+    return Number.isFinite(id) && id > 0;
+  }
+
+  public iniciarEdicionMensaje(mensaje: MensajeDTO, event?: MouseEvent): void {
+    event?.stopPropagation();
+    if (!this.canEditMensaje(mensaje)) {
+      if (this.isEditWindowExpired(mensaje)) {
+        this.showToast(
+          'Solo puedes editar mensajes durante los primeros 30 minutos.',
+          'warning',
+          'Editar'
+        );
+      }
+      return;
+    }
+
+    const contenido = String(mensaje?.contenido || '');
+    if (!contenido.trim() || this.isNonForwardableTextPlaceholder(contenido)) {
+      this.showToast(
+        'Este mensaje no puede editarse porque no está descifrado en este dispositivo.',
+        'warning',
+        'Editar'
+      );
+      this.openMensajeMenuId = null;
+      return;
+    }
+
+    this.mensajeEdicionObjetivo = { ...this.normalizeMensajeEditadoFlag(mensaje) };
+    this.mensajeNuevo = contenido;
+    this.composeCursorStart = contenido.length;
+    this.composeCursorEnd = contenido.length;
+    this.cancelarRespuestaMensaje();
+    this.forwardModalOpen = false;
+    this.openMensajeMenuId = null;
+    this.focusMessageInput(contenido.length);
+  }
+
+  public cancelarEdicionMensaje(clearComposer = true): void {
+    this.mensajeEdicionObjetivo = null;
+    if (clearComposer) {
+      this.mensajeNuevo = '';
+      this.composeCursorStart = 0;
+      this.composeCursorEnd = 0;
+    }
+  }
+
+  private applyLocalEditedMessage(
+    mensajeId: number,
+    contenidoPlano: string,
+    editedAt: string
+  ): void {
+    const id = Number(mensajeId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const idx = this.mensajesSeleccionados.findIndex((m) => Number(m.id) === id);
+    if (idx === -1) return;
+
+    const prev = this.mensajesSeleccionados[idx];
+    const updated: MensajeDTO = {
+      ...prev,
+      contenido: contenidoPlano,
+      editado: true,
+      edited: true,
+      fechaEdicion: editedAt,
+      editedAt,
+    };
+    this.mensajesSeleccionados = [
+      ...this.mensajesSeleccionados.slice(0, idx),
+      updated,
+      ...this.mensajesSeleccionados.slice(idx + 1),
+    ];
+    this.syncActiveHistoryStateMessages();
+
+    const chatId = Number(updated.chatId ?? this.chatActual?.id);
+    const chat = this.chats.find((c) => Number(c.id) === chatId);
+    if (chat && this.shouldRefreshPreviewWithIncomingMessage(chat, updated)) {
+      const { preview, fecha, lastId } = computePreviewPatch(
+        updated,
+        chat,
+        this.usuarioActualId
+      );
+      chat.ultimaMensaje = preview;
+      chat.ultimaFecha = fecha;
+      chat.lastPreviewId = lastId;
+      this.stampChatLastMessageFieldsFromMessage(chat, updated);
+      void this.syncChatItemLastPreviewMedia(chat, updated, 'local-edit-message');
+    }
+  }
+
+  private async editarMensajeDesdeComposer(): Promise<void> {
+    if (!this.chatActual || !this.mensajeEdicionObjetivo) return;
+    if (this.haSalidoDelGrupo) return;
+
+    const target = this.mensajeEdicionObjetivo;
+    if (!this.canEditMensaje(target)) {
+      if (this.isEditWindowExpired(target)) {
+        this.showToast(
+          'Solo puedes editar mensajes durante los primeros 30 minutos.',
+          'warning',
+          'Editar'
+        );
+      }
+      this.cancelarEdicionMensaje();
+      return;
+    }
+
+    const contenidoPlano = String(this.mensajeNuevo || '').trim();
+    if (!contenidoPlano) {
+      this.showToast('Escribe algo para editar el mensaje.', 'warning', 'Editar');
+      return;
+    }
+
+    const originalPlano = String(target?.contenido || '').trim();
+    if (contenidoPlano === originalPlano) {
+      this.showToast('No hay cambios para guardar.', 'info', 'Editar', 1800);
+      this.cancelarEdicionMensaje();
+      return;
+    }
+
+    const myId = this.getMyUserId ? this.getMyUserId() : this.usuarioActualId;
+    const mensajeId = Number(target.id);
+    const editedAt = new Date().toISOString();
+    const chatId = Number(this.chatActual.id);
+
+    if (this.chatActual.esGrupo) {
+      if (this.noGroupRecipientsForSend) {
+        this.showToast(
+          'Todavia no ha aceptado nadie.',
+          'warning',
+          'Grupo'
+        );
+        return;
+      }
+      if (!this.e2eSessionReady) {
+        const synced = await this.forceSyncMyE2EPublicKeyForRetry();
+        if (!synced) {
+          this.showToast(
+            'No se pudo sincronizar tu clave E2E. Revisa tu sesión antes de editar en el grupo.',
+            'danger',
+            'E2E'
+          );
+          return;
+        }
+      }
+
+      const encryptedGroup = await this.buildOutgoingE2EContentForGroup(
+        this.chatActual,
+        contenidoPlano
+      );
+      const payload: MensajeDTO = {
+        id: mensajeId,
+        contenido: encryptedGroup.content,
+        emisorId: myId,
+        receptorId: chatId,
+        chatId,
+        activo: true,
+        tipo: 'TEXT',
+        editado: true,
+        edited: true,
+        fechaEdicion: editedAt,
+        editedAt,
+      };
+
+      const strictValidation = this.validateOutgoingGroupPayloadStrict(
+        payload.contenido,
+        encryptedGroup.expectedRecipientIds
+      );
+      if (!strictValidation.ok) {
+        this.showToast(
+          `No se pudo editar: ${strictValidation.reason || strictValidation.code || 'payload E2E_GROUP inválido'}.`,
+          'danger',
+          'E2E'
+        );
+        return;
+      }
+
+      await this.logGroupWsPayloadBeforeSend(
+        'edit-message-group-text',
+        payload,
+        strictValidation.forReceptoresKeys
+      );
+      this.wsService.enviarEditarMensaje(payload);
+    } else {
+      const receptorId = Number(this.chatActual?.receptor?.id);
+      if (!Number.isFinite(receptorId) || receptorId <= 0) return;
+      const contenidoCifrado = await this.buildOutgoingE2EContent(
+        receptorId,
+        contenidoPlano
+      );
+      const payload: MensajeDTO = {
+        id: mensajeId,
+        contenido: contenidoCifrado,
+        emisorId: myId,
+        receptorId,
+        chatId,
+        activo: true,
+        tipo: 'TEXT',
+        editado: true,
+        edited: true,
+        fechaEdicion: editedAt,
+        editedAt,
+      };
+      this.wsService.enviarEditarMensaje(payload);
+    }
+
+    this.applyLocalEditedMessage(mensajeId, contenidoPlano, editedAt);
+    this.cancelarEdicionMensaje();
+    this.cdr.markForCheck();
   }
 
   public responderMensaje(mensaje: MensajeDTO, event?: MouseEvent): void {
     event?.stopPropagation();
     if (!mensaje?.id) return;
+    this.cancelarEdicionMensaje(false);
     this.mensajeRespuestaObjetivo = mensaje;
     this.openMensajeMenuId = null;
     this.forwardModalOpen = false;
@@ -4422,6 +6338,9 @@ private async decryptPreviewString(
     if (!ref) return 'Mensaje respondido';
     if ((ref.tipo || 'TEXT') === 'AUDIO') {
       return 'Mensaje de voz';
+    }
+    if ((ref.tipo || 'TEXT') === 'FILE') {
+      return `Archivo: ${this.getFileName(ref)}`;
     }
     const txt = String(ref.contenido || '').trim();
     return txt.length > 90 ? `${txt.slice(0, 90)}...` : txt;
@@ -4445,6 +6364,9 @@ private async decryptPreviewString(
     if (!this.mensajeRespuestaObjetivo) return undefined;
     if ((this.mensajeRespuestaObjetivo.tipo || 'TEXT') === 'AUDIO') {
       return 'Mensaje de voz';
+    }
+    if ((this.mensajeRespuestaObjetivo.tipo || 'TEXT') === 'FILE') {
+      return `Archivo: ${this.getFileName(this.mensajeRespuestaObjetivo)}`;
     }
     const txt = String(this.mensajeRespuestaObjetivo.contenido || '').trim();
     if (!txt) return 'Mensaje';
@@ -4478,10 +6400,26 @@ private async decryptPreviewString(
     this.forwardSelectedChatIds = new Set<number>();
   }
 
-  public toggleForwardChat(chatId: number, event?: Event): void {
+  public isForwardTargetBlocked(chat: any): boolean {
+    if (!chat || chat.esGrupo) return false;
+    const peerId = Number(chat?.receptor?.id);
+    if (!Number.isFinite(peerId) || peerId <= 0) return false;
+    return this.bloqueadosIds.has(peerId) || this.meHanBloqueadoIds.has(peerId);
+  }
+
+  public toggleForwardChat(chatInput: any, event?: Event): void {
     event?.stopPropagation();
-    const id = Number(chatId);
+    const chat =
+      chatInput && typeof chatInput === 'object'
+        ? chatInput
+        : (this.chats || []).find((c: any) => Number(c?.id) === Number(chatInput));
+    const id = Number(chat?.id ?? chatInput);
     if (!id) return;
+    if (this.isForwardTargetBlocked(chat)) {
+      this.forwardSelectedChatIds.delete(id);
+      this.forwardSelectedChatIds = new Set(this.forwardSelectedChatIds);
+      return;
+    }
     if (this.forwardSelectedChatIds.has(id)) {
       this.forwardSelectedChatIds.delete(id);
     } else {
@@ -4492,7 +6430,8 @@ private async decryptPreviewString(
 
   public onChatItemClick(chat: any): void {
     if (this.forwardModalOpen) {
-      this.toggleForwardChat(Number(chat?.id));
+      if (this.isForwardTargetBlocked(chat)) return;
+      this.toggleForwardChat(chat);
       return;
     }
     this.mostrarMensajes(chat);
@@ -4536,7 +6475,16 @@ private async decryptPreviewString(
       return;
     }
 
-    const destinos = this.chats.filter((c) => ids.includes(Number(c?.id)));
+    const destinosRaw = this.chats.filter((c) => ids.includes(Number(c?.id)));
+    const destinos = destinosRaw.filter((c) => !this.isForwardTargetBlocked(c));
+    if (destinos.length < destinosRaw.length) {
+      this.showToast(
+        'Se omitieron chats bloqueados del reenvío.',
+        'info',
+        'Reenvío',
+        2200
+      );
+    }
     if (!destinos.length) return;
 
     this.forwardingInProgress = true;
@@ -4571,6 +6519,9 @@ private async decryptPreviewString(
     if (tipo === 'AUDIO') {
       const dur = this.formatDur(original?.audioDuracionMs || 0);
       return dur ? `Mensaje de voz (${dur})` : 'Mensaje de voz';
+    }
+    if (tipo === 'FILE') {
+      return `Archivo: ${this.getFileName(original)}`;
     }
     const txt = String(original?.contenido || '').trim();
     return `Reenviado: ${txt}`.trim();
@@ -4625,7 +6576,45 @@ private async decryptPreviewString(
     const previewTexto = this.buildForwardPreviewText(original);
     this.chats = updateChatPreview(this.chats || [], chatId, previewTexto);
     const item = (this.chats || []).find((c: any) => Number(c.id) === Number(chatId));
-    if (item) item.unreadCount = 0;
+    if (item) {
+      const nowIso = new Date().toISOString();
+      const receptorPreviewId = chatDestino?.esGrupo
+        ? Number(chatId)
+        : Number(chatDestino?.receptor?.id || 0);
+      const previewMensaje: MensajeDTO = {
+        id: -(Date.now() + Math.floor(Math.random() * 1000)),
+        contenido:
+          tipo === 'TEXT'
+            ? contenidoPlano
+            : tipo === 'AUDIO'
+            ? `?? ${previewTexto}`
+            : previewTexto,
+        emisorId,
+        receptorId: receptorPreviewId,
+        activo: true,
+        leido: true,
+        chatId,
+        fechaEnvio: nowIso,
+        tipo: tipo as any,
+        reenviado: true,
+        mensajeOriginalId: Number(original?.id),
+        audioUrl: original?.audioUrl || null,
+        audioMime: original?.audioMime || null,
+        audioDuracionMs: original?.audioDuracionMs ?? null,
+        imageUrl: original?.imageUrl || null,
+        imageMime: original?.imageMime || null,
+        imageNombre: original?.imageNombre || null,
+      };
+      item.unreadCount = 0;
+      item.ultimaFecha = nowIso;
+      item.lastPreviewId = previewMensaje.id ?? item.lastPreviewId;
+      this.stampChatLastMessageFieldsFromMessage(item, previewMensaje);
+      void this.syncChatItemLastPreviewMedia(
+        item,
+        previewMensaje,
+        'forward-local-preview'
+      );
+    }
 
     if (chatDestino?.esGrupo) {
       let encryptedGroupContent = '';
@@ -4662,6 +6651,7 @@ private async decryptPreviewString(
         audioMime: original?.audioMime || null,
         audioDuracionMs: original?.audioDuracionMs ?? null,
       };
+      this.attachTemporaryMetadata(payloadGrupal);
       if (tipo === 'TEXT') {
         const strictValidation = this.validateOutgoingGroupPayloadStrict(
           payloadGrupal.contenido,
@@ -4719,6 +6709,7 @@ private async decryptPreviewString(
       audioMime: original?.audioMime || null,
       audioDuracionMs: original?.audioDuracionMs ?? null,
     };
+    this.attachTemporaryMetadata(payloadIndividual);
     this.wsService.enviarMensajeIndividual(payloadIndividual);
   }
 
@@ -5137,15 +7128,6 @@ private async decryptPreviewString(
     if (this.openIncomingReactionPickerMessageId === Number(event.messageId)) {
       this.openIncomingReactionPickerMessageId = null;
     }
-
-    console.log('[REACTION] event aplicado', {
-      source,
-      messageId: event.messageId,
-      chatId: event.chatId,
-      emoji: event.emoji,
-      action: event.action,
-      reactorUserId: event.reactorUserId,
-    });
     this.cdr.markForCheck();
   }
 
@@ -5202,6 +7184,13 @@ private async decryptPreviewString(
     const target = event?.target as Node | null;
     const targetEl = target instanceof Element ? target : null;
 
+    if (this.showChatListHeaderMenu) {
+      const insideChatHeaderMenu = !!targetEl?.closest('.chat-list-menu-anchor');
+      if (!insideChatHeaderMenu) {
+        this.showChatListHeaderMenu = false;
+      }
+    }
+
     if (this.openIncomingReactionPickerMessageId !== null) {
       const insideReactionUi = !!targetEl?.closest('.msg-reaction-box');
       if (!insideReactionUi) {
@@ -5219,6 +7208,24 @@ private async decryptPreviewString(
       const emojiAnchor = this.emojiAnchorRef?.nativeElement;
       if (!target || !emojiAnchor || !emojiAnchor.contains(target)) {
         this.closeEmojiPicker();
+      }
+    }
+
+    if (this.showComposeActionsPopup) {
+      const composeActionsAnchor = this.composeActionsAnchorRef?.nativeElement;
+      if (
+        !target ||
+        !composeActionsAnchor ||
+        !composeActionsAnchor.contains(target)
+      ) {
+        this.closeComposeActionsPopup();
+      }
+    }
+
+    if (this.showTemporaryMessagePopup) {
+      const temporaryAnchor = this.temporaryMessageAnchorRef?.nativeElement;
+      if (!target || !temporaryAnchor || !temporaryAnchor.contains(target)) {
+        this.closeTemporaryMessagePopup();
       }
     }
 
@@ -5465,6 +7472,7 @@ private async decryptPreviewString(
   public logoutFromTopbar(event?: MouseEvent): void {
     event?.stopPropagation();
     this.showTopbarProfileMenu = false;
+    this.persistActiveChatDraft();
     this.sessionService.logout({
       clearE2EKeys: false,
       clearAuditKeys: false,
@@ -5485,7 +7493,7 @@ private async decryptPreviewString(
         next: () => {
           this.unseenCount = 0;
         },
-        error: (e) => console.error('❌ markAllSeen:', e),
+        error: (e) => console.error('? markAllSeen:', e),
       });
     }
   }
@@ -5504,7 +7512,7 @@ private async decryptPreviewString(
       .accept(inviteId, this.usuarioActualId)
       .subscribe({
         next: () => {
-          this.addHandledInviteId(inviteId); // ⬅️ marca tratada
+          this.addHandledInviteId(inviteId); // ?? marca tratada
           this.notifInvites = this.notifInvites.filter(
             (n) => this.getNormalizedInviteId(n) !== inviteId
           );
@@ -5561,7 +7569,7 @@ private async decryptPreviewString(
       .decline(inviteId, this.usuarioActualId)
       .subscribe({
         next: () => {
-          this.addHandledInviteId(inviteId); // ⬅️ marca tratada
+          this.addHandledInviteId(inviteId); // ?? marca tratada
           this.notifInvites = this.notifInvites.filter(
             (n) => this.getNormalizedInviteId(n) !== inviteId
           );
@@ -5629,9 +7637,71 @@ private async decryptPreviewString(
     return isPreviewDeleted(chat?.ultimaMensaje);
   }
 
+  public shouldShowDraftPreview(chat: any): boolean {
+    if (!chat) return false;
+    if (Number(chat?.unreadCount || 0) > 0) return false;
+    const chatId = Number(chat?.id);
+    if (Number.isFinite(chatId) && chatId > 0) {
+      const activeChatId = Number(this.chatSeleccionadoId);
+      if (
+        Number.isFinite(activeChatId) &&
+        activeChatId > 0 &&
+        activeChatId === chatId
+      ) {
+        return false;
+      }
+    }
+    return !!this.chatDraftPreviewText(chat);
+  }
+
+  public chatDraftPreviewText(chat: any): string {
+    const chatId = Number(chat?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return '';
+    const raw =
+      String(chat?.draftMensaje || '').trim() || this.getStoredDraftForChat(chatId);
+    return raw.replace(/\s+/g, ' ').trim();
+  }
+
+  public shouldShowComposerDraftPrefix(): boolean {
+    if (!this.composerDraftPrefixVisible) return false;
+    if (this.haSalidoDelGrupo || this.chatEstaBloqueado) return false;
+    return !!String(this.mensajeNuevo || '').trim();
+  }
+
+  public onComposerInput(): void {
+    this.composerDraftPrefixVisible = false;
+  }
+
   public formatearPreview(chat: any): string {
     if (chat?.esGrupo && this.containsEncryptedHiddenPlaceholder(chat?.ultimaMensaje)) {
       return this.GROUP_HISTORY_UNAVAILABLE_TEXT;
+    }
+    const pollRawCandidate =
+      chat?.ultimaMensajeRaw ?? chat?.__ultimaMensajeRaw ?? chat?.ultimaMensaje;
+    const pollPreviewPayload = parsePollPayload(pollRawCandidate);
+    const pollType = this.normalizeLastMessageTipo(
+      chat?.ultimaMensajeTipo ??
+        chat?.__ultimaTipo ??
+        this.inferLastMessageTipoFromRaw(String(pollRawCandidate || ''))
+    );
+    const pollQuestionFallback = this.extractPollQuestionFromPreviewRaw(
+      pollRawCandidate,
+      chat?.ultimaMensaje
+    );
+    if (pollPreviewPayload || pollType === 'POLL' || pollQuestionFallback) {
+      const senderId = Number(
+        chat?.ultimaMensajeEmisorId ?? chat?.ultimoMensajeEmisorId ?? 0
+      );
+      const previewRaw = String(chat?.ultimaMensaje || '').trim();
+      const senderLabel = this.resolvePollPreviewSenderLabel(
+        chat,
+        senderId,
+        previewRaw
+      );
+      const question = String(
+        pollPreviewPayload?.question || pollQuestionFallback || 'Encuesta'
+      ).trim();
+      return `${senderLabel}: ?? ${question}`.trim();
     }
     const normalized = this.normalizeOwnPreviewPrefix(
       chat?.ultimaMensaje || '',
@@ -5653,7 +7723,8 @@ private async decryptPreviewString(
       tipo === 'IMAGE' ||
       tipo === 'VIDEO' ||
       tipo === 'FILE' ||
-      tipo === 'SYSTEM'
+      tipo === 'SYSTEM' ||
+      tipo === 'POLL'
     ) {
       return tipo;
     }
@@ -5676,8 +7747,14 @@ private async decryptPreviewString(
     if (payloadType === 'E2E_AUDIO' || payloadType === 'E2E_GROUP_AUDIO') {
       return 'AUDIO';
     }
+    if (payloadType === 'E2E_FILE' || payloadType === 'E2E_GROUP_FILE') {
+      return 'FILE';
+    }
     if (payloadType === 'E2E' || payloadType === 'E2E_GROUP') {
       return 'TEXT';
+    }
+    if (payloadType === 'POLL_V1') {
+      return 'POLL';
     }
     return '';
   }
@@ -5725,6 +7802,10 @@ private async decryptPreviewString(
       chat.ultimaMensajeAudioUrl = null;
       chat.ultimaMensajeAudioMime = null;
       chat.ultimaMensajeAudioDuracionMs = null;
+      chat.ultimaMensajeFileUrl = null;
+      chat.ultimaMensajeFileMime = null;
+      chat.ultimaMensajeFileNombre = null;
+      chat.ultimaMensajeFileSizeBytes = null;
       return;
     }
 
@@ -5737,6 +7818,27 @@ private async decryptPreviewString(
       chat.ultimaMensajeImageUrl = null;
       chat.ultimaMensajeImageMime = null;
       chat.ultimaMensajeImageNombre = null;
+      chat.ultimaMensajeFileUrl = null;
+      chat.ultimaMensajeFileMime = null;
+      chat.ultimaMensajeFileNombre = null;
+      chat.ultimaMensajeFileSizeBytes = null;
+      return;
+    }
+
+    if (tipo === 'FILE') {
+      chat.ultimaMensajeFileUrl = String(mensaje?.fileUrl || '').trim() || null;
+      chat.ultimaMensajeFileMime = String(mensaje?.fileMime || '').trim() || null;
+      chat.ultimaMensajeFileNombre =
+        String(mensaje?.fileNombre || '').trim() || null;
+      const fileSize = Number(mensaje?.fileSizeBytes);
+      chat.ultimaMensajeFileSizeBytes =
+        Number.isFinite(fileSize) && fileSize >= 0 ? Math.round(fileSize) : null;
+      chat.ultimaMensajeAudioUrl = null;
+      chat.ultimaMensajeAudioMime = null;
+      chat.ultimaMensajeAudioDuracionMs = null;
+      chat.ultimaMensajeImageUrl = null;
+      chat.ultimaMensajeImageMime = null;
+      chat.ultimaMensajeImageNombre = null;
       return;
     }
 
@@ -5746,6 +7848,10 @@ private async decryptPreviewString(
     chat.ultimaMensajeAudioUrl = null;
     chat.ultimaMensajeAudioMime = null;
     chat.ultimaMensajeAudioDuracionMs = null;
+    chat.ultimaMensajeFileUrl = null;
+    chat.ultimaMensajeFileMime = null;
+    chat.ultimaMensajeFileNombre = null;
+    chat.ultimaMensajeFileSizeBytes = null;
   }
 
   public formatearPreviewImagen(chat: any): string {
@@ -5809,6 +7915,75 @@ private async decryptPreviewString(
     const withoutImageLabel = body.replace(/^imagen\s*:\s*/i, '').trim();
     if (!withoutImageLabel || /^imagen$/i.test(withoutImageLabel)) return '';
     return withoutImageLabel;
+  }
+
+  public isFilePreviewChat(chat: any): boolean {
+    const lastTipo =
+      this.normalizeLastMessageTipo(chat?.ultimaMensajeTipo ?? chat?.__ultimaTipo) ||
+      this.inferLastMessageTipoFromRaw(
+        chat?.ultimaMensajeRaw ?? chat?.__ultimaMensajeRaw
+      );
+    if (lastTipo === 'FILE') return true;
+    if (chat?.__ultimaEsArchivo === true) return true;
+    return this.isFilePreviewText(chat?.ultimaMensaje, chat);
+  }
+
+  public filePreviewSenderLabel(chat: any): string {
+    const senderId = this.getChatLastPreviewSenderId(chat);
+    if (senderId && senderId === Number(this.usuarioActualId)) return 'Tú';
+    if (!chat?.esGrupo) return '';
+    return this.imagePreviewSenderLabel(chat);
+  }
+
+  public chatFilePreviewName(chat: any): string {
+    const explicit = String(
+      chat?.__ultimaArchivoNombre ||
+        chat?.ultimaMensajeFileNombre ||
+        chat?.lastMessageFileName ||
+        ''
+    ).trim();
+    if (explicit) return explicit;
+
+    const payload = this.parseFileE2EPayload(
+      this.extractPayloadCandidateFromPreview(
+        chat?.__ultimaMensajeRaw ?? chat?.ultimaMensajeRaw ?? chat?.ultimaMensaje ?? ''
+      )
+    );
+    const byPayload = String(payload?.fileNombre || '').trim();
+    if (byPayload) return byPayload;
+
+    const fallback = String(chat?.ultimaMensaje || '').trim();
+    const m = fallback.match(/archivo:\s*([^\-]+?)(?:\s*-\s*.*)?$/i);
+    return String(m?.[1] || 'Archivo').trim() || 'Archivo';
+  }
+
+  public filePreviewCaption(chat: any): string {
+    const explicit = String(chat?.__ultimaArchivoCaption || '').trim();
+    if (explicit) return explicit;
+    const normalized = this.normalizeOwnPreviewPrefix(
+      String(chat?.ultimaMensaje || ''),
+      chat
+    );
+    const formatted = formatPreviewText(normalized).trim();
+    if (!formatted) return '';
+    const body = formatted.replace(/^[^:]{1,80}:\s*/, '').trim();
+    if (!body) return '';
+    const withoutLabel = body.replace(/^archivo\s*:\s*[^-]+-\s*/i, '').trim();
+    if (
+      !withoutLabel ||
+      withoutLabel === body ||
+      /^archivo\s*:?\s*[^-]*$/i.test(body)
+    ) {
+      return '';
+    }
+    return withoutLabel;
+  }
+
+  public filePreviewIconClass(chat: any): string {
+    const mime = String(
+      chat?.__ultimaArchivoMime || chat?.ultimaMensajeFileMime || ''
+    ).trim();
+    return this.getFileIconClass(mime);
   }
 
   private normalizeOwnPreviewPrefix(preview: string, chat: any): string {
@@ -5875,6 +8050,7 @@ private async decryptPreviewString(
       return;
     }
     this.closeMessageSearchPanel();
+    this.closePollVotesPanel();
 
     if (this.groupInfoCloseTimer) {
       clearTimeout(this.groupInfoCloseTimer);
@@ -5907,6 +8083,7 @@ private async decryptPreviewString(
     }
 
     this.closeGroupInfoPanel();
+    this.closePollVotesPanel();
     if (this.messageSearchCloseTimer) {
       clearTimeout(this.messageSearchCloseTimer);
       this.messageSearchCloseTimer = null;
@@ -5928,6 +8105,60 @@ private async decryptPreviewString(
       }
       this.messageSearchCloseTimer = null;
     }, 230);
+  }
+
+  public openPollVotesPanel(mensaje: MensajeDTO, event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (!mensaje || !this.isPollMessage(mensaje)) return;
+
+    const messageId = Number(mensaje?.id);
+    if (!Number.isFinite(messageId) || messageId <= 0) return;
+
+    if (this.showPollVotesPanel && this.pollVotesPanelMessageId === messageId) {
+      this.closePollVotesPanel();
+      return;
+    }
+
+    this.closeGroupInfoPanel();
+    this.closeMessageSearchPanel();
+    if (this.pollVotesCloseTimer) {
+      clearTimeout(this.pollVotesCloseTimer);
+      this.pollVotesCloseTimer = null;
+    }
+    this.pollVotesPanelMessageId = messageId;
+    this.showPollVotesPanelMounted = true;
+    setTimeout(() => {
+      this.showPollVotesPanel = true;
+      this.cdr.markForCheck();
+    }, 10);
+  }
+
+  public closePollVotesPanel(): void {
+    this.showPollVotesPanel = false;
+    if (this.pollVotesCloseTimer) clearTimeout(this.pollVotesCloseTimer);
+    this.pollVotesCloseTimer = setTimeout(() => {
+      if (!this.showPollVotesPanel) {
+        this.showPollVotesPanelMounted = false;
+        this.pollVotesPanelMessageId = null;
+      }
+      this.pollVotesCloseTimer = null;
+    }, 230);
+  }
+
+  public get pollVotesPanelMessage(): MensajeDTO | null {
+    const targetId = Number(this.pollVotesPanelMessageId);
+    if (!Number.isFinite(targetId) || targetId <= 0) return null;
+    const list = Array.isArray(this.mensajesSeleccionados)
+      ? this.mensajesSeleccionados
+      : [];
+    return (
+      list.find((item) => Number(item?.id) === targetId) || null
+    );
+  }
+
+  public get pollVotesPanelData(): PollVotesPanelData | null {
+    return this.buildPollVotesPanelData(this.pollVotesPanelMessage);
   }
 
   public async onMessageSearchResultSelect(messageId: number): Promise<void> {
@@ -6111,11 +8342,6 @@ private async decryptPreviewString(
         );
         if (Number.isFinite(createdGroupId) && createdGroupId > 0) {
           this.groupRecipientSeedByChatId.set(createdGroupId, seedIds);
-          console.log('[E2E][group-create-seed-set]', {
-            source: 'crearGrupo',
-            createdGroupId,
-            seedIds,
-          });
         } else {
           console.warn('[E2E][group-create-seed-missing-group-id]', {
             source: 'crearGrupo',
@@ -6126,7 +8352,7 @@ private async decryptPreviewString(
         this.listarTodosLosChats();
         this.cerrarYResetModal();
       },
-      error: (e) => console.error('❌ crear grupo:', e),
+      error: (e) => console.error('? crear grupo:', e),
     });
   }
 
@@ -6153,11 +8379,6 @@ private async decryptPreviewString(
         );
         if (Number.isFinite(createdGroupId) && createdGroupId > 0) {
           this.groupRecipientSeedByChatId.set(createdGroupId, seedIds);
-          console.log('[E2E][group-create-seed-set]', {
-            source: 'onCrearGrupo',
-            createdGroupId,
-            seedIds,
-          });
         } else {
           console.warn('[E2E][group-create-seed-missing-group-id]', {
             source: 'onCrearGrupo',
@@ -6168,7 +8389,7 @@ private async decryptPreviewString(
         this.listarTodosLosChats();
         this.crearGrupoModalRef.close();
       },
-      error: (e) => console.error('❌ crear grupo:', e),
+      error: (e) => console.error('? crear grupo:', e),
     });
   }
 
@@ -6277,6 +8498,736 @@ private async decryptPreviewString(
     return meta.imageNombre || 'Imagen';
   }
 
+  private resolveFileMetaForRender(m: MensajeDTO): {
+    fileUrl: string;
+    fileMime: string;
+    fileNombre: string;
+    fileSizeBytes: number;
+    isE2EFromContenido: boolean;
+  } {
+    const dtoFileUrl = String(m?.fileUrl || '').trim();
+    const dtoFileMime = String(m?.fileMime || '').trim();
+    const dtoFileNombre = String(m?.fileNombre || '').trim();
+    const dtoFileSize = Number(m?.fileSizeBytes || 0);
+    if (dtoFileUrl || dtoFileMime || dtoFileNombre || dtoFileSize > 0) {
+      return {
+        fileUrl: dtoFileUrl,
+        fileMime: dtoFileMime,
+        fileNombre: dtoFileNombre,
+        fileSizeBytes:
+          Number.isFinite(dtoFileSize) && dtoFileSize >= 0 ? dtoFileSize : 0,
+        isE2EFromContenido: false,
+      };
+    }
+
+    const payload = this.parseFileE2EPayload(m?.contenido);
+    if (!payload) {
+      return {
+        fileUrl: '',
+        fileMime: '',
+        fileNombre: '',
+        fileSizeBytes: 0,
+        isE2EFromContenido: false,
+      };
+    }
+
+    return {
+      fileUrl: String(payload.fileUrl || '').trim(),
+      fileMime: String(payload.fileMime || '').trim(),
+      fileNombre: String(payload.fileNombre || '').trim(),
+      fileSizeBytes:
+        Number.isFinite(Number(payload.fileSizeBytes)) &&
+        Number(payload.fileSizeBytes) >= 0
+          ? Number(payload.fileSizeBytes)
+          : 0,
+      isE2EFromContenido: true,
+    };
+  }
+
+  public getFileSrc(m: MensajeDTO): string {
+    const decrypted = String(m?.fileDataUrl || '').trim();
+    if (decrypted) return decrypted;
+    const meta = this.resolveFileMetaForRender(m);
+    const isEncrypted = !!(m as any)?.__fileE2EEncrypted || meta.isE2EFromContenido;
+    if (isEncrypted) return '';
+    return resolveMediaUrl(meta.fileUrl, environment.backendBaseUrl);
+  }
+
+  public getFileName(m: MensajeDTO): string {
+    const dtoName = String(m?.fileNombre || '').trim();
+    if (dtoName) return dtoName;
+    const meta = this.resolveFileMetaForRender(m);
+    return meta.fileNombre || 'Archivo';
+  }
+
+  public getFileSizeLabel(m: MensajeDTO): string {
+    const explicitSize = Number(m?.fileSizeBytes || 0);
+    if (Number.isFinite(explicitSize) && explicitSize > 0) {
+      return this.formatAttachmentSize(explicitSize);
+    }
+    const meta = this.resolveFileMetaForRender(m);
+    if (Number.isFinite(meta.fileSizeBytes) && meta.fileSizeBytes > 0) {
+      return this.formatAttachmentSize(meta.fileSizeBytes);
+    }
+    return '';
+  }
+
+  public getFileCaption(m: MensajeDTO): string {
+    const caption = String(m?.contenido || '').trim();
+    if (!caption || caption.startsWith('{')) return '';
+    return caption;
+  }
+
+  public getFileTypeLabel(m: MensajeDTO): string {
+    const meta = this.resolveFileMetaForRender(m);
+    const mime = String(m?.fileMime || meta.fileMime || '').trim().toLowerCase();
+    const fileName = this.getFileName(m);
+
+    if (mime === 'application/pdf') return 'Documento PDF';
+    if (mime.startsWith('text/')) return 'Archivo de texto';
+    if (
+      mime.includes('msword') ||
+      mime.includes('wordprocessingml') ||
+      mime.includes('officedocument.wordprocessingml')
+    ) {
+      return 'Documento Word';
+    }
+    if (
+      mime.includes('spreadsheetml') ||
+      mime.includes('excel') ||
+      mime.includes('csv')
+    ) {
+      return 'Hoja de cálculo';
+    }
+    if (mime.includes('presentation') || mime.includes('powerpoint')) {
+      return 'Presentación';
+    }
+    if (
+      mime.includes('zip') ||
+      mime.includes('rar') ||
+      mime.includes('7z') ||
+      mime.includes('tar')
+    ) {
+      return 'Archivo comprimido';
+    }
+    if (mime.startsWith('audio/')) return 'Audio';
+    if (mime.startsWith('video/')) return 'Video';
+    if (mime.startsWith('image/')) return 'Imagen';
+
+    const ext = String(fileName.split('.').pop() || '').trim().toLowerCase();
+    if (ext === 'txt' || ext === 'md' || ext === 'log') return 'Archivo de texto';
+    if (ext === 'pdf') return 'Documento PDF';
+    if (ext === 'doc' || ext === 'docx') return 'Documento Word';
+    if (ext === 'xls' || ext === 'xlsx' || ext === 'csv') return 'Hoja de cálculo';
+    if (ext === 'ppt' || ext === 'pptx') return 'Presentación';
+    if (ext === 'zip' || ext === 'rar' || ext === '7z' || ext === 'tar') {
+      return 'Archivo comprimido';
+    }
+    return 'Archivo';
+  }
+
+  public getFileIconClass(mimeRaw: unknown): string {
+    const mime = String(mimeRaw || '').trim().toLowerCase();
+    if (!mime) return 'bi-file-earmark';
+    if (mime.includes('pdf')) return 'bi-file-earmark-pdf';
+    if (
+      mime.includes('msword') ||
+      mime.includes('wordprocessingml') ||
+      mime.includes('officedocument.wordprocessingml')
+    ) {
+      return 'bi-file-earmark-word';
+    }
+    if (
+      mime.includes('spreadsheetml') ||
+      mime.includes('excel') ||
+      mime.includes('csv')
+    ) {
+      return 'bi-file-earmark-excel';
+    }
+    if (mime.includes('presentation') || mime.includes('powerpoint')) {
+      return 'bi-file-earmark-ppt';
+    }
+    if (
+      mime.includes('zip') ||
+      mime.includes('rar') ||
+      mime.includes('7z') ||
+      mime.includes('tar')
+    ) {
+      return 'bi-file-earmark-zip';
+    }
+    if (mime.startsWith('audio/')) return 'bi-file-earmark-music';
+    if (mime.startsWith('video/')) return 'bi-file-earmark-play';
+    if (mime.startsWith('text/') || mime.includes('json') || mime.includes('xml')) {
+      return 'bi-file-earmark-text';
+    }
+    return 'bi-file-earmark';
+  }
+
+  public openFilePreview(
+    mensaje: MensajeDTO,
+    fileSrcRaw: string,
+    event?: MouseEvent
+  ): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    const fileSrc = String(fileSrcRaw || '').trim();
+    if (!fileSrc) {
+      this.showToast('No se pudo abrir la previsualización.', 'warning', 'Archivo');
+      return;
+    }
+
+    const fileName = this.getFileName(mensaje);
+    const meta = this.resolveFileMetaForRender(mensaje);
+    const fileMime = String(mensaje?.fileMime || meta.fileMime || '').trim();
+    this.showFilePreview = true;
+    this.filePreviewSrc = fileSrc;
+    this.filePreviewName = fileName;
+    this.filePreviewSize = this.getFileSizeLabel(mensaje);
+    this.filePreviewType = this.getFileTypeLabel(mensaje);
+    this.filePreviewMime = fileMime;
+  }
+
+  public closeFilePreview(): void {
+    this.showFilePreview = false;
+    this.filePreviewSrc = '';
+    this.filePreviewName = '';
+    this.filePreviewSize = '';
+    this.filePreviewType = '';
+    this.filePreviewMime = '';
+  }
+
+  private parsePollPayloadForMessage(mensaje: MensajeDTO): ReturnType<typeof parsePollPayload> {
+    if (!mensaje) return null;
+    const rawContent =
+      typeof mensaje?.contenido === 'string'
+        ? String(mensaje.contenido)
+        : JSON.stringify(mensaje?.contenido ?? '');
+    const rawPoll =
+      mensaje?.poll && typeof mensaje.poll === 'object'
+        ? JSON.stringify(mensaje.poll)
+        : '';
+    const cacheKey = `${String(mensaje?.id ?? 'no-id')}|${rawContent}|${rawPoll}|${String(
+      mensaje?.pollType || ''
+    )}|${String(mensaje?.contentKind || '')}`;
+    const cachedKey = String((mensaje as any)?.__pollPayloadCacheKey || '');
+    if (cachedKey === cacheKey) {
+      return ((mensaje as any)?.__pollPayloadCached ?? null) as ReturnType<
+        typeof parsePollPayload
+      >;
+    }
+    const parsed = parsePollPayload(mensaje);
+    (mensaje as any).__pollPayloadCacheKey = cacheKey;
+    (mensaje as any).__pollPayloadCached = parsed;
+    return parsed;
+  }
+
+  private getPollMessageMapKey(mensaje: MensajeDTO): number | null {
+    const id = Number(mensaje?.id);
+    if (!Number.isFinite(id)) return null;
+    return id;
+  }
+
+  private getPollBaseSelectedOptionIds(
+    payload: NonNullable<ReturnType<typeof parsePollPayload>>
+  ): Set<string> {
+    const myId = Number(this.usuarioActualId);
+    const selected = new Set<string>();
+    for (const option of payload.options || []) {
+      if (option?.votedByMe === true) {
+        selected.add(String(option.id));
+        continue;
+      }
+      if (
+        Number.isFinite(myId) &&
+        myId > 0 &&
+        (option?.voterIds || []).includes(myId)
+      ) {
+        selected.add(String(option.id));
+      }
+    }
+    return selected;
+  }
+
+  private getEffectivePollSelection(
+    mensaje: MensajeDTO,
+    payload: NonNullable<ReturnType<typeof parsePollPayload>>
+  ): Set<string> {
+    const key = this.getPollMessageMapKey(mensaje);
+    if (key === null) return this.getPollBaseSelectedOptionIds(payload);
+    const local = this.pollLocalSelectionByMessageId.get(key);
+    if (local) return new Set(Array.from(local));
+    return this.getPollBaseSelectedOptionIds(payload);
+  }
+
+  public isPollMessage(mensaje: MensajeDTO): boolean {
+    if (!mensaje || mensaje.activo === false) return false;
+    if (!isPollMessageLike(mensaje)) return false;
+    return !!this.parsePollPayloadForMessage(mensaje);
+  }
+
+  public getPollQuestion(mensaje: MensajeDTO): string {
+    const payload = this.parsePollPayloadForMessage(mensaje);
+    return String(payload?.question || 'Encuesta');
+  }
+
+  public getPollStatusText(mensaje: MensajeDTO): string {
+    const payload = this.parsePollPayloadForMessage(mensaje);
+    if (!payload) return 'Selecciona una opción.';
+    if (payload.statusText) return payload.statusText;
+    return payload.allowMultiple
+      ? 'Selecciona una o varias opciones.'
+      : 'Selecciona una opción.';
+  }
+
+  public getPollOptionsForRender(mensaje: MensajeDTO): ChatPollOptionView[] {
+    const payload = this.parsePollPayloadForMessage(mensaje);
+    if (!payload) return [];
+
+    const baseSelected = this.getPollBaseSelectedOptionIds(payload);
+    const effectiveSelected = this.getEffectivePollSelection(mensaje, payload);
+
+    const withCounts = (payload.options || []).map((option) => {
+      const optionId = String(option.id || '');
+      const votersFromDetails = Array.isArray(option.voters) ? option.voters.length : 0;
+      const baseCount = Math.max(
+        Number(option.voteCount || 0),
+        Array.isArray(option.voterIds) ? option.voterIds.length : 0,
+        votersFromDetails
+      );
+      const wasSelected = baseSelected.has(optionId);
+      const isSelected = effectiveSelected.has(optionId);
+      const delta = isSelected === wasSelected ? 0 : isSelected ? 1 : -1;
+      const count = Math.max(0, baseCount + delta);
+      return {
+        id: optionId,
+        text: String(option.text || '').trim(),
+        count,
+        selected: isSelected,
+      };
+    });
+
+    const totalVotes = withCounts.reduce((acc, option) => acc + option.count, 0);
+    const maxCount = withCounts.reduce(
+      (max, option) => Math.max(max, option.count),
+      0
+    );
+
+    return withCounts.map((option) => {
+      const rawOption = payload.options.find((x) => String(x.id || '') === option.id);
+      const voteEntries = this.resolvePollOptionVoteEntries(
+        mensaje,
+        rawOption,
+        option.selected
+      );
+      return {
+        voters: voteEntries.slice(0, 3).map((entry) => ({
+          userId: entry.userId,
+          photoUrl: entry.photoUrl,
+          initials: entry.initials,
+          votedAt: entry.votedAt,
+        })),
+        id: option.id,
+        text: option.text,
+        count: option.count,
+        percent:
+          totalVotes > 0
+            ? Math.max(0, Math.min(100, (option.count / totalVotes) * 100))
+            : 0,
+        selected: option.selected,
+        isLeading: option.count > 0 && option.count === maxCount,
+      };
+    });
+  }
+
+  private resolvePollPreviewSenderLabel(
+    chat: any,
+    senderIdRaw: number,
+    previewRaw: string
+  ): string {
+    const senderId = Number(senderIdRaw);
+    if (Number.isFinite(senderId) && senderId === Number(this.usuarioActualId)) {
+      return 'yo';
+    }
+
+    const extractedSender = String(
+      (/^([^:]{1,80}):\s*/.exec(String(previewRaw || '')) || [])[1] || ''
+    ).trim();
+    const extractedNormalized = extractedSender.toLowerCase();
+    if (
+      extractedSender &&
+      !/^(yo|t[úu]|encuesta|\?\?)$/i.test(extractedNormalized)
+    ) {
+      return extractedSender;
+    }
+
+    if (!chat?.esGrupo) {
+      const receptorNombre = String(chat?.receptor?.nombre || '').trim();
+      const receptorApellido = String(chat?.receptor?.apellido || '').trim();
+      const full = `${receptorNombre} ${receptorApellido}`.trim();
+      if (full) return full;
+      const alt = String(chat?.nombre || '').trim();
+      if (alt) return alt;
+    }
+
+    if (Number.isFinite(senderId) && senderId > 0) {
+      const member = Array.isArray(chat?.usuarios)
+        ? chat.usuarios.find((u: any) => Number(u?.id) === senderId)
+        : null;
+      const memberName = `${member?.nombre || ''} ${member?.apellido || ''}`.trim();
+      if (memberName) return memberName;
+      const byChats = this.obtenerNombrePorId(senderId);
+      if (byChats) return byChats;
+    }
+    return 'Alguien';
+  }
+
+  private collectPollOptionVoterIds(option: PollOptionPayload | undefined): number[] {
+    const voterIdsFromList = Array.isArray(option?.voterIds)
+      ? option.voterIds
+          .map((x) => Number(x))
+          .filter((x) => Number.isFinite(x) && x > 0)
+      : [];
+    const voterIdsFromDetails = Array.isArray(option?.voters)
+      ? option.voters
+          .map((voter) => Number(voter?.userId))
+          .filter((x) => Number.isFinite(x) && x > 0)
+      : [];
+    return Array.from(new Set([...voterIdsFromList, ...voterIdsFromDetails]));
+  }
+
+  private getPollOptionEffectiveVoterIds(
+    option: PollOptionPayload | undefined,
+    isSelected: boolean
+  ): number[] {
+    const myId = Number(this.usuarioActualId);
+    let effectiveVoterIds = [...this.collectPollOptionVoterIds(option)];
+
+    if (Number.isFinite(myId) && myId > 0) {
+      if (isSelected && !effectiveVoterIds.includes(myId)) {
+        effectiveVoterIds = [myId, ...effectiveVoterIds];
+      }
+      if (!isSelected && effectiveVoterIds.includes(myId)) {
+        effectiveVoterIds = effectiveVoterIds.filter((id) => id !== myId);
+      }
+      if (
+        effectiveVoterIds.length === 0 &&
+        option?.votedByMe === true &&
+        isSelected
+      ) {
+        effectiveVoterIds = [myId];
+      }
+    }
+
+    return effectiveVoterIds;
+  }
+
+  private resolvePollOptionVoteEntries(
+    mensaje: MensajeDTO,
+    option: PollOptionPayload | undefined,
+    isSelected: boolean
+  ): PollVoteEntryView[] {
+    const effectiveVoterIds = this.getPollOptionEffectiveVoterIds(option, isSelected);
+    if (!effectiveVoterIds.length) return [];
+
+    const detailByUserId = new Map<number, PollOptionVoterPayload>();
+    for (const detail of option?.voters || []) {
+      const userId = Number(detail?.userId);
+      if (!Number.isFinite(userId) || userId <= 0) continue;
+      const existing = detailByUserId.get(userId);
+      if (!existing) {
+        detailByUserId.set(userId, detail);
+        continue;
+      }
+      const prevTs = Date.parse(String(existing?.votedAt || ''));
+      const nextTs = Date.parse(String(detail?.votedAt || ''));
+      const preferDetail =
+        Number.isFinite(nextTs) && (!Number.isFinite(prevTs) || nextTs >= prevTs);
+      detailByUserId.set(
+        userId,
+        preferDetail
+          ? {
+              ...existing,
+              ...detail,
+            }
+          : {
+              ...detail,
+              ...existing,
+            }
+      );
+    }
+
+    return effectiveVoterIds.map((userId) => {
+      const rawDetail = detailByUserId.get(userId);
+      const isCurrentUser = Number(userId) === Number(this.usuarioActualId);
+      const explicitName = String(rawDetail?.fullName || '').trim();
+      const resolvedName = this.resolvePollVoterDisplayName(userId, mensaje);
+      const fullName = explicitName || resolvedName;
+      const label = isCurrentUser ? 'yo' : fullName;
+      const rawPhotoUrl = String(rawDetail?.photoUrl || '').trim();
+      const resolvedPhotoUrl = resolveMediaUrl(rawPhotoUrl, environment.backendBaseUrl);
+      const photoUrl = resolvedPhotoUrl || this.resolveReactionUserPhoto(userId, mensaje);
+      const votedAt = String(rawDetail?.votedAt || '').trim() || null;
+
+      return {
+        userId,
+        label,
+        fullName,
+        photoUrl: photoUrl || null,
+        initials: this.buildInitials(fullName),
+        votedAt,
+        votedAtLabel: this.formatPollVoteTime(votedAt),
+        isCurrentUser,
+      };
+    });
+  }
+
+  private buildPollVotesPanelData(mensaje: MensajeDTO | null): PollVotesPanelData | null {
+    if (!mensaje || !this.isPollMessage(mensaje)) return null;
+    const payload = this.parsePollPayloadForMessage(mensaje);
+    if (!payload) return null;
+
+    const effectiveSelected = this.getEffectivePollSelection(mensaje, payload);
+    const options: PollVotesPanelOption[] = (payload.options || []).map((option) => {
+      const optionId = String(option.id || '');
+      const voteEntries = this.resolvePollOptionVoteEntries(
+        mensaje,
+        option,
+        effectiveSelected.has(optionId)
+      );
+      const count = Math.max(
+        Number(option.voteCount || 0),
+        Array.isArray(option.voterIds) ? option.voterIds.length : 0,
+        voteEntries.length
+      );
+      return {
+        id: optionId,
+        text: String(option.text || '').trim() || 'Opción',
+        count,
+        voters: voteEntries as PollVotesPanelVoter[],
+      };
+    });
+
+    const totalVotes = options.reduce((acc, option) => acc + option.count, 0);
+    const payloadStatus = String(payload.statusText || '').trim();
+    const statusText =
+      payloadStatus ||
+      (payload.allowMultiple
+        ? 'Selecciona una o varias opciones.'
+        : 'Selecciona una opción.');
+    const messageId = Number(mensaje?.id);
+    if (!Number.isFinite(messageId) || messageId <= 0) return null;
+
+    return {
+      messageId,
+      question: String(payload.question || 'Encuesta').trim(),
+      statusText,
+      allowMultiple: payload.allowMultiple === true,
+      totalVotes,
+      options,
+    };
+  }
+
+  private formatPollVoteTime(raw: string | null | undefined): string {
+    const value = String(raw || '').trim();
+    if (!value) return 'hora no disp.';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'hora no disp.';
+    return parsed.toLocaleTimeString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  private resolvePollVoterDisplayName(userId: number, mensaje: MensajeDTO): string {
+    const id = Number(userId);
+    if (!Number.isFinite(id) || id <= 0) return 'Usuario';
+    if (id === Number(this.usuarioActualId)) {
+      const me = `${this.perfilUsuario?.nombre || ''} ${
+        this.perfilUsuario?.apellido || ''
+      }`.trim();
+      if (me) return me;
+    }
+    return this.resolveReactionUserName(id, mensaje);
+  }
+
+  private extractPollQuestionFromPreviewRaw(...rawCandidates: unknown[]): string {
+    for (const raw of rawCandidates) {
+      const text = String(raw || '').trim();
+      if (!text) continue;
+
+      const encuestaLabel = text.match(/(?:^|:\s*)(?:\?\?\s*)?encuesta:\s*([^\n\r]+)/i);
+      if (encuestaLabel?.[1]) {
+        const q = String(encuestaLabel[1]).trim();
+        if (q) return q;
+      }
+
+      const jsonQuestion = text.match(
+        /"question"\s*:\s*"((?:[^"\\]|\\.)*)"/i
+      );
+      if (jsonQuestion?.[1]) {
+        const decoded = this.safeDecodeJsonQuotedText(jsonQuestion[1]);
+        const q = String(decoded || '').trim();
+        if (q) return q;
+      }
+
+      const jsonQuestionEs = text.match(
+        /"pregunta"\s*:\s*"((?:[^"\\]|\\.)*)"/i
+      );
+      if (jsonQuestionEs?.[1]) {
+        const decoded = this.safeDecodeJsonQuotedText(jsonQuestionEs[1]);
+        const q = String(decoded || '').trim();
+        if (q) return q;
+      }
+    }
+    return '';
+  }
+
+  private safeDecodeJsonQuotedText(value: string): string {
+    const candidate = String(value || '');
+    if (!candidate) return '';
+    try {
+      return JSON.parse(`"${candidate}"`);
+    } catch {
+      return candidate
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\')
+        .replace(/\\n/g, ' ')
+        .replace(/\\t/g, ' ');
+    }
+  }
+
+  public trackPollOption(_index: number, option: ChatPollOptionView): string {
+    return option.id;
+  }
+
+  public trackPollVoter(_index: number, voter: ChatPollVoterView): string {
+    return `${voter.userId}-${voter.photoUrl || ''}-${voter.initials}`;
+  }
+
+  public async onPollOptionClick(
+    mensaje: MensajeDTO,
+    optionId: string,
+    event?: MouseEvent
+  ): Promise<void> {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (!mensaje || mensaje.activo === false) return;
+    const payload = this.parsePollPayloadForMessage(mensaje);
+    if (!payload) return;
+
+    const optionExists = (payload.options || []).some(
+      (option) => String(option.id) === String(optionId)
+    );
+    if (!optionExists) return;
+
+    const key = this.getPollMessageMapKey(mensaje);
+    if (key === null) return;
+
+    const baseSelection = this.getPollBaseSelectedOptionIds(payload);
+    const current =
+      this.pollLocalSelectionByMessageId.get(key) ||
+      new Set<string>(Array.from(baseSelection));
+    const next = new Set<string>(Array.from(current));
+    const normalizedOptionId = String(optionId);
+
+    if (payload.allowMultiple) {
+      if (next.has(normalizedOptionId)) next.delete(normalizedOptionId);
+      else next.add(normalizedOptionId);
+    } else {
+      const onlyThisSelected = next.size === 1 && next.has(normalizedOptionId);
+      if (onlyThisSelected) {
+        next.clear();
+      } else {
+        next.clear();
+        next.add(normalizedOptionId);
+      }
+    }
+
+    this.pollLocalSelectionByMessageId.set(key, next);
+    this.cdr.markForCheck();
+
+    const votePayload = this.buildPollVotePayload(mensaje, payload, normalizedOptionId);
+    if (!votePayload) return;
+
+    let sentViaWs = false;
+    const wsConnected = !!this.wsService.stompClient?.connected;
+    if (wsConnected) {
+      const wsResult = this.wsService.enviarVotoEncuesta(votePayload);
+      sentViaWs = wsResult === 'sent';
+      if (sentViaWs || wsResult === 'rate_limited') return;
+    }
+
+    try {
+      const restPayload: PollVoteRestRequestDTO = {
+        optionId: votePayload.optionId,
+        chatId: votePayload.chatId,
+        pollId: votePayload.pollId,
+      };
+      await firstValueFrom(
+        this.chatService.votarEncuesta(votePayload.mensajeId, restPayload)
+      );
+    } catch (error: any) {
+      this.pollLocalSelectionByMessageId.delete(key);
+      this.cdr.markForCheck();
+      const status = Number(error?.status || 0);
+      const backendMsg = String(
+        error?.error?.mensaje || error?.error?.message || ''
+      ).trim();
+      if (status === 403) {
+        this.showToast(
+          backendMsg || 'No tienes permisos para votar en esta encuesta.',
+          'warning',
+          'Encuesta'
+        );
+      } else if (status === 404) {
+        this.showToast(
+          backendMsg || 'La encuesta ya no está disponible.',
+          'warning',
+          'Encuesta'
+        );
+      } else {
+        this.showToast(
+          backendMsg || 'No se pudo registrar el voto.',
+          'danger',
+          'Encuesta'
+        );
+      }
+    }
+  }
+
+  private buildPollVotePayload(
+    mensaje: MensajeDTO,
+    payload: NonNullable<ReturnType<typeof parsePollPayload>>,
+    optionId: string
+  ): PollVoteWSRequestDTO | null {
+    const mensajeId = Number(mensaje?.id);
+    const chatId = Number(mensaje?.chatId ?? this.chatActual?.id);
+    if (!Number.isFinite(mensajeId) || mensajeId <= 0) return null;
+    if (!Number.isFinite(chatId) || chatId <= 0) return null;
+
+    const votePayload: PollVoteWSRequestDTO = {
+      chatId,
+      mensajeId,
+      optionId: String(optionId),
+    };
+
+    const pollIdRaw =
+      (payload as any)?.pollId ??
+      (mensaje as any)?.pollId ??
+      (mensaje as any)?.poll?.pollId ??
+      (mensaje as any)?.poll?.id;
+    const pollIdText = String(pollIdRaw ?? '').trim();
+    if (pollIdText) {
+      const pollIdNumber = Number(pollIdRaw);
+      votePayload.pollId =
+        Number.isFinite(pollIdNumber) && pollIdNumber > 0
+          ? Math.round(pollIdNumber)
+          : pollIdText;
+    }
+    return votePayload;
+  }
+
   private extractPayloadCandidateFromPreview(rawPreview: unknown): unknown {
     if (rawPreview && typeof rawPreview === 'object') return rawPreview;
     const text = String(rawPreview || '').trim();
@@ -6306,6 +9257,17 @@ private async decryptPreviewString(
     chat.__ultimaImagenDecryptOk = false;
   }
 
+  private clearChatFilePreview(chat: any): void {
+    if (!chat) return;
+    chat.__ultimaEsArchivo = false;
+    chat.__ultimaArchivoUrl = '';
+    chat.__ultimaArchivoPayloadKey = '';
+    chat.__ultimaArchivoDecryptOk = false;
+    chat.__ultimaArchivoNombre = '';
+    chat.__ultimaArchivoMime = '';
+    chat.__ultimaArchivoCaption = '';
+  }
+
   private looksLikeE2EImagePayloadFragment(raw: unknown): boolean {
     const text = String(raw || '').trim();
     if (!text) return false;
@@ -6319,6 +9281,22 @@ private async decryptPreviewString(
       text.includes('{\\"') ||
       text.includes('"iv') ||
       text.includes('\\"iv');
+    return hasTypeToken && hasJsonShape;
+  }
+
+  private looksLikeE2EFilePayloadFragment(raw: unknown): boolean {
+    const text = String(raw || '').trim();
+    if (!text) return false;
+    const hasTypeToken =
+      /E2E_(GROUP_)?FILE/i.test(text) ||
+      /"type"\s*:\s*"E2E_(GROUP_)?FILE"/i.test(text) ||
+      /\\"type\\"\s*:\s*\\"E2E_(GROUP_)?FILE\\"/i.test(text);
+    const hasJsonShape =
+      text.startsWith('{') ||
+      text.startsWith('"{') ||
+      text.includes('{\\"') ||
+      text.includes('"ivFile"') ||
+      text.includes('\\"ivFile\\"');
     return hasTypeToken && hasJsonShape;
   }
 
@@ -6338,6 +9316,22 @@ private async decryptPreviewString(
     );
   }
 
+  private isFilePreviewText(rawPreview: unknown, chat?: any): boolean {
+    const normalized = this.normalizeOwnPreviewPrefix(
+      String(rawPreview || ''),
+      chat
+    );
+    const cleaned = formatPreviewText(normalized)
+      .replace(/^[^:]{1,80}:\s*/, '')
+      .trim()
+      .toLowerCase();
+    return (
+      cleaned === 'archivo' ||
+      cleaned.startsWith('archivo:') ||
+      this.looksLikeE2EFilePayloadFragment(cleaned)
+    );
+  }
+
   private async syncChatItemLastPreviewMedia(
     chat: any,
     lastMessage?: Partial<MensajeDTO> | null,
@@ -6346,12 +9340,143 @@ private async decryptPreviewString(
     if (!chat) return;
 
     const msg = lastMessage || null;
-    const isImageTipo = String(msg?.tipo || '').trim().toUpperCase() === 'IMAGE';
     const chatLastTipo =
       this.normalizeLastMessageTipo(chat?.ultimaMensajeTipo ?? chat?.__ultimaTipo) ||
       this.inferLastMessageTipoFromRaw(
         chat?.ultimaMensajeRaw ?? chat?.__ultimaMensajeRaw
       );
+
+    const isFileTipo = String(msg?.tipo || '').trim().toUpperCase() === 'FILE';
+    const isFileByChatTipo = chatLastTipo === 'FILE';
+    const msgEncryptedFile = !!(msg as any)?.__fileE2EEncrypted;
+    const decryptedFileUrl = String(msg?.fileDataUrl || '').trim();
+    const directMessageFileUrl = String(msg?.fileUrl || '').trim();
+    const payloadFileFromMessage = this.parseFileE2EPayload(msg?.contenido);
+    const payloadFileFromRaw = !msg
+      ? this.parseFileE2EPayload(
+          this.extractPayloadCandidateFromPreview(
+            chat?.__ultimaMensajeRaw ?? chat?.ultimaMensajeRaw ?? ''
+          )
+        )
+      : null;
+    const payloadFileFromPreviewText = !msg && !payloadFileFromRaw
+      ? this.parseFileE2EPayload(
+          this.extractPayloadCandidateFromPreview(chat?.ultimaMensaje ?? '')
+        )
+      : null;
+    const filePayload =
+      payloadFileFromMessage || payloadFileFromRaw || payloadFileFromPreviewText;
+    const fallbackChatFileUrl = String(
+      chat?.ultimaMensajeFileUrl ||
+        chat?.ultimaArchivoUrl ||
+        chat?.lastMessageFileUrl ||
+        chat?.lastFileUrl ||
+        ''
+    ).trim();
+    const previewLooksFile = this.isFilePreviewText(chat?.ultimaMensaje, chat);
+    const safeDirectFileUrl =
+      msgEncryptedFile && !decryptedFileUrl ? '' : directMessageFileUrl;
+
+    const isFile =
+      isFileTipo ||
+      isFileByChatTipo ||
+      !!decryptedFileUrl ||
+      !!safeDirectFileUrl ||
+      !!fallbackChatFileUrl ||
+      !!filePayload ||
+      previewLooksFile;
+
+    if (isFile) {
+      chat.__ultimaEsArchivo = true;
+      chat.__ultimaArchivoNombre = String(
+        msg?.fileNombre ||
+          filePayload?.fileNombre ||
+          chat?.ultimaMensajeFileNombre ||
+          chat?.lastMessageFileName ||
+          ''
+      ).trim();
+      chat.__ultimaArchivoMime = String(
+        msg?.fileMime ||
+          filePayload?.fileMime ||
+          chat?.ultimaMensajeFileMime ||
+          chat?.lastMessageFileMime ||
+          ''
+      ).trim();
+      chat.ultimaMensajeFileNombre = chat.__ultimaArchivoNombre || null;
+      chat.ultimaMensajeFileMime = chat.__ultimaArchivoMime || null;
+      chat.ultimaMensajeFileUrl =
+        String(msg?.fileUrl || filePayload?.fileUrl || chat?.ultimaMensajeFileUrl || '')
+          .trim() || null;
+      const explicitSize = Number(
+        msg?.fileSizeBytes ??
+          filePayload?.fileSizeBytes ??
+          chat?.ultimaMensajeFileSizeBytes ??
+          0
+      );
+      chat.ultimaMensajeFileSizeBytes =
+        Number.isFinite(explicitSize) && explicitSize >= 0
+          ? Math.round(explicitSize)
+          : null;
+
+      const captionFromMessage = String(msg?.contenido || '').trim();
+      if (captionFromMessage && !captionFromMessage.startsWith('{')) {
+        chat.__ultimaArchivoCaption = captionFromMessage;
+      }
+
+      if (decryptedFileUrl) {
+        chat.__ultimaArchivoUrl = decryptedFileUrl;
+        chat.__ultimaArchivoDecryptOk = true;
+        this.clearChatImagePreview(chat);
+        return;
+      }
+
+      if (filePayload) {
+        const payloadKey = this.buildFileE2ECacheKey(filePayload);
+        if (
+          chat.__ultimaArchivoPayloadKey === payloadKey &&
+          String(chat.__ultimaArchivoUrl || '').trim()
+        ) {
+          chat.__ultimaArchivoDecryptOk = true;
+          chat.__ultimaArchivoCaption =
+            String(this.decryptedFileCaptionByCacheKey.get(payloadKey) || '').trim() ||
+            chat.__ultimaArchivoCaption;
+          this.clearChatImagePreview(chat);
+          return;
+        }
+
+        const senderIdCandidate = Number(msg?.emisorId);
+        const senderId =
+          Number.isFinite(senderIdCandidate) && senderIdCandidate > 0
+            ? senderIdCandidate
+            : this.getChatLastPreviewSenderId(chat);
+        const decrypted = await this.decryptFileE2EPayloadToObjectUrl(
+          filePayload,
+          senderId,
+          {
+            chatId: Number(chat?.id),
+            mensajeId: Number(chat?.lastPreviewId ?? msg?.id),
+            source,
+          }
+        );
+        chat.__ultimaArchivoPayloadKey = payloadKey;
+        chat.__ultimaArchivoUrl = String(decrypted.objectUrl || '').trim();
+        chat.__ultimaArchivoDecryptOk = !!chat.__ultimaArchivoUrl;
+        chat.__ultimaArchivoCaption =
+          String(decrypted.caption || '').trim() || chat.__ultimaArchivoCaption;
+        this.clearChatImagePreview(chat);
+        return;
+      }
+
+      const plainUrl = safeDirectFileUrl || fallbackChatFileUrl;
+      chat.__ultimaArchivoUrl = resolveMediaUrl(plainUrl, environment.backendBaseUrl);
+      chat.__ultimaArchivoDecryptOk = !!chat.__ultimaArchivoUrl;
+      this.clearChatImagePreview(chat);
+      return;
+    }
+
+    this.clearChatFilePreview(chat);
+
+    const isImageTipo = String(msg?.tipo || '').trim().toUpperCase() === 'IMAGE';
     const isImageByChatTipo = chatLastTipo === 'IMAGE';
     const msgEncryptedImage = !!(msg as any)?.__imageE2EEncrypted;
     const decryptedUrl = String(msg?.imageDataUrl || '').trim();
@@ -6634,7 +9759,7 @@ private async decryptPreviewString(
     return this.chatListFilter === filter;
   }
 
-  // ✅ lista derivada para el *ngFor*
+  // ? lista derivada para el *ngFor*
   //  - Coincidencias arriba (empieza por > contiene)
   //  - Luego el resto (sin coincidencia), conservando orden original
   //  - Empates: más no leídos primero y, luego, más reciente
@@ -6738,7 +9863,7 @@ private async decryptPreviewString(
         this.cdr.markForCheck();
       },
       error: (err) => {
-        console.error('❌ Error cargando perfil:', err);
+        console.error('? Error cargando perfil:', err);
         this.usuarioFotoUrl = this.normalizeOwnProfilePhoto(cachedFoto);
         this.cdr.markForCheck();
       },
@@ -6803,7 +9928,7 @@ private async decryptPreviewString(
           this.contenedorMensajes.nativeElement.scrollHeight;
       }, 50);
     } catch (err) {
-      console.warn('⚠️ No se pudo hacer scroll:', err);
+      console.warn('?? No se pudo hacer scroll:', err);
     }
   }
 
@@ -6813,7 +9938,7 @@ private async decryptPreviewString(
   public async aceptarLlamada(): Promise<void> {
     if (!this.ultimaInvite) return;
 
-    // 👇 Primero probamos acceder a cam/mic. Si falla, rechazamos con motivo.
+    // ?? Primero probamos acceder a cam/mic. Si falla, rechazamos con motivo.
     try {
       await this.prepararMediosLocales();
     } catch (e: any) {
@@ -6887,7 +10012,7 @@ private async decryptPreviewString(
     this.localStream = null;
     this.remoteStream = null;
 
-    // 🔹 Limpia el overlay de estado
+    // ?? Limpia el overlay de estado
     this.callInfoMessage = null;
     this.callStatusClass = null;
     this.remoteHasVideo = false;
@@ -7078,7 +10203,7 @@ private async decryptPreviewString(
       `${this.chatActual?.receptor?.nombre || ''} ${
         this.chatActual?.receptor?.apellido || ''
       }`.trim() || 'la otra persona';
-    this.showRemoteStatus(`Llamando a ${nombreCallee}⬦`, 'is-ringing');
+    this.showRemoteStatus(`Llamando a ${nombreCallee}?`, 'is-ringing');
 
     // Envía invitación
     this.wsService.iniciarLlamada(callerId, calleeId, chatId);
@@ -7120,7 +10245,7 @@ private async decryptPreviewString(
     toUserId: number;
     sdp: string;
   }): Promise<void> {
-    // ✅ ocultar banner de llamada entrante
+    // ? ocultar banner de llamada entrante
     this.ultimaInvite = undefined;
 
     this.showCallUI = true;
@@ -7192,7 +10317,7 @@ private async decryptPreviewString(
     return full || 'La otra persona';
   }
 
-  /** Devuelve la URL real de foto si existe; si no hay foto → null (para mostrar icono). */
+  /** Devuelve la URL real de foto si existe; si no hay foto ? null (para mostrar icono). */
   public get peerAvatarUrl(): string | null {
     const f = this.chatActual?.receptor?.foto?.trim();
     return f && !f.toLowerCase().includes('assets/usuario.png') ? f : null;
@@ -7448,17 +10573,44 @@ private async decryptPreviewString(
   private aplicarEliminacionEnUI(mensaje: MensajeDTO): void {
     const deletedId = Number(mensaje.id);
     const chatId = (mensaje as any).chatId;
+    const normalizedDeleted = this.normalizeDeletedMessageForRetention(
+      { ...(mensaje || {}) },
+      Date.now()
+    );
+    const isTemporalExpired = this.isTemporalExpiredMessage(normalizedDeleted);
+    const mergedPayload: MensajeDTO = isTemporalExpired
+      ? {
+          ...(normalizedDeleted || {}),
+          activo: false,
+          contenido: this.temporalExpiredPlaceholderText(normalizedDeleted),
+          placeholderTexto: this.temporalExpiredPlaceholderText(normalizedDeleted),
+        }
+      : {
+          ...(normalizedDeleted || {}),
+          activo: false,
+        };
+    const shouldHideFromTimeline = this.shouldPurgeDeletedMessageFromTimeline(
+      mergedPayload
+    );
 
     // 1) Marca en hilo abierto
     const idxMsg = this.mensajesSeleccionados.findIndex(
       (m) => Number(m.id) === deletedId
     );
     if (idxMsg !== -1) {
-      this.mensajesSeleccionados = [
-        ...this.mensajesSeleccionados.slice(0, idxMsg),
-        { ...this.mensajesSeleccionados[idxMsg], activo: false },
-        ...this.mensajesSeleccionados.slice(idxMsg + 1),
-      ];
+      if (shouldHideFromTimeline) {
+        this.mensajesSeleccionados = [
+          ...this.mensajesSeleccionados.slice(0, idxMsg),
+          ...this.mensajesSeleccionados.slice(idxMsg + 1),
+        ];
+      } else {
+        this.mensajesSeleccionados = [
+          ...this.mensajesSeleccionados.slice(0, idxMsg),
+          { ...this.mensajesSeleccionados[idxMsg], ...mergedPayload },
+          ...this.mensajesSeleccionados.slice(idxMsg + 1),
+        ];
+      }
+      this.syncActiveHistoryStateMessages();
     }
 
     // 2) Preview si afectaba al último mostrado
@@ -7478,13 +10630,36 @@ private async decryptPreviewString(
       return;
     }
 
+    if (isTemporalExpired) {
+      const idxTemporal = this.mensajesSeleccionados.findIndex(
+        (m) => Number(m.id) === deletedId
+      );
+      const temporalMsg =
+        idxTemporal >= 0 ? this.mensajesSeleccionados[idxTemporal] : mergedPayload;
+      const preview = buildPreviewFromMessage(
+        { ...temporalMsg, chatId },
+        chatItem,
+        this.usuarioActualId
+      );
+      this.chats = updateChatPreview(
+        this.chats,
+        Number(chatId),
+        preview,
+        deletedId
+      );
+      this.cdr.markForCheck();
+      return;
+    }
+
     // Si el chat está abierto: busca nuevo último activo
     if (
       this.chatActual?.id === chatId &&
       this.mensajesSeleccionados.length > 0
     ) {
       const copia = [...this.mensajesSeleccionados];
-      const newLast = [...copia].reverse().find((m) => m.activo !== false);
+      const newLast = [...copia]
+        .reverse()
+        .find((m) => m.activo !== false || this.isTemporalExpiredMessage(m));
 
       if (newLast) {
         const preview = buildPreviewFromMessage(
@@ -7523,7 +10698,10 @@ private async decryptPreviewString(
       next: (mensajes) => {
         const lastActivo = [...mensajes]
           .reverse()
-          .find((m: any) => m.activo !== false);
+          .find(
+            (m: any) =>
+              m.activo !== false || this.isTemporalExpiredMessage(m)
+          );
 
         const chatItem = this.chats.find(
           (c) => Number(c.id) === Number(chatId)
@@ -7551,7 +10729,7 @@ private async decryptPreviewString(
           );
         }
       },
-      error: (err) => console.error('❌ Error refrescando preview:', err),
+      error: (err) => console.error('? Error refrescando preview:', err),
     });
   }
 
@@ -7641,7 +10819,7 @@ private async decryptPreviewString(
 
         this.cdr.markForCheck();
       },
-      error: (e) => console.error('❌ list notifications:', e),
+      error: (e) => console.error('? list notifications:', e),
     });
   }
 
@@ -7712,32 +10890,60 @@ private async decryptPreviewString(
    * Reacciona cuando ocurre un evento con mensajes grupales por socket. Sincroniza interfaz o incrementa contador si es pasivo.
    */
   private handleMensajeGrupal(mensaje: any): void {
+    mensaje = this.normalizeMensajeEditadoFlag(mensaje);
+    const incomingMessageId = Number(mensaje?.id);
+    const hasIncomingMessageId =
+      Number.isFinite(incomingMessageId) && incomingMessageId > 0;
+    if (hasIncomingMessageId) {
+      this.pollLocalSelectionByMessageId.delete(incomingMessageId);
+    }
     const isSystem = this.isSystemMessage(mensaje);
+    if (isSystem) {
+      const isOwnGroupExpulsion =
+        this.maybeApplyGroupExpulsionStateFromMessage(mensaje);
+      if (isOwnGroupExpulsion) return;
+      if (this.isPrivateExpulsionNoticeSystemMessage(mensaje)) return;
+    }
     if (!isSystem && this.isEncryptedHiddenPlaceholder(mensaje?.contenido)) {
       return;
     }
 
-    // Si no estoy en ese grupo → solo preview/contadores
+    // Si no estoy en ese grupo ? solo preview/contadores
     if (!this.chatActual || this.chatActual.id !== mensaje.chatId) {
       const chatItem = this.chats.find((c) => c.id === mensaje.chatId);
       if (chatItem) {
-        if (!isSystem && mensaje.emisorId !== this.usuarioActualId) {
+        const currentLastId = Number(
+          chatItem?.lastPreviewId ?? chatItem?.ultimaMensajeId ?? 0
+        );
+        const isExistingMessageUpdate =
+          hasIncomingMessageId &&
+          Number.isFinite(currentLastId) &&
+          currentLastId > 0 &&
+          incomingMessageId <= currentLastId;
+        if (
+          !isSystem &&
+          mensaje.emisorId !== this.usuarioActualId &&
+          !this.isMensajeEditado(mensaje) &&
+          !isExistingMessageUpdate
+        ) {
           chatItem.unreadCount = (chatItem.unreadCount || 0) + 1;
         }
-        const { preview, fecha, lastId } = computePreviewPatch(
-          mensaje,
-          chatItem,
-          this.usuarioActualId
-        );
-        chatItem.ultimaMensaje = preview;
-        chatItem.ultimaFecha = fecha;
-        chatItem.lastPreviewId = lastId;
-        this.stampChatLastMessageFieldsFromMessage(chatItem, mensaje);
-        void this.syncChatItemLastPreviewMedia(
-          chatItem,
-          mensaje,
-          'ws-group-list'
-        );
+        if (this.shouldRefreshPreviewWithIncomingMessage(chatItem, mensaje)) {
+          const { preview, fecha, lastId } = computePreviewPatch(
+            mensaje,
+            chatItem,
+            this.usuarioActualId
+          );
+          chatItem.ultimaMensaje = preview;
+          chatItem.ultimaFecha = fecha;
+          chatItem.lastPreviewId = lastId;
+          this.stampChatLastMessageFieldsFromMessage(chatItem, mensaje);
+          void this.syncChatItemLastPreviewMedia(
+            chatItem,
+            mensaje,
+            'ws-group-list'
+          );
+        }
         this.cdr.markForCheck();
       }
       return;
@@ -7750,12 +10956,29 @@ private async decryptPreviewString(
     if (i === -1 && Number(mensaje?.emisorId) === Number(this.usuarioActualId)) {
       const incomingTipo = String(mensaje?.tipo || 'TEXT');
       const incomingContenido = String(mensaje?.contenido ?? '');
+      const incomingPollPayload = this.parsePollPayloadForMessage(mensaje as MensajeDTO);
       i = this.mensajesSeleccionados.findIndex(
         (m) =>
           Number(m.id) < 0 &&
           Number(m.emisorId) === Number(mensaje.emisorId) &&
-          String(m.tipo || 'TEXT') === incomingTipo &&
-          String(m.contenido ?? '') === incomingContenido
+          ((String(m.tipo || 'TEXT') === incomingTipo &&
+            String(m.contenido ?? '') === incomingContenido) ||
+            (() => {
+              if (!incomingPollPayload) return false;
+              const optimisticPoll = this.parsePollPayloadForMessage(m as MensajeDTO);
+              if (!optimisticPoll) return false;
+              const incomingOptions = (incomingPollPayload.options || [])
+                .map((opt) => String(opt?.text || '').trim().toLowerCase())
+                .join('|');
+              const optimisticOptions = (optimisticPoll.options || [])
+                .map((opt) => String(opt?.text || '').trim().toLowerCase())
+                .join('|');
+              return (
+                String(optimisticPoll.question || '').trim().toLowerCase() ===
+                  String(incomingPollPayload.question || '').trim().toLowerCase() &&
+                optimisticOptions === incomingOptions
+              );
+            })())
       );
     }
     if (i !== -1) {
@@ -7767,12 +10990,13 @@ private async decryptPreviewString(
     } else {
       this.mensajesSeleccionados = [...this.mensajesSeleccionados, mensaje];
     }
+    const replacedExisting = i !== -1;
 
     this.syncActiveHistoryStateMessages();
 
     // Preview y scroll
     const chat = this.chats.find((c) => c.id === mensaje.chatId);
-    if (chat) {
+    if (chat && this.shouldRefreshPreviewWithIncomingMessage(chat, mensaje)) {
       const { preview, fecha, lastId } = computePreviewPatch(
         mensaje,
         chat,
@@ -7785,7 +11009,9 @@ private async decryptPreviewString(
       void this.syncChatItemLastPreviewMedia(chat, mensaje, 'ws-group-open-chat');
     }
 
-    this.scrollAlFinal();
+    if (!replacedExisting) {
+      this.scrollAlFinal();
+    }
     this.cdr.markForCheck();
   }
 
@@ -7798,7 +11024,7 @@ private async decryptPreviewString(
       ? this.usuarioActualId
       : this.getMyUserId();
 
-    // ✅ ids estrictamente number[]
+    // ? ids estrictamente number[]
     const ids: number[] = this.topbarResults
       .map((u) => u?.id)
       .filter(
@@ -7818,10 +11044,10 @@ private async decryptPreviewString(
         });
         this.cdr.markForCheck();
       },
-      error: (e) => console.warn('⚠️ estados REST (topbar):', e),
+      error: (e) => console.warn('?? estados REST (topbar):', e),
     });
 
-    // b) WS: actualizaciones en vivo (string → normalizamos con toEstado)
+    // b) WS: actualizaciones en vivo (string ? normalizamos con toEstado)
     for (const id of ids) {
       if (this.topbarEstadoSuscritos.has(id)) continue;
       this.topbarEstadoSuscritos.add(id);
@@ -7879,12 +11105,19 @@ private async decryptPreviewString(
       mr.start();
       this.recording = true;
       this.recordStartMs = Date.now();
+      this.notificarGrabandoAudio(true);
+      this.lastAudioPingMs = this.recordStartMs;
 
       // Iniciar cronómetro
       this.clearRecordTicker();
       this.recordElapsedMs = 0;
       this.recordTicker = setInterval(() => {
-        this.recordElapsedMs = Date.now() - this.recordStartMs;
+        const now = Date.now();
+        this.recordElapsedMs = now - this.recordStartMs;
+        if (now - this.lastAudioPingMs >= 1000) {
+          this.notificarGrabandoAudio(true);
+          this.lastAudioPingMs = now;
+        }
         this.cdr.markForCheck();
       }, 200);
     } catch (e) {
@@ -7919,6 +11152,8 @@ private async decryptPreviewString(
     this.micStream = undefined;
     this.mediaRecorder = undefined;
     this.recording = false;
+    this.lastAudioPingMs = 0;
+    this.notificarGrabandoAudio(false);
 
     const mime = (this.pickSupportedMime() ??
       (this.audioChunks[0] as any)?.type ??
@@ -7972,6 +11207,8 @@ private async decryptPreviewString(
     this.recording = false;
     this.audioChunks = [];
     this.recordElapsedMs = 0;
+    this.lastAudioPingMs = 0;
+    this.notificarGrabandoAudio(false);
   }
 
   /**
@@ -8120,8 +11357,9 @@ private async decryptPreviewString(
         replySnippet: this.getComposeReplySnippet(),
         replyAuthorName: this.getComposeReplyAuthorName(),
       };
+      this.attachTemporaryMetadata(mensaje);
 
-      const textoPreview = `🎤 Mensaje de voz (${this.formatDur(mensaje.audioDuracionMs)})`;
+      const textoPreview = `?? Mensaje de voz (${this.formatDur(mensaje.audioDuracionMs)})`;
       this.chats = updateChatPreview(this.chats, chatId, textoPreview);
       const chatItem = this.chats.find((c) => Number(c.id) === chatId);
       if (chatItem) chatItem.unreadCount = 0;
@@ -8186,8 +11424,9 @@ private async decryptPreviewString(
       replySnippet: this.getComposeReplySnippet(),
       replyAuthorName: this.getComposeReplyAuthorName(),
     };
+    this.attachTemporaryMetadata(mensaje);
 
-    const textoPreview = `🎤 Mensaje de voz (${this.formatDur(uploadedDurMs)})`;
+    const textoPreview = `?? Mensaje de voz (${this.formatDur(uploadedDurMs)})`;
     this.chats = updateChatPreview(this.chats, chatId, textoPreview);
     const chatItem = this.chats.find((c) => Number(c.id) === chatId);
     if (chatItem) chatItem.unreadCount = 0;
@@ -8265,17 +11504,7 @@ private async decryptPreviewString(
             (/eliminad/i.test(backendMsg) && /vaci/i.test(backendMsg));
 
           // Estado UI "fuera"
-          this.haSalidoDelGrupo = true;
-          this.mensajeNuevo = 'Has salido del grupo';
-
-          // Persistencia local para recordar que saliste de este grupo
-          const raw = localStorage.getItem('leftGroupIds');
-          const leftSet = new Set<number>(raw ? JSON.parse(raw) : []);
-          leftSet.add(groupId);
-          localStorage.setItem(
-            'leftGroupIds',
-            JSON.stringify(Array.from(leftSet))
-          );
+          this.markCurrentUserOutOfGroup(groupId, 'Has salido del grupo');
 
           void backendMsg;
 
@@ -8285,6 +11514,8 @@ private async decryptPreviewString(
 
           // Si el grupo queda eliminado, retira chat lateral y limpia la zona de mensajes
           if (groupDeleted) {
+            this.clearCurrentUserOutOfGroup(groupId);
+            this.clearStoredDraftForChat(groupId);
             this.chats = (this.chats || []).filter(
               (c: any) => Number(c?.id) !== groupId
             );
@@ -8305,7 +11536,7 @@ private async decryptPreviewString(
         }
       },
       error: (err) => {
-        console.error('❌ salirDeChatGrupal:', err);
+        console.error('? salirDeChatGrupal:', err);
         alert('Ha ocurrido un error al salir del grupo.');
       },
     });
@@ -8362,10 +11593,598 @@ private async decryptPreviewString(
     );
   }
 
+  public get isTemporaryMessageEnabledForActiveChat(): boolean {
+    return (this.getActiveChatTemporarySeconds() || 0) > 0;
+  }
+
+  public get temporaryMessageBadgeLabel(): string {
+    const seconds = this.getActiveChatTemporarySeconds();
+    if (!seconds || seconds <= 0) return '';
+    const option = this.temporaryMessageOptions.find((o) => o.seconds === seconds);
+    if (option) return option.badge;
+    return this.formatTemporaryBadge(seconds);
+  }
+
+  public get canCreatePollInCurrentChat(): boolean {
+    return !!this.chatActual?.esGrupo;
+  }
+
+  public toggleComposeActionsPopup(event: MouseEvent): void {
+    event.stopPropagation();
+    if (this.shouldDisableAttachmentAction()) return;
+    if (this.showComposeActionsPopup) {
+      this.closeComposeActionsPopup();
+      return;
+    }
+    this.showChatListHeaderMenu = false;
+    this.closeEmojiPicker();
+    this.closeTemporaryMessagePopup();
+    this.showComposeActionsPopup = true;
+  }
+
+  public onComposerActionSelect(
+    action: ComposerActionType,
+    event?: MouseEvent
+  ): void {
+    event?.stopPropagation();
+    if (action === 'archivo') {
+      this.openAttachmentPicker();
+      return;
+    }
+    if (action === 'encuesta') {
+      this.openGroupPollComposer();
+    }
+  }
+
+  public toggleChatListHeaderMenu(event?: MouseEvent): void {
+    event?.stopPropagation();
+    this.closeComposeActionsPopup();
+    this.closeEmojiPicker();
+    this.closeTemporaryMessagePopup();
+    this.showChatListHeaderMenu = !this.showChatListHeaderMenu;
+  }
+
+  public openScheduleMessageComposerFromHeader(event?: MouseEvent): void {
+    event?.stopPropagation();
+    this.showChatListHeaderMenu = false;
+    this.openScheduleMessageComposer(undefined, true);
+  }
+
+  public openGroupPollComposer(event?: MouseEvent): void {
+    event?.stopPropagation();
+    if (this.haSalidoDelGrupo || this.chatEstaBloqueado) return;
+    if (!this.chatActual?.esGrupo) {
+      this.closeComposeActionsPopup();
+      return;
+    }
+    this.showChatListHeaderMenu = false;
+    this.closeComposeActionsPopup();
+    this.closeEmojiPicker();
+    this.closeTemporaryMessagePopup();
+    this.closeScheduleMessageComposer();
+    this.showGroupPollComposer = true;
+  }
+
+  public closeGroupPollComposer(): void {
+    this.showGroupPollComposer = false;
+  }
+
+  public openScheduleMessageComposer(
+    event?: MouseEvent,
+    fromHeaderMenu: boolean = false
+  ): void {
+    event?.stopPropagation();
+    if (!fromHeaderMenu && (this.haSalidoDelGrupo || this.chatEstaBloqueado)) return;
+    this.activeMainView = 'chat';
+    this.showTopbarProfileMenu = false;
+    this.showChatListHeaderMenu = false;
+    this.closeComposeActionsPopup();
+    this.closeEmojiPicker();
+    this.closeTemporaryMessagePopup();
+    this.closeGroupPollComposer();
+    this.showScheduleMessageComposer = true;
+  }
+
+  public closeScheduleMessageComposer(): void {
+    this.showScheduleMessageComposer = false;
+    this.showChatListHeaderMenu = false;
+  }
+
+  public async onScheduleMessageDraftSubmit(
+    payload: ScheduleMessageDraftPayload
+  ): Promise<void> {
+    if (this.scheduleCreateInFlight) return;
+    const scheduledAtIso = String(payload?.scheduledAtIso || '').trim();
+    const whenText = scheduledAtIso
+      ? new Date(scheduledAtIso).toLocaleString('es-ES')
+      : `${payload?.scheduledDate || ''} ${payload?.scheduledTime || ''}`.trim();
+
+    const requestedChatIds = Array.isArray(payload?.chatIds)
+      ? Array.from(
+          new Set(
+            payload.chatIds
+              .map((id) => Number(id))
+              .filter((id) => Number.isFinite(id) && id > 0)
+          )
+        )
+      : [];
+    const leftGroupIds = this.getLeftGroupIdsSet();
+    const normalizedChatIds = requestedChatIds.filter((chatId) => {
+      const chat = (this.chats || []).find((c: any) => Number(c?.id) === Number(chatId));
+      if (!chat) return false;
+      if (!!chat?.esGrupo && leftGroupIds.has(Number(chatId))) return false;
+      return !this.isForwardTargetBlocked(chat);
+    });
+    const skippedByFront = Math.max(0, requestedChatIds.length - normalizedChatIds.length);
+    const message = String(payload?.message || '').trim();
+    if (!message || normalizedChatIds.length === 0 || !scheduledAtIso) {
+      this.showToast(
+        'No se pudo programar: seleccion invalida o sin permisos en los chats elegidos.',
+        'warning',
+        'Programado'
+      );
+      return;
+    }
+
+    const requestBase: Pick<
+      ProgramarMensajeRequestDTO,
+      'message' | 'scheduledAt' | 'createdBy' | 'userId'
+    > = {
+      message,
+      scheduledAt: scheduledAtIso,
+      createdBy: Number(this.usuarioActualId) || undefined,
+      userId: Number(this.usuarioActualId) || undefined,
+    };
+
+    this.scheduleCreateInFlight = true;
+    try {
+      const total = normalizedChatIds.length;
+      let okCount = 0;
+      let firstError = '';
+
+      for (const chatId of normalizedChatIds) {
+        const chatItem = (this.chats || []).find(
+          (c: any) => Number(c?.id) === Number(chatId)
+        );
+        let encryptedContenido = message;
+        try {
+          if (chatItem?.esGrupo) {
+            const encryptedGroup = await this.buildOutgoingE2EContentForGroup(
+              chatItem,
+              message
+            );
+            const strictValidation = this.validateOutgoingGroupPayloadStrict(
+              encryptedGroup.content,
+              encryptedGroup.expectedRecipientIds
+            );
+            if (!strictValidation.ok) {
+              throw new Error(
+                strictValidation.reason ||
+                  strictValidation.code ||
+                  'payload E2E_GROUP invalido para programado'
+              );
+            }
+            encryptedContenido = encryptedGroup.content;
+          } else {
+            const receptorId = Number(chatItem?.receptor?.id);
+            if (!Number.isFinite(receptorId) || receptorId <= 0) {
+              throw new Error('No se pudo resolver el receptor del chat programado.');
+            }
+            encryptedContenido = await this.buildOutgoingE2EContent(
+              receptorId,
+              message
+            );
+          }
+        } catch (encryptErr: any) {
+          console.error('[SCHEDULE][encrypt-error]', {
+            chatId,
+            error: encryptErr?.message || String(encryptErr),
+          });
+          if (!firstError) {
+            firstError =
+              encryptErr?.message ||
+              'No se pudo cifrar el mensaje programado para uno o mas chats.';
+          }
+          continue;
+        }
+
+        const request: ProgramarMensajeRequestDTO = {
+          ...requestBase,
+          chatIds: [chatId],
+          contenido: encryptedContenido,
+        };
+        try {
+          const response = await firstValueFrom(
+            this.chatService.programarMensajes(request)
+          );
+          const result = this.normalizeProgramarMensajesResponse(response);
+          if (result.okCount > 0) {
+            okCount += 1;
+          } else if (!firstError) {
+            firstError = result.errorMessage;
+          }
+        } catch (error: any) {
+          console.error('[SCHEDULE][create-error]', { chatId, error });
+          if (!firstError) {
+            firstError = this.extractScheduleErrorMessage(error);
+          }
+        }
+      }
+      const failCount = Math.max(0, total - okCount) + skippedByFront;
+
+      if (okCount > 0) {
+        this.planScheduledDeliveryRealtimeProbe(normalizedChatIds, scheduledAtIso);
+        this.closeScheduleMessageComposer();
+        this.closeComposeActionsPopup();
+        const base = `Mensaje programado para ${okCount} destino${
+          okCount === 1 ? '' : 's'
+        } (${whenText}).`;
+        const extra =
+          failCount > 0
+            ? ` ${failCount} no pudieron programarse.`
+            : '';
+        this.showToast(
+          `${base}${extra}`,
+          failCount > 0 ? 'warning' : 'success',
+          'Programado',
+          3200
+        );
+      } else {
+        this.showToast(
+          firstError || 'No se pudo programar el mensaje.',
+          'danger',
+          'Programado'
+        );
+      }
+    } catch (error: any) {
+      console.error('[SCHEDULE][create-error]', error);
+      this.showToast(
+        this.extractScheduleErrorMessage(error),
+        'danger',
+        'Programado'
+      );
+    } finally {
+      this.scheduleCreateInFlight = false;
+    }
+  }
+
+  private normalizeProgramarMensajesResponse(
+    response: ProgramarMensajeResponseDTO | null | undefined
+  ): { okCount: number; errorMessage: string } {
+    const items = (
+      Array.isArray(response?.items) ? response?.items : []
+    ) as Array<{ status?: unknown; estado?: unknown; error?: unknown; mensaje?: unknown }>;
+    if (items.length === 0) {
+      const ok = response?.ok === true;
+      return {
+        okCount: ok ? 1 : 0,
+        errorMessage: String(response?.message || response?.mensaje || '').trim(),
+      };
+    }
+
+    const isOk = (statusRaw: unknown): boolean => {
+      const status = String(statusRaw || '').trim().toUpperCase();
+      if (!status) return false;
+      return status === 'PENDING' || status === 'SENT' || status === 'PROCESSING';
+    };
+
+    const okCount = items.filter((item) => isOk(item?.status ?? item?.estado)).length;
+    const firstError = items
+      .map((item) => String(item?.error || item?.mensaje || '').trim())
+      .find((msg) => !!msg);
+
+    return {
+      okCount,
+      errorMessage:
+        firstError ||
+        String(response?.message || response?.mensaje || '').trim() ||
+        'Error de programacion',
+    };
+  }
+
+  private extractScheduleErrorMessage(error: any): string {
+    const status = Number(error?.status || 0);
+    const body = error?.error;
+    let backendMsg = '';
+
+    if (typeof body === 'string') {
+      backendMsg = body.trim();
+    } else if (body && typeof body === 'object') {
+      backendMsg = String(
+        body?.mensaje ||
+          body?.message ||
+          body?.error ||
+          body?.detail ||
+          body?.path ||
+          ''
+      ).trim();
+    }
+    if (!backendMsg) {
+      backendMsg = String(error?.message || '').trim();
+    }
+
+    if (status === 403) {
+      return (
+        backendMsg ||
+        '403: no tienes permisos en uno o varios chats seleccionados.'
+      );
+    }
+    if (status === 401) {
+      return backendMsg || '401: sesion expirada. Vuelve a iniciar sesion.';
+    }
+    return (
+      backendMsg ||
+      `No se pudo programar el mensaje${status ? ` (HTTP ${status})` : ''}.`
+    );
+  }
+
+  private planScheduledDeliveryRealtimeProbe(
+    chatIds: number[],
+    scheduledAtIso: string
+  ): void {
+    const targets = Array.from(
+      new Set(
+        (Array.isArray(chatIds) ? chatIds : [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    );
+    if (targets.length === 0) return;
+
+    const dueTs = Date.parse(String(scheduledAtIso || '').trim());
+    if (!Number.isFinite(dueTs)) return;
+
+    const now = Date.now();
+    const baseDelay = Math.max(1200, dueTs - now + 1200);
+    const checkpointsMs = [0, 15000, 45000];
+
+    for (const extra of checkpointsMs) {
+      const timer = setTimeout(() => {
+        this.scheduledDeliveryProbeTimers.delete(timer);
+        this.ngZone.run(() => {
+          this.scheduleChatsRefresh(0);
+          this.refreshActiveChatAfterScheduledProbe(targets);
+        });
+      }, baseDelay + extra);
+      this.scheduledDeliveryProbeTimers.add(timer);
+    }
+  }
+
+  private refreshActiveChatAfterScheduledProbe(targetChatIds: number[]): void {
+    const activeChatId = Number(this.chatActual?.id);
+    if (!Number.isFinite(activeChatId) || activeChatId <= 0) return;
+    if (!Array.isArray(targetChatIds) || !targetChatIds.includes(activeChatId)) {
+      return;
+    }
+    if (!this.chatActual) return;
+    this.loadInitialMessagesPage(this.chatActual, this.getLeftGroupIdsSet());
+  }
+
+  private buildOutgoingPollPayloadDraft(
+    draft: PollDraftPayload,
+    createdBy: number
+  ): PollPayloadV1 {
+    const normalizedQuestion = String(draft?.pregunta || '').trim();
+    const normalizedOptions = Array.isArray(draft?.opciones)
+      ? draft.opciones
+          .map((option) => String(option || '').trim())
+          .filter((option) => !!option)
+      : [];
+    const uniqueOptions = normalizedOptions.filter(
+      (option, idx, list) =>
+        list.findIndex((x) => x.toLowerCase() === option.toLowerCase()) === idx
+    );
+
+    return {
+      type: 'POLL_V1',
+      question: normalizedQuestion,
+      allowMultiple: draft?.permitirMultiples === true,
+      options: uniqueOptions.map((text, index) => ({
+        id: `opt_${index + 1}`,
+        text,
+        voteCount: 0,
+        voterIds: [],
+      })),
+      totalVotes: 0,
+      statusText:
+        draft?.permitirMultiples === true
+          ? 'Selecciona una o varias opciones.'
+          : 'Selecciona una opción.',
+      createdAt: new Date().toISOString(),
+      createdBy:
+        Number.isFinite(Number(createdBy)) && Number(createdBy) > 0
+          ? Number(createdBy)
+          : undefined,
+    };
+  }
+
+  public async onGroupPollDraftSubmit(payload: PollDraftPayload): Promise<void> {
+    if (!this.chatActual?.esGrupo) return;
+    if (this.haSalidoDelGrupo || this.chatEstaBloqueado) return;
+    if (this.noGroupRecipientsForSend) {
+      this.showToast('Todavia no ha aceptado nadie.', 'warning', 'Grupo');
+      return;
+    }
+
+    const myId = this.getMyUserId ? this.getMyUserId() : this.usuarioActualId;
+    const chatId = Number(this.chatActual?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+
+    const pollPayload = this.buildOutgoingPollPayloadDraft(payload, myId);
+    if (!pollPayload.question || pollPayload.options.length < 2) {
+      this.showToast(
+        'La encuesta necesita pregunta y al menos 2 opciones.',
+        'warning',
+        'Encuesta'
+      );
+      return;
+    }
+
+    if (this.groupTextSendInFlightByChatId.has(chatId)) return;
+    this.groupTextSendInFlightByChatId.add(chatId);
+    try {
+      if (!this.e2eSessionReady) {
+        const synced = await this.forceSyncMyE2EPublicKeyForRetry();
+        if (!synced) {
+          this.showToast(
+            'No se pudo sincronizar tu clave E2E. Revisa tu sesión antes de enviar la encuesta.',
+            'danger',
+            'E2E'
+          );
+          return;
+        }
+      }
+
+      const plainPollContent = JSON.stringify(pollPayload);
+      const encryptedGroup = await this.buildOutgoingE2EContentForGroup(
+        this.chatActual,
+        plainPollContent
+      );
+
+      // Backend actual soporta tipo POLL y mantiene compatibilidad con metadata.
+      const outgoing: MensajeDTO = {
+        contenido: encryptedGroup.content,
+        emisorId: myId,
+        receptorId: chatId,
+        chatId,
+        activo: true,
+        tipo: 'POLL',
+        reenviado: false,
+      };
+      outgoing.poll = pollPayload;
+      outgoing.pollType = 'POLL_V1';
+      outgoing.contentKind = 'POLL';
+      this.attachTemporaryMetadata(outgoing);
+
+      const strictValidation = this.validateOutgoingGroupPayloadStrict(
+        outgoing.contenido,
+        encryptedGroup.expectedRecipientIds
+      );
+      if (!strictValidation.ok) {
+        this.showToast(
+          `No se pudo enviar la encuesta: ${
+            strictValidation.reason ||
+            strictValidation.code ||
+            'payload E2E_GROUP inválido'
+          }.`,
+          'danger',
+          'E2E'
+        );
+        return;
+      }
+
+      const optimisticMessage: MensajeDTO = {
+        id: -(Date.now() + Math.floor(Math.random() * 1000)),
+        chatId,
+        emisorId: myId,
+        receptorId: chatId,
+        contenido: plainPollContent,
+        fechaEnvio: new Date().toISOString(),
+        activo: true,
+        tipo: 'POLL',
+        reenviado: false,
+        leido: true,
+        poll: pollPayload,
+        pollType: 'POLL_V1',
+        contentKind: 'POLL',
+      };
+      if (this.chatActual && Number(this.chatActual.id) === chatId) {
+        this.mensajesSeleccionados = [...this.mensajesSeleccionados, optimisticMessage];
+        this.syncActiveHistoryStateMessages();
+        this.scrollAlFinal();
+      }
+
+      this.chats = updateChatPreview(
+        this.chats || [],
+        chatId,
+        `Encuesta: ${pollPayload.question}`
+      );
+      const chatItem = (this.chats || []).find(
+        (c: any) => Number(c?.id) === Number(chatId)
+      );
+      if (chatItem) {
+        chatItem.unreadCount = 0;
+        this.stampChatLastMessageFieldsFromMessage(chatItem, optimisticMessage);
+      }
+
+      await this.logGroupWsPayloadBeforeSend(
+        'send-message-group-poll',
+        outgoing,
+        strictValidation.forReceptoresKeys
+      );
+      this.wsService.enviarMensajeGrupal(outgoing);
+      this.closeGroupPollComposer();
+      this.showToast('Encuesta enviada.', 'success', 'Encuesta', 1500);
+    } catch (err: any) {
+      console.warn('[POLL][send-failed]', {
+        chatId,
+        error: err?.message || String(err),
+      });
+      this.showToast(
+        'No se pudo enviar la encuesta.',
+        'danger',
+        'Encuesta'
+      );
+    } finally {
+      this.groupTextSendInFlightByChatId.delete(chatId);
+    }
+  }
+
+  public toggleTemporaryMessagePopup(event: MouseEvent): void {
+    event.stopPropagation();
+    if (this.haSalidoDelGrupo || this.chatEstaBloqueado) return;
+    if (this.showTemporaryMessagePopup) {
+      this.closeTemporaryMessagePopup();
+      return;
+    }
+    this.closeComposeActionsPopup();
+    this.closeEmojiPicker();
+    this.showTemporaryMessagePopup = true;
+  }
+
+  public selectTemporaryMessageOption(
+    option: TemporaryMessageOption,
+    event?: MouseEvent
+  ): void {
+    event?.stopPropagation();
+    const chatId = Number(this.chatActual?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) {
+      this.closeTemporaryMessagePopup();
+      return;
+    }
+    this.setTemporarySecondsForChat(chatId, option.seconds);
+    this.closeTemporaryMessagePopup();
+    if (option.seconds && option.seconds > 0) {
+      this.showToast(
+        `Mensajes temporales activados: ${option.label}.`,
+        'info',
+        'Temporal',
+        1800
+      );
+    } else {
+      this.showToast(
+        'Mensajes temporales desactivados en este chat.',
+        'info',
+        'Temporal',
+        1800
+      );
+    }
+  }
+
+  public isTemporaryMessageOptionSelected(option: TemporaryMessageOption): boolean {
+    const activeSeconds = this.getActiveChatTemporarySeconds();
+    if (!option.seconds || option.seconds <= 0) {
+      return !activeSeconds || activeSeconds <= 0;
+    }
+    return Number(activeSeconds || 0) === Number(option.seconds);
+  }
+
   public toggleEmojiPicker(event: MouseEvent): void {
     event.stopPropagation();
     if (this.haSalidoDelGrupo || this.chatEstaBloqueado) return;
     this.onMessageInputSelectionChange();
+    this.closeComposeActionsPopup();
+    this.closeTemporaryMessagePopup();
     if (this.showEmojiPicker) {
       this.closeEmojiPicker();
       return;
@@ -8376,45 +12195,71 @@ private async decryptPreviewString(
   public onEmojiSelected(emoji: string): void {
     if (!emoji || this.haSalidoDelGrupo || this.chatEstaBloqueado) return;
     this.insertEmojiAtCursor(emoji);
-    this.closeEmojiPicker();
   }
 
   public openAttachmentPicker(event?: MouseEvent): void {
     event?.stopPropagation();
     if (this.shouldDisableAttachmentAction()) return;
+    this.closeComposeActionsPopup();
     this.closeEmojiPicker();
+    this.closeTemporaryMessagePopup();
     this.attachmentInputRef?.nativeElement?.click();
   }
 
   public async onAttachmentSelected(event: Event): Promise<void> {
     const input = event?.target as HTMLInputElement | null;
-    const file = input?.files && input.files.length > 0 ? input.files[0] : null;
-    if (!file) return;
-    if (this.shouldDisableAttachmentAction()) {
-      if (input) input.value = '';
-      return;
-    }
-
-    const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      this.showToast('El archivo supera 25MB.', 'warning', 'Adjunto');
-      if (input) input.value = '';
-      return;
-    }
-
-    this.clearPendingAttachment(false);
-    this.pendingAttachmentFile = file;
-    this.pendingAttachmentIsImage = /^image\//i.test(file.type || '');
-    this.pendingAttachmentPreviewUrl = this.pendingAttachmentIsImage
-      ? URL.createObjectURL(file)
-      : null;
+    const files = this.extractFilesFromInput(input);
     if (input) input.value = '';
-    this.showToast(
-      'Archivo listo para enviar.',
-      'info',
-      'Adjunto',
-      1600
-    );
+    await this.handleSelectedAttachments(files, 'picker');
+  }
+
+  public onMessageAreaDragEnter(event: DragEvent): void {
+    if (!this.isFileDragEvent(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.messageAreaDragDepth++;
+    if (this.canAcceptDroppedAttachments()) {
+      this.messageAreaDragActive = true;
+    }
+  }
+
+  public onMessageAreaDragOver(event: DragEvent): void {
+    if (!this.isFileDragEvent(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = this.canAcceptDroppedAttachments()
+        ? 'copy'
+        : 'none';
+    }
+    if (this.canAcceptDroppedAttachments()) {
+      this.messageAreaDragActive = true;
+    }
+  }
+
+  public onMessageAreaDragLeave(event: DragEvent): void {
+    if (!this.isFileDragEvent(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.messageAreaDragDepth = Math.max(0, this.messageAreaDragDepth - 1);
+    if (this.messageAreaDragDepth === 0) {
+      this.messageAreaDragActive = false;
+    }
+  }
+
+  public async onMessageAreaDrop(event: DragEvent): Promise<void> {
+    if (!this.isFileDragEvent(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.messageAreaDragDepth = 0;
+    this.messageAreaDragActive = false;
+    const zippedFolder = await this.resolveDroppedFolderAsZip(event.dataTransfer);
+    if (zippedFolder) {
+      await this.handleSelectedAttachments([zippedFolder], 'drop');
+      return;
+    }
+    const files = Array.from(event.dataTransfer?.files || []);
+    await this.handleSelectedAttachments(files, 'drop');
   }
 
   public clearPendingAttachment(resetInput = true): void {
@@ -8432,6 +12277,203 @@ private async decryptPreviewString(
     }
   }
 
+  private extractFilesFromInput(input: HTMLInputElement | null): File[] {
+    if (!input?.files || input.files.length === 0) return [];
+    return Array.from(input.files);
+  }
+
+  private isFileDragEvent(event: DragEvent): boolean {
+    const types = Array.from(event.dataTransfer?.types || []);
+    return types.includes('Files');
+  }
+
+  private canAcceptDroppedAttachments(): boolean {
+    if (this.activeMainView !== 'chat') return false;
+    if (this.chatSeleccionadoId === null) return false;
+    return !this.shouldDisableAttachmentAction();
+  }
+
+  private setPendingAttachment(file: File): void {
+    this.clearPendingAttachment(false);
+    this.pendingAttachmentFile = file;
+    this.pendingAttachmentIsImage = /^image\//i.test(file.type || '');
+    this.pendingAttachmentPreviewUrl = this.pendingAttachmentIsImage
+      ? URL.createObjectURL(file)
+      : null;
+  }
+
+  private splitValidAndOversizedAttachments(files: File[]): {
+    validFiles: File[];
+    oversizedFiles: File[];
+  } {
+    const validFiles: File[] = [];
+    const oversizedFiles: File[] = [];
+    for (const file of files) {
+      if (!(file instanceof File)) continue;
+      if (Number(file.size || 0) > this.MAX_ATTACHMENT_FILE_SIZE_BYTES) {
+        oversizedFiles.push(file);
+      } else {
+        validFiles.push(file);
+      }
+    }
+    return { validFiles, oversizedFiles };
+  }
+
+  private async handleSelectedAttachments(
+    files: File[],
+    source: 'picker' | 'drop'
+  ): Promise<void> {
+    const normalizedFiles = Array.isArray(files)
+      ? files.filter((f): f is File => f instanceof File)
+      : [];
+    if (normalizedFiles.length === 0) return;
+
+    if (this.shouldDisableAttachmentAction()) {
+      return;
+    }
+
+    if (source === 'drop' && !this.canAcceptDroppedAttachments()) {
+      this.showToast(
+        'Selecciona un chat activo para adjuntar archivos.',
+        'warning',
+        'Adjunto'
+      );
+      return;
+    }
+
+    let selectedFile = normalizedFiles[0];
+    if (normalizedFiles.length > 1) {
+      this.showToast(
+        'Solo se tomara el primer archivo del grupo arrastrado.',
+        'warning',
+        'Adjunto'
+      );
+    }
+
+    const { validFiles } = this.splitValidAndOversizedAttachments([selectedFile]);
+    if (validFiles.length === 0) {
+      this.showToast('El archivo supera 25MB.', 'warning', 'Adjunto');
+      return;
+    }
+
+    this.setPendingAttachment(validFiles[0]);
+    this.showToast('Archivo listo para enviar.', 'info', 'Adjunto', 1600);
+  }
+
+  private async resolveDroppedFolderAsZip(
+    dataTransfer: DataTransfer | null | undefined
+  ): Promise<File | null> {
+    const entries = this.extractDropEntries(dataTransfer);
+    const directoryEntries = entries.filter((entry: any) => !!entry?.isDirectory);
+    if (directoryEntries.length === 0) return null;
+
+    const collected: Array<{ file: File; path: string }> = [];
+    for (const dirEntry of directoryEntries) {
+      await this.collectDroppedEntryFiles(dirEntry, '', collected);
+    }
+    if (collected.length === 0) return null;
+
+    const rootName =
+      directoryEntries.length === 1
+        ? String(directoryEntries[0]?.name || 'carpeta')
+        : `carpeta-${Date.now()}`;
+    const zip = new JSZip();
+    for (const item of collected) {
+      const path = String(item.path || item.file.name || '').replace(/\\/g, '/');
+      if (!path) continue;
+      zip.file(path, item.file);
+    }
+    const zipBlob = await zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+    });
+    const zipFile = new File([zipBlob], `${rootName}.zip`, {
+      type: 'application/zip',
+    });
+    this.showToast(
+      `Carpeta convertida a ZIP (${collected.length} archivos).`,
+      'info',
+      'Carpeta'
+    );
+    return zipFile;
+  }
+
+  private extractDropEntries(
+    dataTransfer: DataTransfer | null | undefined
+  ): any[] {
+    const items = Array.from(dataTransfer?.items || []);
+    const entries: any[] = [];
+    for (const item of items) {
+      const entry =
+        (item as any)?.webkitGetAsEntry?.() ||
+        (item as any)?.getAsEntry?.() ||
+        null;
+      if (entry) entries.push(entry);
+    }
+    return entries;
+  }
+
+  private async collectDroppedEntryFiles(
+    entry: any,
+    basePath: string,
+    output: Array<{ file: File; path: string }>
+  ): Promise<void> {
+    if (!entry) return;
+    if (entry.isFile) {
+      const file = await this.getFileFromDroppedEntry(entry);
+      if (!file) return;
+      const path = basePath
+        ? `${basePath}/${file.name}`
+        : String(file.name || 'archivo');
+      output.push({ file, path });
+      return;
+    }
+    if (!entry.isDirectory) return;
+
+    const nextBase = basePath
+      ? `${basePath}/${entry.name}`
+      : String(entry.name || 'carpeta');
+    const children = await this.readDroppedDirectoryEntries(entry);
+    for (const child of children) {
+      await this.collectDroppedEntryFiles(child, nextBase, output);
+    }
+  }
+
+  private async readDroppedDirectoryEntries(directoryEntry: any): Promise<any[]> {
+    const reader = directoryEntry?.createReader?.();
+    if (!reader) return [];
+    const all: any[] = [];
+    for (;;) {
+      const batch = await new Promise<any[]>((resolve) => {
+        try {
+          reader.readEntries(
+            (entries: any[]) => resolve(Array.isArray(entries) ? entries : []),
+            () => resolve([])
+          );
+        } catch {
+          resolve([]);
+        }
+      });
+      if (batch.length === 0) break;
+      all.push(...batch);
+    }
+    return all;
+  }
+
+  private async getFileFromDroppedEntry(fileEntry: any): Promise<File | null> {
+    return await new Promise<File | null>((resolve) => {
+      try {
+        fileEntry.file(
+          (file: File) => resolve(file),
+          () => resolve(null)
+        );
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
   public formatAttachmentSize(bytes: number): string {
     return formatAttachmentSizeUtil(bytes);
   }
@@ -8439,14 +12481,30 @@ private async decryptPreviewString(
   public async enviarMensajeDesdeComposer(): Promise<void> {
     if (this.haSalidoDelGrupo || this.noGroupRecipientsForSend) return;
     if (this.attachmentUploading) return;
+    this.closeComposeActionsPopup();
+    this.closeEmojiPicker();
+    this.closeTemporaryMessagePopup();
+
+    if (this.mensajeEdicionObjetivo) {
+      if (this.pendingAttachmentFile) {
+        this.showToast(
+          'Quita el adjunto pendiente para editar el mensaje.',
+          'warning',
+          'Editar'
+        );
+        return;
+      }
+      await this.editarMensajeDesdeComposer();
+      return;
+    }
 
     if (this.pendingAttachmentFile) {
       if (this.pendingAttachmentIsImage) {
         await this.enviarImagenSeguro(this.pendingAttachmentFile, this.mensajeNuevo);
         return;
       }
-      const uploaded = await this.uploadPendingAttachmentIntoMessage();
-      if (!uploaded) return;
+      await this.enviarArchivoSeguro(this.pendingAttachmentFile, this.mensajeNuevo);
+      return;
     }
     await this.enviarMensaje();
   }
@@ -8463,34 +12521,16 @@ private async decryptPreviewString(
   }
 
   private openEmojiPicker(): void {
-    if (this.emojiPickerCloseTimer) {
-      clearTimeout(this.emojiPickerCloseTimer);
-      this.emojiPickerCloseTimer = null;
-    }
-    if (!this.showEmojiPickerMounted) {
-      this.showEmojiPickerMounted = true;
-      setTimeout(() => {
-        this.showEmojiPicker = true;
-      }, 0);
-      return;
-    }
     this.showEmojiPicker = true;
   }
 
+  private closeComposeActionsPopup(): void {
+    this.showComposeActionsPopup = false;
+  }
+
   private closeEmojiPicker(immediate = false): void {
-    if (this.emojiPickerCloseTimer) {
-      clearTimeout(this.emojiPickerCloseTimer);
-      this.emojiPickerCloseTimer = null;
-    }
+    void immediate;
     this.showEmojiPicker = false;
-    if (immediate) {
-      this.showEmojiPickerMounted = false;
-      return;
-    }
-    this.emojiPickerCloseTimer = setTimeout(() => {
-      this.showEmojiPickerMounted = false;
-      this.emojiPickerCloseTimer = null;
-    }, 180);
   }
 
   private insertEmojiAtCursor(emoji: string): void {
@@ -8534,6 +12574,21 @@ private async decryptPreviewString(
     );
   }
 
+  private isUploadTooLargeError(err: any): boolean {
+    const status = Number(err?.status || 0);
+    if (status === 413) return true;
+    const message = String(
+      err?.error?.mensaje || err?.error?.message || err?.message || ''
+    ).toLowerCase();
+    return (
+      message.includes('maximum upload size exceeded') ||
+      message.includes('maxuploadsizeexceededexception') ||
+      message.includes('payload too large') ||
+      message.includes('tamano maximo') ||
+      message.includes('tamaño maximo')
+    );
+  }
+
   private async uploadPendingAttachmentIntoMessage(): Promise<boolean> {
     if (!this.pendingAttachmentFile) return true;
     this.attachmentUploading = true;
@@ -8541,7 +12596,7 @@ private async decryptPreviewString(
       const uploaded = await this.mensajeriaService.uploadFile(
         this.pendingAttachmentFile
       );
-      const icon = this.pendingAttachmentIsImage ? '🖼️' : '📎';
+      const icon = this.pendingAttachmentIsImage ? '???' : '??';
       const attachmentText = `${icon} ${uploaded.fileName}\n${uploaded.url}`;
       const base = String(this.mensajeNuevo || '').trimEnd();
       this.mensajeNuevo = base ? `${base}\n${attachmentText}` : attachmentText;
@@ -8554,7 +12609,13 @@ private async decryptPreviewString(
       const backendMsg = String(
         err?.error?.mensaje || err?.error?.message || ''
       ).trim();
-      if (status === 404) {
+      if (this.isUploadTooLargeError(err)) {
+        this.showToast(
+          'El archivo supera el limite de subida del servidor.',
+          'warning',
+          'Adjunto'
+        );
+      } else if (status === 404) {
         this.showToast(
           'El backend no tiene endpoint de subida de archivos.',
           'warning',
@@ -8638,6 +12699,7 @@ private async decryptPreviewString(
           replySnippet: this.getComposeReplySnippet(),
           replyAuthorName: this.getComposeReplyAuthorName(),
         };
+        this.attachTemporaryMetadata(outgoing);
 
         this.chats = updateChatPreview(
           this.chats || [],
@@ -8685,6 +12747,7 @@ private async decryptPreviewString(
           replySnippet: this.getComposeReplySnippet(),
           replyAuthorName: this.getComposeReplyAuthorName(),
         };
+        this.attachTemporaryMetadata(outgoing);
         this.chats = updateChatPreview(
           this.chats || [],
           chatId,
@@ -8697,6 +12760,8 @@ private async decryptPreviewString(
 
       this.clearPendingAttachment();
       this.mensajeNuevo = '';
+      this.composerDraftPrefixVisible = false;
+      this.clearStoredDraftForChat(chatId);
       this.cancelarRespuestaMensaje();
       this.cdr.markForCheck();
     } catch (err: any) {
@@ -8715,6 +12780,201 @@ private async decryptPreviewString(
         backendCode.startsWith('E2E_') ? 'E2E' : 'Imagen'
       );
       console.warn('[E2E][image-send-error]', {
+        code: backendCode,
+        traceId: backendTrace,
+        message: backendMsg,
+        status: Number(err?.status || 0),
+      });
+    } finally {
+      this.attachmentUploading = false;
+    }
+  }
+
+  private async enviarArchivoSeguro(
+    file: File,
+    captionRaw: string
+  ): Promise<void> {
+    if (!this.chatActual) return;
+    const caption = String(captionRaw || '').trim();
+    const myId = this.getMyUserId ? this.getMyUserId() : this.usuarioActualId;
+    const chatId = Number(this.chatActual.id);
+    const isGroup = !!this.chatActual.esGrupo;
+    const receptorId = isGroup ? chatId : Number(this.chatActual?.receptor?.id);
+    if (!Number.isFinite(receptorId) || receptorId <= 0) return;
+
+    if (isGroup && this.noGroupRecipientsForSend) {
+      this.showToast('Todavia no ha aceptado nadie.', 'warning', 'Grupo');
+      return;
+    }
+
+    this.attachmentUploading = true;
+    try {
+      if (isGroup) {
+        if (!this.e2eSessionReady) {
+          const synced = await this.forceSyncMyE2EPublicKeyForRetry();
+          if (!synced) {
+            this.showToast(
+              'No se pudo sincronizar tu clave E2E. Revisa tu sesión antes de enviar al grupo.',
+              'danger',
+              'E2E'
+            );
+            return;
+          }
+        }
+
+        const built = await this.buildOutgoingE2EFileForGroup(
+          this.chatActual,
+          file,
+          caption
+        );
+        const upload = await this.mensajeriaService.uploadFile(
+          built.encryptedBlob,
+          `file-${Date.now()}.bin`
+        );
+        built.payload.fileUrl = upload.url;
+        built.payload.fileMime =
+          file.type || upload.mime || built.payload.fileMime || 'application/octet-stream';
+        built.payload.fileNombre =
+          file.name || upload.fileName || built.payload.fileNombre || undefined;
+        built.payload.fileSizeBytes = Number(upload.sizeBytes || file.size || 0) || 0;
+
+        const payloadContenido = JSON.stringify(built.payload);
+        const outgoing: MensajeDTO = {
+          tipo: 'FILE',
+          contenido: payloadContenido,
+          emisorId: myId,
+          receptorId: chatId,
+          activo: true,
+          chatId,
+          reenviado: false,
+          fileUrl: upload.url,
+          fileMime:
+            file.type || upload.mime || built.payload.fileMime || 'application/octet-stream',
+          fileNombre:
+            file.name || upload.fileName || built.payload.fileNombre || null,
+          fileSizeBytes: Number(upload.sizeBytes || file.size || 0) || 0,
+          replyToMessageId: this.mensajeRespuestaObjetivo?.id
+            ? Number(this.mensajeRespuestaObjetivo.id)
+            : undefined,
+          replySnippet: this.getComposeReplySnippet(),
+          replyAuthorName: this.getComposeReplyAuthorName(),
+        };
+        this.attachTemporaryMetadata(outgoing);
+
+        const chatItem = (this.chats || []).find((c: any) => Number(c.id) === Number(chatId));
+        const preview = buildPreviewFromMessage(outgoing, chatItem, myId);
+        this.chats = updateChatPreview(this.chats || [], chatId, preview);
+        const chatAfter = (this.chats || []).find((c: any) => Number(c.id) === Number(chatId));
+        if (chatAfter) {
+          chatAfter.unreadCount = 0;
+          chatAfter.ultimaMensajeTipo = 'FILE';
+          chatAfter.__ultimaTipo = 'FILE';
+          chatAfter.ultimaMensajeEmisorId = Number(myId);
+          chatAfter.__ultimaEsArchivo = true;
+          chatAfter.__ultimaArchivoNombre = String(outgoing.fileNombre || '').trim();
+          chatAfter.__ultimaArchivoMime = String(outgoing.fileMime || '').trim();
+          chatAfter.__ultimaArchivoCaption = String(caption || '').trim();
+          chatAfter.ultimaMensajeFileNombre = outgoing.fileNombre || null;
+          chatAfter.ultimaMensajeFileMime = outgoing.fileMime || null;
+          chatAfter.ultimaMensajeFileSizeBytes = Number(outgoing.fileSizeBytes || 0) || 0;
+        }
+
+        await this.logGroupWsPayloadBeforeSend(
+          'send-message-group-file',
+          outgoing,
+          built.forReceptoresKeys
+        );
+        this.wsService.enviarMensajeGrupal(outgoing);
+      } else {
+        const built = await this.buildOutgoingE2EFileForIndividual(
+          receptorId,
+          file,
+          caption
+        );
+        const upload = await this.mensajeriaService.uploadFile(
+          built.encryptedBlob,
+          `file-${Date.now()}.bin`
+        );
+        built.payload.fileUrl = upload.url;
+        built.payload.fileMime =
+          file.type || upload.mime || built.payload.fileMime || 'application/octet-stream';
+        built.payload.fileNombre =
+          file.name || upload.fileName || built.payload.fileNombre || undefined;
+        built.payload.fileSizeBytes = Number(upload.sizeBytes || file.size || 0) || 0;
+
+        const payloadContenido = JSON.stringify(built.payload);
+        const outgoing: MensajeDTO = {
+          tipo: 'FILE',
+          contenido: payloadContenido,
+          emisorId: myId,
+          receptorId,
+          activo: true,
+          chatId,
+          reenviado: false,
+          fileUrl: upload.url,
+          fileMime:
+            file.type || upload.mime || built.payload.fileMime || 'application/octet-stream',
+          fileNombre:
+            file.name || upload.fileName || built.payload.fileNombre || null,
+          fileSizeBytes: Number(upload.sizeBytes || file.size || 0) || 0,
+          replyToMessageId: this.mensajeRespuestaObjetivo?.id
+            ? Number(this.mensajeRespuestaObjetivo.id)
+            : undefined,
+          replySnippet: this.getComposeReplySnippet(),
+          replyAuthorName: this.getComposeReplyAuthorName(),
+        };
+        this.attachTemporaryMetadata(outgoing);
+
+        const chatItem = (this.chats || []).find((c: any) => Number(c.id) === Number(chatId));
+        const preview = buildPreviewFromMessage(outgoing, chatItem, myId);
+        this.chats = updateChatPreview(this.chats || [], chatId, preview);
+        const chatAfter = (this.chats || []).find((c: any) => Number(c.id) === Number(chatId));
+        if (chatAfter) {
+          chatAfter.unreadCount = 0;
+          chatAfter.ultimaMensajeTipo = 'FILE';
+          chatAfter.__ultimaTipo = 'FILE';
+          chatAfter.ultimaMensajeEmisorId = Number(myId);
+          chatAfter.__ultimaEsArchivo = true;
+          chatAfter.__ultimaArchivoNombre = String(outgoing.fileNombre || '').trim();
+          chatAfter.__ultimaArchivoMime = String(outgoing.fileMime || '').trim();
+          chatAfter.__ultimaArchivoCaption = String(caption || '').trim();
+          chatAfter.ultimaMensajeFileNombre = outgoing.fileNombre || null;
+          chatAfter.ultimaMensajeFileMime = outgoing.fileMime || null;
+          chatAfter.ultimaMensajeFileSizeBytes = Number(outgoing.fileSizeBytes || 0) || 0;
+        }
+        this.wsService.enviarMensajeIndividual(outgoing);
+      }
+
+      this.clearPendingAttachment();
+      this.mensajeNuevo = '';
+      this.composerDraftPrefixVisible = false;
+      this.clearStoredDraftForChat(chatId);
+      this.cancelarRespuestaMensaje();
+      this.cdr.markForCheck();
+    } catch (err: any) {
+      const backendCode = String(err?.error?.code || '').trim();
+      const backendTrace = String(err?.error?.traceId || '').trim();
+      const backendMsg = String(
+        err?.error?.mensaje || err?.error?.message || err?.message || ''
+      ).trim();
+      const traceSuffix = backendTrace ? ` (traceId: ${backendTrace})` : '';
+      const detail = backendMsg || backendCode;
+      if (this.isUploadTooLargeError(err)) {
+        this.showToast(
+          'No se pudo enviar el archivo: supera el limite de subida del servidor.',
+          'warning',
+          'Archivo'
+        );
+      } else {
+        this.showToast(
+          detail
+            ? `No se pudo enviar el archivo: ${detail}${traceSuffix}`
+            : 'No se pudo enviar el archivo.',
+          'danger',
+          backendCode.startsWith('E2E_') ? 'E2E' : 'Archivo'
+        );
+      }
+      console.warn('[E2E][file-send-error]', {
         code: backendCode,
         traceId: backendTrace,
         message: backendMsg,
@@ -8775,13 +13035,22 @@ private async decryptPreviewString(
    */
   public resetEdicion(): void {
     this.haSalidoDelGrupo = false;
+    this.composerDraftPrefixVisible = false;
     this.mensajeNuevo = '';
+    this.showChatListHeaderMenu = false;
+    this.mensajeEdicionObjetivo = null;
     this.mostrarMenuOpciones = false;
     this.openIncomingReactionPickerMessageId = null;
     this.openReactionDetailsMessageId = null;
     this.clearPendingAttachment();
+    this.closeComposeActionsPopup();
     this.closeEmojiPicker(true);
+    this.closeTemporaryMessagePopup();
+    this.closeGroupPollComposer();
+    this.closeScheduleMessageComposer();
     this.closeMessageSearchPanel();
+    this.closePollVotesPanel();
+    this.closeFilePreview();
   }
 
   /**
@@ -8832,24 +13101,16 @@ private async decryptPreviewString(
    * Invierte asimétricamente al individuo activo según su estado cacheado (Si es target bloquéndolo/ o a la inversa desbloquearlo).
    */
   public toggleBloquearUsuario(): void {
-    console.log("toggleBloquearUsuario() accionado.");
     if (!this.chatActual || this.chatActual.esGrupo) {
-       console.log("Bloqueo abortado: No hay chat actual o es un grupo.");
        return;
     }
     const peerId = this.chatActual.receptor?.id;
     if (!peerId) {
-       console.log("Bloqueo abortado: No hay ID de receptor.");
        return;
     }
-
-    console.log("Intentando accionar contra peerId:", peerId);
-
     if (this.bloqueadosIds.has(peerId)) {
-      console.log("Usuario ya está en nuestra lista bloqueadosIds. Procediendo a Desbloquear...");
       this.authService.desbloquearUsuario(peerId).subscribe({
         next: () => {
-          console.log("Desbloqueo exitoso en backend.");
           this.bloqueadosIds.delete(peerId);
           this.updateCachedBloqueados();
           this.cdr.markForCheck();
@@ -8857,10 +13118,8 @@ private async decryptPreviewString(
         error: (err) => alert("Error al desbloquear usuario")
       });
     } else {
-      console.log("Usuario NO está en bloqueadosIds. Procediendo a Bloquear...");
       this.authService.bloquearUsuario(peerId).subscribe({
         next: () => {
-          console.log("Bloqueo exitoso en backend.");
           this.bloqueadosIds.add(peerId);
           this.updateCachedBloqueados();
           this.cdr.markForCheck();
@@ -8887,13 +13146,24 @@ private async decryptPreviewString(
   }
 
   public ngOnDestroy(): void {
+    this.persistActiveChatDraft();
     this.stopProfileCodeCountdown();
     this.clearPendingAttachment();
+    this.closeFilePreview();
+    for (const timer of this.scheduledDeliveryProbeTimers) {
+      clearTimeout(timer);
+    }
+    this.scheduledDeliveryProbeTimers.clear();
+    clearTimeout(this.escribiendoTimeout);
+    clearTimeout(this.grabandoAudioTimeout);
+    if (this.recording) {
+      this.notificarGrabandoAudio(false);
+    }
     if (this.chatsRefreshTimer) clearTimeout(this.chatsRefreshTimer);
     if (this.groupInfoCloseTimer) clearTimeout(this.groupInfoCloseTimer);
     if (this.messageSearchCloseTimer) clearTimeout(this.messageSearchCloseTimer);
+    if (this.pollVotesCloseTimer) clearTimeout(this.pollVotesCloseTimer);
     if (this.highlightedMessageTimer) clearTimeout(this.highlightedMessageTimer);
-    if (this.emojiPickerCloseTimer) clearTimeout(this.emojiPickerCloseTimer);
     for (const url of this.decryptedAudioUrlByCacheKey.values()) {
       try {
         URL.revokeObjectURL(url);
@@ -8909,11 +13179,27 @@ private async decryptPreviewString(
     this.decryptedImageUrlByCacheKey.clear();
     this.decryptedImageCaptionByCacheKey.clear();
     this.decryptingImageByCacheKey.clear();
+    for (const url of this.decryptedFileUrlByCacheKey.values()) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {}
+    }
+    this.decryptedFileUrlByCacheKey.clear();
+    this.decryptedFileCaptionByCacheKey.clear();
+    this.decryptingFileByCacheKey.clear();
     this.messageReactionsByMessageId.clear();
+    this.pollLocalSelectionByMessageId.clear();
     this.openIncomingReactionPickerMessageId = null;
     this.openReactionDetailsMessageId = null;
+    this.showChatListHeaderMenu = false;
+    this.showScheduleMessageComposer = false;
+    this.showPollVotesPanel = false;
+    this.showPollVotesPanelMounted = false;
+    this.pollVotesPanelMessageId = null;
   }
 }
+
+
 
 
 

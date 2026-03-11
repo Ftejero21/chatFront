@@ -32,6 +32,14 @@ type IceDTO = {
   sdpMLineIndex?: number;
 };
 
+export type PollVoteWSRequestDTO = {
+  chatId: number;
+  mensajeId: number;
+  optionId: string;
+  pollId?: string | number;
+  userId?: number;
+};
+
 @Injectable({
   providedIn: 'root',
 })
@@ -40,6 +48,7 @@ export class WebSocketService {
   private socketUrl = 'http://localhost:8080/ws-chat';
   private subsGrupales = new Map<number, StompSubscription>();
   private subsTypingGrupales = new Map<number, StompSubscription>();
+  private subsAudioGrupales = new Map<number, StompSubscription>();
   private subsCallInvite?: StompSubscription;
   private subsCallAnswer?: StompSubscription;
   private subsUserErrors?: StompSubscription;
@@ -59,7 +68,7 @@ export class WebSocketService {
       connectHeaders: {
         Authorization: `Bearer ${localStorage.getItem('token')}`
       },
-      // debug: (msg) => console.log('📡 WebSocket:', msg),
+      // debug logger disabled
     });
   }
 
@@ -71,11 +80,6 @@ export class WebSocketService {
     };
 
     this.stompClient.onConnect = () => {
-      console.log('[WS] connected', {
-        socketUrl: this.socketUrl,
-        usuarioId: localStorage.getItem('usuarioId'),
-        hasToken: !!localStorage.getItem('token'),
-      });
       this.subsUserErrors = undefined;
       this.ensureUserErrorsSubscription();
       onConnected();
@@ -255,6 +259,40 @@ export class WebSocketService {
     this.subsTypingGrupales.set(chatId, sub);
   }
 
+  suscribirseAGrabandoAudioGrupo(
+    chatId: number,
+    callback: (data: {
+      emisorId: number;
+      grabandoAudio: boolean;
+      chatId: number;
+      emisorNombre?: string;
+      emisorApellido?: string;
+    }) => void
+  ): void {
+    if (!this.stompClient?.connected) return;
+    if (this.subsAudioGrupales.has(chatId)) return;
+
+    const sub = this.stompClient.subscribe(
+      `/topic/audio.grabando.grupo.${chatId}`,
+      (message) => {
+        try {
+          const data = JSON.parse(message.body);
+          callback({
+            emisorId: Number(data.emisorId),
+            grabandoAudio: !!data.grabandoAudio,
+            chatId: Number(data.chatId),
+            emisorNombre: data.emisorNombre,
+            emisorApellido: data.emisorApellido,
+          });
+        } catch (e) {
+          console.error('❌ Error parseando audio.grabando.grupo:', e);
+        }
+      }
+    );
+
+    this.subsAudioGrupales.set(chatId, sub);
+  }
+
   enviarEscribiendoGrupo(
     emisorId: number,
     chatId: number,
@@ -264,6 +302,19 @@ export class WebSocketService {
     const dto = { emisorId, chatId, escribiendo };
     this.stompClient.publish({
       destination: '/app/escribiendo.grupo',
+      body: JSON.stringify(dto),
+    });
+  }
+
+  enviarGrabandoAudioGrupo(
+    emisorId: number,
+    chatId: number,
+    grabandoAudio: boolean
+  ): void {
+    if (!this.stompClient?.connected) return;
+    const dto = { emisorId, chatId, grabandoAudio };
+    this.stompClient.publish({
+      destination: '/app/audio.grabando.grupo',
       body: JSON.stringify(dto),
     });
   }
@@ -399,6 +450,25 @@ export class WebSocketService {
       } catch (e) {
         console.warn('[WS] error al desconectar', e);
       }
+    }
+  }
+
+  enviarVotoEncuesta(
+    payload: PollVoteWSRequestDTO
+  ): 'sent' | 'not_connected' | 'rate_limited' | 'error' {
+    if (!this.stompClient?.connected) return 'not_connected';
+    if (!this.canPublishToRateLimitedDestination('/app/chat.poll.vote')) {
+      return 'rate_limited';
+    }
+    try {
+      this.stompClient.publish({
+        destination: '/app/chat.poll.vote',
+        body: JSON.stringify(payload),
+      });
+      return 'sent';
+    } catch (err) {
+      console.error('❌ Error enviando voto de encuesta WS:', err);
+      return 'error';
     }
   }
 
@@ -583,10 +653,20 @@ export class WebSocketService {
       return;
     }
     if (!this.canPublishToRateLimitedDestination('/app/chat.eliminar')) return;
-
-    console.log('[WS] publish /app/chat.eliminar', mensaje);
     this.stompClient.publish({
       destination: '/app/chat.eliminar',
+      body: JSON.stringify(mensaje),
+    });
+  }
+
+  public enviarEditarMensaje(mensaje: MensajeDTO): void {
+    if (!this.stompClient?.connected) {
+      console.warn('WS no conectado. No se pudo enviar chat.editar');
+      return;
+    }
+    if (!this.canPublishToRateLimitedDestination('/app/chat.editar')) return;
+    this.stompClient.publish({
+      destination: '/app/chat.editar',
       body: JSON.stringify(mensaje),
     });
   }
@@ -595,11 +675,8 @@ export class WebSocketService {
     usuarioId: number,
     callback: (mensaje: MensajeDTO) => void
   ): void {
-    console.log('[WS] subscribe', `/topic/chat.${usuarioId}`, '(eliminar)');
     this.stompClient.subscribe(`/topic/chat.${usuarioId}`, (frame) => {
       const mensaje = JSON.parse(frame.body) as MensajeDTO;
-      console.log('[WS] recv /topic/chat.* (eliminar check)', mensaje);
-
       // ✅ SOLO si es realmente un eliminado:
       if (mensaje && mensaje.id && mensaje.activo === false) {
         callback(mensaje);
@@ -610,7 +687,6 @@ export class WebSocketService {
   marcarMensajesComoLeidos(ids: number[]): void {
     if (!this.stompClient?.connected) return;
     if (!this.canPublishToRateLimitedDestination('/app/mensajes.marcarLeidos')) return;
-    console.log('[WS] publish /app/mensajes.marcarLeidos', ids);
     this.stompClient.publish({
       destination: '/app/mensajes.marcarLeidos',
       body: JSON.stringify(ids),
@@ -626,6 +702,19 @@ export class WebSocketService {
 
     this.stompClient?.publish({
       destination: '/app/escribiendo',
+      body: JSON.stringify(dto),
+    });
+  }
+
+  public enviarGrabandoAudio(
+    emisorId: number,
+    receptorId: number,
+    grabandoAudio: boolean
+  ): void {
+    const dto = { emisorId, receptorId, grabandoAudio };
+
+    this.stompClient?.publish({
+      destination: '/app/audio.grabando',
       body: JSON.stringify(dto),
     });
   }
@@ -647,16 +736,38 @@ export class WebSocketService {
     );
   }
 
+  suscribirseAGrabandoAudio(
+    receptorId: number,
+    callback: (
+      emisorId: number,
+      grabandoAudio: boolean,
+      chatId?: number,
+      emisorNombre?: string
+    ) => void
+  ): void {
+    this.stompClient?.subscribe(
+      `/topic/audio.grabando.${receptorId}`,
+      (message) => {
+        const data = JSON.parse(message.body);
+        const emisorId = Number(data.emisorId);
+        const grabandoAudio = !!data.grabandoAudio;
+        const chatId = data.chatId != null ? Number(data.chatId) : undefined;
+        const emisorNombre =
+          typeof data.emisorNombre === 'string' ? data.emisorNombre : undefined;
+
+        callback(emisorId, grabandoAudio, chatId, emisorNombre);
+      }
+    );
+  }
+
   suscribirseALeidos(
     usuarioId: number,
     callback: (mensajeId: number) => void
   ): void {
-    console.log('[WS] subscribe', `/topic/leido.${usuarioId}`);
     this.stompClient?.subscribe(`/topic/leido.${usuarioId}`, (message) => {
       try {
         const body = JSON.parse(message.body);
         const mensajeId = body.mensajeId;
-        console.log('[WS] recv /topic/leido.*', body);
         callback(mensajeId);
       } catch (e) {
         console.error(
@@ -712,10 +823,8 @@ export class WebSocketService {
     callback: (mensaje: MensajeDTO) => void
   ): void {
     if (this.stompClient.connected) {
-      console.log('[WS] subscribe', `/topic/chat.${receptorId}`, '(mensajes)');
       this.stompClient.subscribe(`/topic/chat.${receptorId}`, (message) => {
         const mensajeRecibido: MensajeDTO = JSON.parse(message.body);
-        console.log('[WS] recv /topic/chat.* (mensaje)', mensajeRecibido);
         callback(mensajeRecibido);
       });
     } else {
@@ -723,4 +832,5 @@ export class WebSocketService {
     }
   }
 }
+
 

@@ -2,6 +2,7 @@ import {
   ChangeDetectorRef,
   Component,
   EventEmitter,
+  HostListener,
   Input,
   NgZone,
   OnChanges,
@@ -79,8 +80,11 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
   public detail: GroupDetailDTO | null = null;
   public loading = false;
   public loadError: string | null = null;
+  public metaSuccessMessage: string | null = null;
   public isMuted = false;
   public adminBusyUserId: number | null = null;
+  public kickBusyUserId: number | null = null;
+  public memberActionMenuUserId: number | null = null;
   public editingName = false;
   public editingDescription = false;
   public draftName = '';
@@ -130,6 +134,10 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
       this.selectedInviteUserId = null;
       this.inviteQuery = '';
       this.inviteSuccessMessage = null;
+      this.metaSuccessMessage = null;
+      this.memberActionMenuUserId = null;
+      this.kickBusyUserId = null;
+      this.adminBusyUserId = null;
       this.clearInviteSuccessTimer();
       this.resetMediaState();
       this.clearDecryptedMediaUrls();
@@ -145,6 +153,11 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     this.clearInviteSuccessTimer();
     this.clearMemberEstadoSubs();
     this.clearDecryptedMediaUrls();
+  }
+
+  @HostListener('document:click')
+  public onDocumentClick(): void {
+    this.closeMemberActionsMenu();
   }
 
   public get members(): any[] {
@@ -428,14 +441,78 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
       return Number(m?.id) === creatorId;
     }
 
-    return this.members.length > 0 && Number(m?.id) === Number(this.members[0]?.id);
+    return false;
   }
 
   public isCurrentUser(m: any): boolean {
     return Number(m?.id) === Number(this.currentUserId);
   }
 
+  public isGroupFounder(m: any): boolean {
+    const memberId = Number(m?.id);
+    const creatorId = Number(this.detail?.idCreador ?? this.group?.idCreador);
+    if (!Number.isFinite(memberId) || memberId <= 0) return false;
+    if (!Number.isFinite(creatorId) || creatorId <= 0) return false;
+    return memberId === creatorId;
+  }
+
+  public canToggleMemberAdmin(m: any): boolean {
+    const memberId = Number(m?.id);
+    const currentId = Number(this.currentUserId);
+    if (!Number.isFinite(memberId) || memberId <= 0) return false;
+    if (!Number.isFinite(currentId) || currentId <= 0) return false;
+    if (memberId === currentId) return false;
+    if (this.isGroupFounder(m)) return false;
+    return this.isCurrentUserAdmin();
+  }
+
+  public hasMemberActions(m: any): boolean {
+    const memberId = Number(m?.id);
+    if (!Number.isFinite(memberId) || memberId <= 0) return false;
+    return !this.isCurrentUser(m);
+  }
+
+  public canOpenMemberActionsMenu(m: any): boolean {
+    return this.hasMemberActions(m);
+  }
+
+  public isMemberActionsMenuOpen(m: any): boolean {
+    return Number(this.memberActionMenuUserId) === Number(m?.id || 0);
+  }
+
+  public toggleMemberActionsMenu(m: any, event: MouseEvent): void {
+    event.stopPropagation();
+    if (!this.hasMemberActions(m)) return;
+    const userId = Number(m?.id);
+    if (!userId) return;
+    if (this.isMemberActionsMenuOpen(m)) {
+      this.memberActionMenuUserId = null;
+      return;
+    }
+    this.memberActionMenuUserId = userId;
+  }
+
+  public onMemberActionsContainerClick(event: Event): void {
+    event.stopPropagation();
+  }
+
+  public closeMemberActionsMenu(): void {
+    this.memberActionMenuUserId = null;
+  }
+
+  public canExpelMember(m: any): boolean {
+    const memberId = Number(m?.id);
+    if (!Number.isFinite(memberId) || memberId <= 0) return false;
+    if (this.isCurrentUser(m)) return false;
+    if (this.isGroupFounder(m)) return false;
+    return this.isCurrentUserAdmin();
+  }
+
   public isCurrentUserAdmin(): boolean {
+    const creatorId = Number(this.detail?.idCreador ?? this.group?.idCreador);
+    if (Number.isFinite(creatorId) && creatorId > 0 && creatorId === Number(this.currentUserId)) {
+      return true;
+    }
     const me = this.members.find((m) => Number(m?.id) === Number(this.currentUserId));
     return !!me && this.isGroupAdmin(me);
   }
@@ -472,8 +549,18 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
       : 'Solo los administradores del grupo pueden realizar esta acción.';
   }
 
+  public get canEditGroupMetadata(): boolean {
+    return this.detail?.canEditGroup === true;
+  }
+
+  public get metaEditHint(): string {
+    return this.canEditGroupMetadata
+      ? ''
+      : 'No tienes permisos para editar este grupo.';
+  }
+
   public get canSaveMeta(): boolean {
-    if (!this.isCurrentUserAdmin() || this.savingMeta) return false;
+    if (!this.canEditGroupMetadata || this.savingMeta) return false;
     const name = this.draftName.trim();
     const description = this.draftDescription.trim();
     return !!name && (name !== this.groupName || description !== this.rawGroupDescription);
@@ -485,11 +572,11 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
 
   public get inviteCandidates(): UsuarioDTO[] {
     const q = this.inviteQuery.trim().toLowerCase();
+    if (!q) return [];
     const memberIds = new Set((this.members || []).map((m: any) => Number(m?.id)));
     return (this.usuariosActivos || [])
       .filter((u) => !memberIds.has(Number(u?.id)))
       .filter((u) => {
-        if (!q) return true;
         const nombre = `${u?.nombre || ''} ${u?.apellido || ''}`.toLowerCase();
         const email = String(u?.email || '').toLowerCase();
         return nombre.includes(q) || email.includes(q);
@@ -497,16 +584,53 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
       .slice(0, 30);
   }
 
+  public get selectedInviteUser(): UsuarioDTO | null {
+    const userId = Number(this.selectedInviteUserId || 0);
+    if (!userId) return null;
+    return (
+      (this.usuariosActivos || []).find((u) => Number(u?.id) === userId) || null
+    );
+  }
+
+  public onInviteQueryChange(value: string): void {
+    this.inviteQuery = String(value || '');
+    const selected = this.selectedInviteUser;
+    if (!selected) return;
+    const selectedLabel = this.buildInviteUserLabel(selected).toLowerCase();
+    const current = this.inviteQuery.trim().toLowerCase();
+    if (!current || current !== selectedLabel) {
+      this.selectedInviteUserId = null;
+    }
+  }
+
+  public selectInviteUser(user: UsuarioDTO): void {
+    const userId = Number(user?.id || 0);
+    if (!userId) return;
+    this.selectedInviteUserId = userId;
+    this.inviteQuery = this.buildInviteUserLabel(user);
+  }
+
+  public clearInviteSelection(): void {
+    this.selectedInviteUserId = null;
+    this.inviteQuery = '';
+  }
+
+  public isInviteUserSelected(user: UsuarioDTO): boolean {
+    return Number(user?.id) === Number(this.selectedInviteUserId || 0);
+  }
+
   public startEditName(): void {
-    if (!this.isCurrentUserAdmin()) return;
+    if (!this.canEditGroupMetadata) return;
     this.editingName = true;
     this.draftName = this.groupName;
+    this.metaSuccessMessage = null;
   }
 
   public startEditDescription(): void {
-    if (!this.isCurrentUserAdmin()) return;
+    if (!this.canEditGroupMetadata) return;
     this.editingDescription = true;
     this.draftDescription = this.rawGroupDescription;
+    this.metaSuccessMessage = null;
   }
 
   public cancelEditName(): void {
@@ -523,30 +647,38 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     if (!this.canSaveMeta) return;
     const groupId = Number(this.group?.id || this.detail?.id);
     if (!groupId) return;
+    const nombreGrupo = this.draftName.trim();
+    const descripcion = this.draftDescription.trim();
+    const payload: { nombreGrupo?: string; descripcion?: string; fotoGrupo?: string } = {};
+    if (nombreGrupo !== this.groupName) payload.nombreGrupo = nombreGrupo;
+    if (descripcion !== this.rawGroupDescription) payload.descripcion = descripcion;
+    if (Object.keys(payload).length === 0) return;
 
     this.savingMeta = true;
     this.loadError = null;
+    this.metaSuccessMessage = null;
     this.chatService
-      .actualizarGrupo(groupId, {
-        nombreGrupo: this.draftName.trim(),
-        descripcion: this.draftDescription.trim(),
-      })
+      .actualizarGrupo(groupId, payload)
       .subscribe({
-        next: () => {
+        next: (updated) => {
           this.savingMeta = false;
           this.editingName = false;
           this.editingDescription = false;
-          this.loadGroupDetail();
+          this.applyUpdatedGroupDetail(updated);
+          this.metaSuccessMessage = 'Informacion del grupo actualizada.';
         },
         error: (err) => {
           this.savingMeta = false;
-          this.loadError = err?.error?.mensaje || 'No se pudo actualizar la información del grupo.';
+          this.loadError = this.mapGroupMetaError(
+            err,
+            'No se pudo actualizar la informacion del grupo.'
+          );
         },
       });
   }
 
   public onGroupPhotoSelected(event: Event): void {
-    if (!this.isCurrentUserAdmin()) return;
+    if (!this.canEditGroupMetadata) return;
     const groupId = Number(this.group?.id || this.detail?.id);
     if (!groupId) return;
 
@@ -569,15 +701,20 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
       const fotoGrupo = String(reader.result || '');
       this.savingMeta = true;
       this.loadError = null;
+      this.metaSuccessMessage = null;
       this.chatService.actualizarGrupo(groupId, { fotoGrupo }).subscribe({
-        next: () => {
+        next: (updated) => {
           this.savingMeta = false;
-          this.loadGroupDetail();
+          this.applyUpdatedGroupDetail(updated);
+          this.metaSuccessMessage = 'Foto del grupo actualizada.';
           input.value = '';
         },
         error: (err) => {
           this.savingMeta = false;
-          this.loadError = err?.error?.mensaje || 'No se pudo actualizar la foto del grupo.';
+          this.loadError = this.mapGroupMetaError(
+            err,
+            'No se pudo actualizar la foto del grupo.'
+          );
           input.value = '';
         },
       });
@@ -622,7 +759,7 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     this.groupInviteService
       .create(groupId, userId)
       .subscribe({
-        next: () => {
+        next: (updated) => {
           this.inviteBusy = false;
           this.selectedInviteUserId = null;
           this.inviteQuery = '';
@@ -662,8 +799,13 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
   public toggleAdmin(m: any): void {
     const groupId = Number(this.group?.id || this.detail?.id);
     const userId = Number(m?.id);
+    const creatorId = Number(this.detail?.idCreador ?? this.group?.idCreador);
     if (!groupId || !userId) return;
-    if (this.adminBusyUserId != null) return;
+    if (userId === Number(this.currentUserId)) return;
+    if (Number.isFinite(creatorId) && creatorId > 0 && userId === creatorId) return;
+    if (!this.canToggleMemberAdmin(m)) return;
+    if (this.adminBusyUserId != null || this.kickBusyUserId != null) return;
+    this.closeMemberActionsMenu();
 
     this.adminBusyUserId = userId;
     const req$ = this.isGroupAdmin(m)
@@ -677,12 +819,77 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
       },
       error: (err) => {
         this.adminBusyUserId = null;
-        this.loadError = err?.error?.mensaje || 'No se pudo actualizar el rol admin.';
+        const status = Number(err?.status || 0);
+        if (status === 403) {
+          this.loadError =
+            this.extractBackendMessage(err) ||
+            'No tienes permisos para administrar roles en este grupo.';
+          return;
+        }
+        if (status === 404) {
+          this.loadError = 'Este grupo ya no está disponible.';
+          return;
+        }
+        if (status === 400) {
+          this.loadError =
+            this.extractBackendMessage(err) ||
+            'El usuario no pertenece al grupo.';
+          return;
+        }
+        this.loadError =
+          this.extractBackendMessage(err) ||
+          'No se pudo actualizar el rol admin.';
+      },
+    });
+  }
+
+  public expulsarMiembro(m: any): void {
+    const groupId = Number(this.group?.id || this.detail?.id);
+    const userId = Number(m?.id);
+    if (!groupId || !userId) return;
+    if (!this.canExpelMember(m)) return;
+    if (this.adminBusyUserId != null || this.kickBusyUserId != null) return;
+    this.closeMemberActionsMenu();
+
+    this.kickBusyUserId = userId;
+    this.loadError = null;
+    this.chatService.expulsarMiembroDeGrupo(groupId, userId).subscribe({
+      next: (resp) => {
+        this.kickBusyUserId = null;
+        if (resp?.ok === false) {
+          this.loadError = String(resp?.mensaje || '').trim() || 'No se pudo expulsar al usuario del grupo.';
+          return;
+        }
+        this.loadGroupDetail();
+      },
+      error: (err) => {
+        this.kickBusyUserId = null;
+        const status = Number(err?.status || 0);
+        if (status === 403) {
+          this.loadError =
+            this.extractBackendMessage(err) ||
+            'No tienes permisos para expulsar miembros de este grupo.';
+          return;
+        }
+        if (status === 404) {
+          this.loadError = 'Este grupo ya no esta disponible.';
+          return;
+        }
+        if (status === 400) {
+          this.loadError =
+            this.extractBackendMessage(err) ||
+            'Solicitud invalida para expulsar a este usuario.';
+          return;
+        }
+        this.loadError =
+          this.extractBackendMessage(err) ||
+          'No se pudo expulsar al usuario del grupo.';
       },
     });
   }
 
   public onClose(): void {
+    this.closeMemberActionsMenu();
     this.closePanel.emit();
   }
 
@@ -694,6 +901,46 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     if (!this.inviteSuccessTimer) return;
     clearTimeout(this.inviteSuccessTimer);
     this.inviteSuccessTimer = null;
+  }
+
+  private buildInviteUserLabel(user: UsuarioDTO | null | undefined): string {
+    if (!user) return '';
+    const fullName = `${user.nombre || ''} ${user.apellido || ''}`.trim();
+    const email = String(user.email || '').trim();
+    if (fullName && email) return `${fullName} (${email})`;
+    return fullName || email || `Usuario ${user.id}`;
+  }
+
+  private mapGroupMetaError(err: any, fallback: string): string {
+    const status = Number(err?.status || 0);
+    if (status === 403) return 'No tienes permisos para editar este grupo.';
+    if (status === 404) return 'Este grupo ya no está disponible.';
+    if (status === 400) {
+      return this.extractBackendMessage(err) || 'Solicitud invalida.';
+    }
+    return this.extractBackendMessage(err) || fallback;
+  }
+
+  private extractBackendMessage(err: any): string {
+    return String(err?.error?.mensaje || err?.error?.message || '').trim();
+  }
+
+  private applyUpdatedGroupDetail(updated: GroupDetailDTO): void {
+    const canEditGroup = (updated as any)?.canEditGroup === true;
+    this.detail = { ...updated, canEditGroup };
+    this.draftName = this.groupName;
+    this.draftDescription = this.rawGroupDescription;
+    const fotoGrupoRaw = String(this.detail.fotoGrupo || '').trim();
+    const fotoGrupoResolved =
+      resolveMediaUrl(fotoGrupoRaw, environment.backendBaseUrl) || '';
+
+    if (this.group && typeof this.group === 'object') {
+      this.group.nombreGrupo = this.detail.nombreGrupo;
+      this.group.nombre = this.detail.nombreGrupo;
+      this.group.descripcion = this.detail.descripcion || '';
+      this.group.fotoGrupo = fotoGrupoRaw;
+      this.group.foto = fotoGrupoResolved || this.group.foto || '';
+    }
   }
 
   private resetMediaState(): void {
@@ -1066,9 +1313,14 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
 
     this.loading = true;
     this.loadError = null;
+    this.closeMemberActionsMenu();
     this.chatService.obtenerDetalleGrupo(groupId).subscribe({
       next: (res) => {
-        this.detail = res;
+        this.applyUpdatedGroupDetail(res);
+        if (!this.canEditGroupMetadata) {
+          this.editingName = false;
+          this.editingDescription = false;
+        }
         this.draftName = this.groupName;
         this.draftDescription = this.rawGroupDescription;
         this.loading = false;

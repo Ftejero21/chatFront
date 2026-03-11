@@ -1,4 +1,4 @@
-Ôªøimport { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { AuthService } from '../../../Service/auth/auth.service';
 import Swal from 'sweetalert2';
 
@@ -67,14 +67,14 @@ export class LoginComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit(): void {
-    // Si ya existe sesi√≥n activa y el usuario quiso ser recordado, redirige autom√°tico.
+    // Si ya existe sesiÛn activa y el usuario quiso ser recordado, redirige autom·tico.
     const hasToken = !!localStorage.getItem('token');
     const isRemembered = localStorage.getItem('rememberMe') === 'true';
 
     if (hasToken && isRemembered) {
       this.router.navigate(['/inicio']);
     } else if (hasToken && !isRemembered) {
-      // Si no marc√≥ recu√©rdame y aterriza en login, limpiamos su sesi√≥n temporal.
+      // Si no marcÛ recuÈrdame y aterriza en login, limpiamos su sesiÛn temporal.
       this.sessionService.clearSessionArtifacts({
         clearE2EKeys: false,
         clearAuditKeys: false,
@@ -96,7 +96,7 @@ export class LoginComponent implements OnInit, OnDestroy {
   iniciarSesion(): void {
     if (this.loginRateLimitSeconds > 0) {
       this.showToast(
-        `Has alcanzado el l√≠mite de intentos. Reintenta en ${this.loginRateLimitSeconds}s.`,
+        `Has alcanzado el lÌmite de intentos. Reintenta en ${this.loginRateLimitSeconds}s.`,
         'warning',
         'Rate limit'
       );
@@ -128,7 +128,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           const ready = await this.ensureE2EIdentityReadyForSession(usuario, 'login');
           if (!ready) return;
 
-          this.showToast('Sesi√≥n iniciada correctamente (Claves E2E listas)', 'success', '√âxito', 2000);
+          this.showToast('SesiÛn iniciada correctamente (Claves E2E listas)', 'success', '…xito', 2000);
 
           // Verificamos si tiene el rol ADMIN para mandarlo al dashboard, o usuario normal al chat
           const isAdmin = usuario.roles && usuario.roles.includes('ADMIN');
@@ -138,7 +138,7 @@ export class LoginComponent implements OnInit, OnDestroy {
             this.router.navigate(['/inicio']);
           }
         } catch (e) {
-          console.error('Error criptogr√°fico', e);
+          console.error('Error criptogr·fico', e);
           this.router.navigate(['/inicio']);
         }
       },
@@ -162,7 +162,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           this.showToast('Email incorrecto', 'danger', 'Error');
         } else if (code === 'PASSWORD_INCORRECTA') {
           this.showBanAppealButton = false;
-          this.showToast('Contrase√±a incorrecta', 'danger', 'Error');
+          this.showToast('ContraseÒa incorrecta', 'danger', 'Error');
         } else if (code === 'USUARIO_INACTIVO') {
           this.showBanAppealButton = true;
           this.lastBannedEmail = String(this.login?.email || '').trim();
@@ -174,7 +174,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           });
         } else {
           this.showBanAppealButton = false;
-          this.showToast('No se pudo iniciar sesi√≥n', 'warning', 'Aviso');
+          this.showToast('No se pudo iniciar sesiÛn', 'warning', 'Aviso');
         }
       },
     });
@@ -208,13 +208,13 @@ export class LoginComponent implements OnInit, OnDestroy {
         </div>
 
         <div class="swal-ban-body">
-          <label class="swal-ban-label">Cu√©ntanos qu√© pas√≥</label>
-          <p class="swal-ban-helper">Incluye contexto breve para que administraci√≥n pueda evaluarlo.</p>
+          <label class="swal-ban-label">CuÈntanos quÈ pasÛ</label>
+          <p class="swal-ban-helper">Incluye contexto breve para que administraciÛn pueda evaluarlo.</p>
         </div>
       `,
       input: 'textarea',
       inputPlaceholder:
-        'Ej: Creo que mi cuenta fue baneada por error. Solicito revisi√≥n del caso.',
+        'Ej: Creo que mi cuenta fue baneada por error. Solicito revisiÛn del caso.',
       showCancelButton: true,
       confirmButtonText: 'Enviar reporte',
       cancelButtonText: 'Cancelar',
@@ -244,7 +244,7 @@ export class LoginComponent implements OnInit, OnDestroy {
             title: 'Reporte enviado',
             text:
               res?.mensaje ||
-              'Tu solicitud de revisi√≥n fue enviada correctamente.',
+              'Tu solicitud de revisiÛn fue enviada correctamente.',
             confirmButtonColor: '#2563eb',
           });
         },
@@ -271,7 +271,7 @@ export class LoginComponent implements OnInit, OnDestroy {
               icon: 'info',
               title: 'API pendiente',
               text:
-                'La API para reportes de desbaneo a√∫n no est√° disponible en backend.',
+                'La API para reportes de desbaneo a˙n no est· disponible en backend.',
               confirmButtonColor: '#2563eb',
             });
             return;
@@ -462,7 +462,7 @@ export class LoginComponent implements OnInit, OnDestroy {
       if (Number((err as any)?.status) === 409 || code === 'E2E_REKEY_CONFLICT') {
         await Swal.fire({
           title: 'Conflicto de identidad E2E',
-          text: 'El servidor rechaz√≥ la actualizaci√≥n de clave porque esta cuenta ya tiene otra identidad E2E. Usa el flujo de rekey para rotar la clave de forma controlada.',
+          text: 'El servidor rechazÛ la actualizaciÛn de clave porque esta cuenta ya tiene otra identidad E2E. Usa el flujo de rekey para rotar la clave de forma controlada.',
           icon: 'error',
           confirmButtonColor: '#ef4444',
         });
@@ -479,8 +479,8 @@ export class LoginComponent implements OnInit, OnDestroy {
         title: 'Error E2E',
         text:
           source === 'register'
-            ? 'No se pudo sincronizar tu clave p√∫blica tras el registro. Vuelve a iniciar sesi√≥n.'
-            : 'No se pudo sincronizar tu clave p√∫blica. No se abrir√° el chat para evitar mensajes cifrados no descifrables.',
+            ? 'No se pudo sincronizar tu clave p˙blica tras el registro. Vuelve a iniciar sesiÛn.'
+            : 'No se pudo sincronizar tu clave p˙blica. No se abrir· el chat para evitar mensajes cifrados no descifrables.',
         icon: 'error',
         confirmButtonColor: '#ef4444',
       });
@@ -503,12 +503,12 @@ export class LoginComponent implements OnInit, OnDestroy {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Selecciona una imagen v√°lida.');
+      alert('Selecciona una imagen v·lida.');
       input.value = '';
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      alert('La imagen es demasiado grande (m√°x 5MB).');
+      alert('La imagen es demasiado grande (m·x 5MB).');
       input.value = '';
       return;
     }
@@ -516,8 +516,8 @@ export class LoginComponent implements OnInit, OnDestroy {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
-      this.avatarPreviewUrl = dataUrl; // previsualizaci√≥n inmediata
-      this.avatarBase64 = dataUrl; // se enviar√° en el DTO
+      this.avatarPreviewUrl = dataUrl; // previsualizaciÛn inmediata
+      this.avatarBase64 = dataUrl; // se enviar· en el DTO
       input.value = ''; // permite re-seleccionar el MISMO archivo
     };
     reader.readAsDataURL(file);
@@ -611,9 +611,6 @@ export class LoginComponent implements OnInit, OnDestroy {
       localStorage.setItem('auditPrivateKey', key);
       localStorage.setItem('privateKey_admin_audit', key);
       localStorage.setItem('forAdminPrivateKey', key);
-      console.log('[E2E][audit-private-key-load-ok]', {
-        keyLength: key.length,
-      });
       return;
     }
   }
@@ -698,6 +695,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     }, 1000);
   }
 }
+
 
 
 

@@ -103,6 +103,22 @@ export class SessionService {
       localStorage.removeItem(key);
     }
 
+    const transientKeysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (/^leftGroupIds(?::\d+)?$/.test(key)) {
+        transientKeysToRemove.push(key);
+        continue;
+      }
+      if (/^leftGroupNoticeByChat(?::\d+)?$/.test(key)) {
+        transientKeysToRemove.push(key);
+      }
+    }
+    for (const key of transientKeysToRemove) {
+      localStorage.removeItem(key);
+    }
+
     if (opts.clearAuditKeys) {
       for (const key of this.auditKeys) {
         localStorage.removeItem(key);

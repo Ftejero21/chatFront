@@ -6,7 +6,8 @@ export type LastMessageTipoDTO =
   | 'IMAGE'
   | 'VIDEO'
   | 'FILE'
-  | 'SYSTEM';
+  | 'SYSTEM'
+  | 'POLL';
 
 export interface ChatListItemDTO {
   id: number;
@@ -30,4 +31,8 @@ export interface ChatListItemDTO {
   ultimaMensajeAudioUrl?: string | null;
   ultimaMensajeAudioMime?: string | null;
   ultimaMensajeAudioDuracionMs?: number | null;
+  ultimaMensajeFileUrl?: string | null;
+  ultimaMensajeFileMime?: string | null;
+  ultimaMensajeFileNombre?: string | null;
+  ultimaMensajeFileSizeBytes?: number | null;
 }

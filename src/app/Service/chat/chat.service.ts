@@ -16,6 +16,60 @@ import {
 import { MessageSearchResponseDTO } from '../../Interface/MessageSearchDTO';
 import { ChatListItemDTO } from '../../Interface/ChatListItemDTO';
 
+export interface PollVoteRestRequestDTO {
+  optionId: string;
+  chatId?: number;
+  pollId?: string | number;
+  userId?: number;
+}
+
+export interface ProgramarMensajeRequestDTO {
+  message: string;
+  contenido?: string;
+  chatIds: number[];
+  chatId?: number;
+  scheduledAt: string;
+  scheduledAtLocal?: string;
+  scheduledDate?: string;
+  scheduledTime?: string;
+  timezone?: string;
+  fechaProgramada?: string;
+  createdBy?: number;
+  userId?: number;
+}
+
+export interface ProgramarMensajeItemDTO {
+  chatId: number;
+  status: 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED' | 'CANCELED' | string;
+  estado?: 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED' | 'CANCELED' | string;
+  scheduledMessageId?: number | string | null;
+  id?: number | string | null;
+  error?: string | null;
+  mensaje?: string | null;
+}
+
+export interface ProgramarMensajeResponseDTO {
+  ok?: boolean;
+  scheduledBatchId?: number | string | null;
+  items?: ProgramarMensajeItemDTO[] | null;
+  message?: string | null;
+  mensaje?: string | null;
+}
+
+export interface MensajeProgramadoDTO {
+  id?: number;
+  chatId?: number;
+  createdBy?: number;
+  message?: string;
+  scheduledAt?: string;
+  status?: 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED' | 'CANCELED' | string;
+  attempts?: number;
+  lastError?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  sentAt?: string | null;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -30,19 +84,36 @@ export class ChatService {
     return this.http.post<ChatIndividualDTO>(`${this.baseUrl}/individual`, dto);
   }
 
-  listarConversacionesAdmin(usuarioId: number): Observable<any[]> {
-    return this.http.get<any[]>(`${this.baseUrl}/admin/usuario/${usuarioId}/chats`);
+  listarConversacionesAdmin(
+    usuarioId: number,
+    includeExpired: boolean = true
+  ): Observable<any[]> {
+    const params = new HttpParams().set(
+      'includeExpired',
+      String(!!includeExpired)
+    );
+    return this.http.get<any[]>(
+      `${this.baseUrl}/admin/usuario/${usuarioId}/chats`,
+      { params }
+    );
   }
 
-  listarMensajesAdminPorChat(chatId: number): Observable<any[]> {
+  listarMensajesAdminPorChat(
+    chatId: number,
+    includeExpired: boolean = true
+  ): Observable<any[]> {
     const token = localStorage.getItem('token');
     const headers = token
       ? new HttpHeaders({ Authorization: `Bearer ${token}` })
       : undefined;
+    const params = new HttpParams().set(
+      'includeExpired',
+      String(!!includeExpired)
+    );
 
     return this.http.get<any[]>(
       `${this.baseUrl}/admin/chat/${chatId}/mensajes`,
-      headers ? { headers } : {}
+      headers ? { headers, params } : { params }
     );
   }
 
@@ -56,9 +127,9 @@ export class ChatService {
 
   actualizarGrupo(
     groupId: number,
-    payload: { nombreGrupo?: string; descripcion?: string; fotoGrupo?: string | null }
+    payload: { nombreGrupo?: string; descripcion?: string; fotoGrupo?: string }
   ): Observable<GroupDetailDTO> {
-    return this.http.put<GroupDetailDTO>(`${this.baseUrl}/grupal/${groupId}`, payload);
+    return this.http.patch<GroupDetailDTO>(`${this.baseUrl}/grupal/${groupId}`, payload);
   }
 
   invitarMiembroAGrupo(groupId: number, userId: number): Observable<any> {
@@ -71,6 +142,10 @@ export class ChatService {
 
   quitarAdminGrupo(groupId: number, userId: number): Observable<any> {
     return this.http.delete(`${this.baseUrl}/grupal/${groupId}/admins/${userId}`);
+  }
+
+  expulsarMiembroDeGrupo(groupId: number, userId: number): Observable<any> {
+    return this.http.delete(`${this.baseUrl}/grupal/${groupId}/miembros/${userId}`);
   }
 
   listarGrupalesPorUsuario(usuarioId: number): Observable<ChatGrupalDTO[]> {
@@ -114,6 +189,13 @@ export class ChatService {
 
     const options = params.keys().length > 0 ? { params } : {};
     return this.http.get<MensajeDTO[]>(`${this.baseUrl}/mensajes/${chatId}`, options);
+  }
+
+  restaurarMensaje(mensajeId: number): Observable<MensajeDTO> {
+    return this.http.post<MensajeDTO>(
+      `${this.baseUrl}/mensajes/${mensajeId}/restaurar`,
+      {}
+    );
   }
 
   listarMensajesPorChatGrupal(
@@ -179,6 +261,47 @@ export class ChatService {
     return this.http.get<GroupMediaListResponseDTO>(
       `${this.baseUrl}/grupal/${groupId}/media`,
       { params }
+    );
+  }
+
+  votarEncuesta(
+    mensajeId: number,
+    payload: PollVoteRestRequestDTO
+  ): Observable<MensajeDTO> {
+    return this.http.post<MensajeDTO>(
+      `${this.baseUrl}/poll/${mensajeId}/vote`,
+      payload
+    );
+  }
+
+  programarMensajes(
+    payload: ProgramarMensajeRequestDTO
+  ): Observable<ProgramarMensajeResponseDTO> {
+    return this.http.post<ProgramarMensajeResponseDTO>(
+      `${this.baseUrl}/scheduled`,
+      payload
+    );
+  }
+
+  listarMensajesProgramados(
+    status?: 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED' | 'CANCELED' | string
+  ): Observable<MensajeProgramadoDTO[]> {
+    let params = new HttpParams();
+    const normalizedStatus = String(status || '').trim();
+    if (normalizedStatus) {
+      params = params.set('status', normalizedStatus);
+    }
+    const options = params.keys().length > 0 ? { params } : {};
+    return this.http.get<MensajeProgramadoDTO[]>(
+      `${this.baseUrl}/scheduled`,
+      options
+    );
+  }
+
+  cancelarMensajeProgramado(id: number): Observable<MensajeProgramadoDTO> {
+    return this.http.post<MensajeProgramadoDTO>(
+      `${this.baseUrl}/scheduled/${id}/cancel`,
+      {}
     );
   }
 }

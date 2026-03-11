@@ -4,6 +4,7 @@ import Swal from 'sweetalert2';
 import { SessionService } from './Service/session/session.service';
 import { Subscription } from 'rxjs';
 import { RateLimitService } from './Service/rate-limit/rate-limit.service';
+import { EmojiCatalogService } from './Service/emoji/emoji-catalog.service';
 
 @Component({
   selector: 'app-root',
@@ -22,11 +23,14 @@ export class AppComponent implements OnInit, OnDestroy {
   constructor(
     private wsService: WebSocketService,
     private sessionService: SessionService,
-    private rateLimitService: RateLimitService
+    private rateLimitService: RateLimitService,
+    private emojiCatalogService: EmojiCatalogService
   ) {}
 
   ngOnInit() {
-    console.log('[APP] ngOnInit checkBaneos');
+    void this.emojiCatalogService.preload().catch((err) => {
+      console.error('No se pudo precargar el catálogo de emojis:', err);
+    });
     window.addEventListener('storage', this.onStorageEvent);
     this.bindRateLimitAlerts();
     this.checkBaneos();
@@ -63,12 +67,8 @@ export class AppComponent implements OnInit, OnDestroy {
   private checkBaneos() {
     const id = localStorage.getItem('usuarioId');
     if (!id) {
-      console.log('[APP] checkBaneos skipped: no usuarioId yet');
       return;
     }
-
-    console.log('[APP] checkBaneos subscribe', { usuarioId: id });
-
     this.wsService.suscribirseABaneos(Number(id), (payload) => {
       console.warn('[APP] baneo WS recibido', payload);
       // Informamos y cerramos sesión conservando claves E2E del usuario.
@@ -90,4 +90,5 @@ export class AppComponent implements OnInit, OnDestroy {
     });
   }
 }
+
 

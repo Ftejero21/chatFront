@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable, firstValueFrom } from 'rxjs';
 import { environment } from '../../environments';
@@ -14,6 +14,29 @@ export class MensajeriaService {
     );
 
   constructor(private http: HttpClient) {}
+
+  private buildAuthHeaders(): HttpHeaders | undefined {
+    const token = String(
+      localStorage.getItem('token') || sessionStorage.getItem('token') || ''
+    ).trim();
+    if (!token) return undefined;
+    return new HttpHeaders({
+      Authorization: `Bearer ${token}`,
+    });
+  }
+
+  private isUploadSizeExceededError(err: any): boolean {
+    const status = Number(err?.status || 0);
+    if (status === 413) return true;
+    const message = String(
+      err?.error?.mensaje || err?.error?.message || err?.message || ''
+    ).toLowerCase();
+    return (
+      message.includes('maximum upload size exceeded') ||
+      message.includes('maxuploadsizeexceededexception') ||
+      message.includes('payload too large')
+    );
+  }
 
   private normalizeUploadAudioMime(rawMime: string): { mime: string; ext: string } {
     const base = String(rawMime || '')
@@ -61,7 +84,10 @@ export class MensajeriaService {
 
     return this.http.post<{ url: string; mime: string; durMs: number }>(
       `${this.backendBaseUrl}/api/uploads/audio`,
-      fd
+      fd,
+      {
+        headers: this.buildAuthHeaders(),
+      }
     );
   }
 
@@ -76,8 +102,8 @@ export class MensajeriaService {
   }> {
     const normalizedFile = this.toFile(file, preferredName);
     const endpoints = [
-      `${this.backendBaseUrl}/api/uploads/file`,
       `${this.backendBaseUrl}/api/uploads/media`,
+      `${this.backendBaseUrl}/api/uploads/file`,
       `${this.backendBaseUrl}/api/uploads/image`,
     ];
 
@@ -86,7 +112,11 @@ export class MensajeriaService {
       try {
         const fd = new FormData();
         fd.append('file', normalizedFile, normalizedFile.name);
-        const response: any = await firstValueFrom(this.http.post(endpoint, fd));
+        const response: any = await firstValueFrom(
+          this.http.post(endpoint, fd, {
+            headers: this.buildAuthHeaders(),
+          })
+        );
         const url = this.readUploadUrl(response);
         if (!url) continue;
         return {
@@ -98,6 +128,9 @@ export class MensajeriaService {
           sizeBytes: Number(response?.sizeBytes ?? normalizedFile.size ?? 0) || 0,
         };
       } catch (err) {
+        if (this.isUploadSizeExceededError(err)) {
+          throw err;
+        }
         lastError = err;
       }
     }

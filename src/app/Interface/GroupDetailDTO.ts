@@ -12,6 +12,7 @@ export interface GroupMemberDTO {
 export interface GroupDetailDTO {
   id: number;
   nombreGrupo: string;
+  canEditGroup: boolean;
   fotoGrupo?: string | null;
   descripcion?: string | null;
   visibilidad?: 'PUBLICO' | 'PRIVADO' | string;

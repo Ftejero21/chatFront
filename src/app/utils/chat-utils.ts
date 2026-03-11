@@ -24,6 +24,34 @@ export const DEFAULT_NAME_PALETTE = [
   '#84CC16',
 ] as const;
 
+export interface PollOptionPayload {
+  id: string;
+  text: string;
+  voteCount: number;
+  voterIds: number[];
+  votedByMe?: boolean;
+  voters?: PollOptionVoterPayload[];
+}
+
+export interface PollOptionVoterPayload {
+  userId: number;
+  fullName?: string;
+  photoUrl?: string;
+  votedAt?: string;
+}
+
+export interface PollPayloadV1 {
+  type: 'POLL_V1';
+  pollId?: string | number;
+  question: string;
+  allowMultiple: boolean;
+  options: PollOptionPayload[];
+  totalVotes: number;
+  statusText?: string;
+  createdAt?: string;
+  createdBy?: number;
+}
+
 export interface E2EDebugContext {
   chatId?: number;
   mensajeId?: number;
@@ -63,7 +91,7 @@ function e2eLog(
     source: ctx?.source || 'unknown',
     ...(data || {}),
   };
-  if (level === 'log') console.log(`[E2E][${stage}]`, payload);
+  if (level === 'log') return;
   else if (level === 'warn') console.warn(`[E2E][${stage}]`, payload);
   else console.error(`[E2E][${stage}]`, payload);
 }
@@ -109,6 +137,441 @@ function parsePossiblySerializedE2EPayload(raw: string): any | null {
   return null;
 }
 
+function pickFirstStringValue(source: any, keys: string[]): string {
+  if (!source || typeof source !== 'object') return '';
+  for (const key of keys) {
+    const value = source?.[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function normalizeE2ERecipientMap(raw: any): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!raw) return result;
+
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const keyRaw =
+        item?.userId ?? item?.usuarioId ?? item?.idUsuario ?? item?.id ?? item?.uid;
+      const key = String(keyRaw ?? '').trim();
+      const value = pickFirstStringValue(item, [
+        'envelope',
+        'value',
+        'cipher',
+        'ciphertext',
+        'key',
+      ]);
+      if (!key || !value) continue;
+      result[key] = value;
+    }
+    return result;
+  }
+
+  if (typeof raw === 'object') {
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'string' && v.trim()) {
+        result[String(k)] = v.trim();
+      }
+    }
+  }
+  return result;
+}
+
+function unwrapE2EPayloadCandidate(raw: any): any {
+  let candidate = raw;
+  for (let i = 0; i < 3; i++) {
+    if (!candidate || typeof candidate !== 'object') return candidate;
+    const maybeType = pickFirstStringValue(candidate, [
+      'type',
+      'payloadType',
+      'contentKind',
+      'e2eType',
+    ])
+      .trim()
+      .toUpperCase();
+    if (maybeType.startsWith('E2E')) return candidate;
+
+    const nested =
+      candidate?.payload ??
+      candidate?.content ??
+      candidate?.contenido ??
+      candidate?.messageContent ??
+      candidate?.data ??
+      candidate?.body;
+    if (!nested) return candidate;
+
+    if (typeof nested === 'string') {
+      const parsed = parsePossiblySerializedE2EPayload(nested);
+      if (!parsed) return candidate;
+      candidate = parsed;
+      continue;
+    }
+
+    if (typeof nested === 'object') {
+      candidate = nested;
+      continue;
+    }
+    return candidate;
+  }
+  return candidate;
+}
+
+function normalizeE2EPayloadShape(raw: any): any {
+  const candidate = unwrapE2EPayloadCandidate(raw);
+  if (!candidate || typeof candidate !== 'object') return candidate;
+
+  const type = pickFirstStringValue(candidate, [
+    'type',
+    'payloadType',
+    'contentKind',
+    'e2eType',
+  ])
+    .trim()
+    .toUpperCase();
+  if (!type.startsWith('E2E')) return candidate;
+
+  const forReceptores = normalizeE2ERecipientMap(
+    candidate?.forReceptores ??
+      candidate?.for_receptores ??
+      candidate?.forRecipients ??
+      candidate?.recipientEnvelopes ??
+      candidate?.recipients
+  );
+  const forEmisor = pickFirstStringValue(candidate, [
+    'forEmisor',
+    'forSender',
+    'for_emisor',
+    'senderEnvelope',
+  ]);
+  const forReceptor = pickFirstStringValue(candidate, [
+    'forReceptor',
+    'forRecipient',
+    'for_receptor',
+    'recipientEnvelope',
+  ]);
+  const forAdmin = pickFirstStringValue(candidate, [
+    'forAdmin',
+    'adminEnvelope',
+    'for_admin',
+  ]);
+  const ciphertext = pickFirstStringValue(candidate, [
+    'ciphertext',
+    'cipherText',
+    'encryptedContent',
+    'contenidoCifrado',
+  ]);
+  const iv = pickFirstStringValue(candidate, [
+    'iv',
+    'nonce',
+    'ivText',
+    'iv_base64',
+    'ivB64',
+  ]);
+
+  return {
+    ...candidate,
+    type,
+    forEmisor: forEmisor || candidate?.forEmisor,
+    forReceptor: forReceptor || candidate?.forReceptor,
+    forReceptores:
+      Object.keys(forReceptores).length > 0
+        ? forReceptores
+        : candidate?.forReceptores || {},
+    forAdmin: forAdmin || candidate?.forAdmin,
+    ciphertext: ciphertext || candidate?.ciphertext,
+    iv: iv || candidate?.iv,
+  };
+}
+
+function hasE2EEnvelopeShape(payload: any): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const ciphertext = String(payload?.ciphertext || '').trim();
+  const iv = String(payload?.iv || '').trim();
+  if (!ciphertext || !iv) return false;
+  const candidates = buildE2EEnvelopeCandidates(payload, -1, false);
+  return candidates.length > 0;
+}
+
+function extractAesKeyBase64FromRaw(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  const nested = parsePossiblySerializedE2EPayload(trimmed);
+  if (!nested || typeof nested !== 'object') return trimmed;
+  return (
+    pickFirstStringValue(nested, [
+      'aesKey',
+      'aes',
+      'key',
+      'value',
+      'raw',
+      'base64',
+      'secret',
+    ]) || trimmed
+  );
+}
+
+function buildE2EEnvelopeCandidates(
+  payload: any,
+  usuarioActualId: number,
+  isSender: boolean
+): string[] {
+  const recMap =
+    payload?.forReceptores && typeof payload.forReceptores === 'object'
+      ? payload.forReceptores
+      : {};
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (candidate: unknown): void => {
+    if (typeof candidate !== 'string') return;
+    const clean = candidate.trim();
+    if (!clean || seen.has(clean)) return;
+    seen.add(clean);
+    out.push(clean);
+  };
+
+  if (isSender) push(payload?.forEmisor);
+  push(recMap?.[String(usuarioActualId)]);
+  push(recMap?.[usuarioActualId]);
+  push(payload?.forReceptor);
+  push(payload?.forEmisor);
+  for (const v of Object.values(recMap || {})) push(v);
+  push(payload?.forAdmin);
+  return out;
+}
+
+function normalizeBooleanLike(value: unknown): boolean {
+  if (value === true) return true;
+  const n = Number(value);
+  if (Number.isFinite(n)) return n === 1;
+  const text = String(value || '')
+    .trim()
+    .toLowerCase();
+  return text === 'true' || text === 'yes' || text === 'si';
+}
+
+function toPositiveInt(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n);
+}
+
+function parsePollVoterId(raw: any): number {
+  const candidate =
+    raw?.userId ??
+    raw?.usuarioId ??
+    raw?.idUsuario ??
+    raw?.id ??
+    raw?.voterId ??
+    raw;
+  const id = Number(candidate);
+  if (!Number.isFinite(id) || id <= 0) return 0;
+  return Math.round(id);
+}
+
+function normalizePollVotedAt(raw: any): string | undefined {
+  const value = String(
+    raw?.votedAt ??
+      raw?.voteAt ??
+      raw?.votedAtIso ??
+      raw?.fechaVoto ??
+      raw?.createdAt ??
+      raw?.fecha ??
+      raw ??
+      ''
+  ).trim();
+  if (!value) return undefined;
+  const parsed = Date.parse(value);
+  if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  return value;
+}
+
+function normalizePollVoter(raw: any): PollOptionVoterPayload | null {
+  const userId = parsePollVoterId(raw);
+  if (!userId) return null;
+
+  const nombre = String(raw?.nombre ?? '').trim();
+  const apellido = String(raw?.apellido ?? '').trim();
+  const fullNameRaw = String(raw?.fullName ?? raw?.nombreCompleto ?? '').trim();
+  const fullName = fullNameRaw || `${nombre} ${apellido}`.trim() || undefined;
+
+  const photoUrl = String(raw?.photoUrl ?? raw?.foto ?? raw?.avatar ?? '').trim() || undefined;
+  const votedAt = normalizePollVotedAt(raw);
+  return {
+    userId,
+    fullName,
+    photoUrl,
+    votedAt,
+  };
+}
+
+function mergePollVoterDetails(
+  prev: PollOptionVoterPayload | undefined,
+  next: PollOptionVoterPayload
+): PollOptionVoterPayload {
+  if (!prev) return next;
+  const prevTs = Date.parse(String(prev.votedAt || ''));
+  const nextTs = Date.parse(String(next.votedAt || ''));
+  const preferNextTime = Number.isFinite(nextTs) && (!Number.isFinite(prevTs) || nextTs >= prevTs);
+
+  return {
+    userId: prev.userId,
+    fullName: next.fullName || prev.fullName,
+    photoUrl: next.photoUrl || prev.photoUrl,
+    votedAt: preferNextTime ? next.votedAt || prev.votedAt : prev.votedAt || next.votedAt,
+  };
+}
+
+function normalizePollVoters(rawList: any): PollOptionVoterPayload[] {
+  if (!Array.isArray(rawList)) return [];
+  const byUser = new Map<number, PollOptionVoterPayload>();
+
+  for (const raw of rawList) {
+    const normalized = normalizePollVoter(raw);
+    if (!normalized) continue;
+    const existing = byUser.get(normalized.userId);
+    byUser.set(normalized.userId, mergePollVoterDetails(existing, normalized));
+  }
+
+  return Array.from(byUser.values());
+}
+
+function normalizePollOption(raw: any, index: number): PollOptionPayload | null {
+  const text = String(
+    raw?.text ?? raw?.texto ?? raw?.label ?? raw?.opcion ?? ''
+  ).trim();
+  if (!text) return null;
+  const idRaw = String(raw?.id ?? raw?.key ?? raw?.codigo ?? '').trim();
+  const id = idRaw || `opt_${index + 1}`;
+
+  const voters = normalizePollVoters(
+    raw?.voters ??
+      raw?.votantesDetalle ??
+      raw?.voteUsersDetail ??
+      raw?.voteDetails ??
+      raw?.votes
+  );
+  const voterIdsRaw = Array.isArray(raw?.voterIds ?? raw?.votantes ?? raw?.voteUsers)
+    ? (raw?.voterIds ?? raw?.votantes ?? raw?.voteUsers)
+        .map((x: any) => Number(x))
+        .filter((x: number) => Number.isFinite(x) && x > 0)
+    : [];
+  const voterIds = Array.from(
+    new Set<number>([...voterIdsRaw, ...voters.map((v) => Number(v.userId)).filter((v) => v > 0)])
+  );
+  const voteCountRaw = raw?.voteCount ?? raw?.votos ?? raw?.count;
+  const voteCount = Math.max(toPositiveInt(voteCountRaw), voterIds.length);
+  const votedByMe = normalizeBooleanLike(raw?.votedByMe ?? raw?.votadoPorMi);
+  return {
+    id,
+    text,
+    voteCount,
+    voterIds,
+    votedByMe: votedByMe ? true : undefined,
+    voters: voters.length > 0 ? voters : undefined,
+  };
+}
+
+function parseObjectFromUnknown(raw: unknown): any | null {
+  if (raw && typeof raw === 'object') return raw;
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  const candidates = [text];
+  const withPrefix = text.match(/^[^:]{1,80}:\s*(\{[\s\S]*\})\s*$/);
+  if (withPrefix?.[1]) candidates.push(withPrefix[1]);
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      const parsed = parsePossiblySerializedE2EPayload(candidate);
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  }
+  return null;
+}
+
+export function parsePollPayload(raw: unknown): PollPayloadV1 | null {
+  const source = parseObjectFromUnknown(raw);
+  const nested =
+    source?.poll ??
+    source?.encuesta ??
+    source?.pollPayload ??
+    source?.encuestaPayload ??
+    null;
+  const fromContenido = parseObjectFromUnknown(source?.contenido);
+  const candidate = nested || fromContenido || source;
+  if (!candidate || typeof candidate !== 'object') return null;
+
+  const kind = String(
+    candidate?.type ?? candidate?.pollType ?? candidate?.kind ?? ''
+  )
+    .trim()
+    .toUpperCase();
+  const question = String(
+    candidate?.question ?? candidate?.pregunta ?? candidate?.title ?? ''
+  ).trim();
+  const optionsRaw = Array.isArray(candidate?.options)
+    ? candidate.options
+    : Array.isArray(candidate?.opciones)
+    ? candidate.opciones
+    : [];
+  const options = optionsRaw
+    .map((opt: any, index: number) => normalizePollOption(opt, index))
+    .filter((opt: PollOptionPayload | null): opt is PollOptionPayload => !!opt);
+
+  if ((kind && kind !== 'POLL_V1') || !question || options.length < 2) {
+    return null;
+  }
+
+  const totalByCount = options.reduce(
+    (acc: number, option: PollOptionPayload) => acc + option.voteCount,
+    0
+  );
+  const totalVotes = Math.max(
+    toPositiveInt(candidate?.totalVotes ?? candidate?.votosTotales),
+    totalByCount
+  );
+
+  const createdBy = Number(candidate?.createdBy ?? candidate?.creadoPor ?? 0);
+  const createdBySafe =
+    Number.isFinite(createdBy) && createdBy > 0 ? Math.round(createdBy) : undefined;
+  const createdAt = String(candidate?.createdAt ?? candidate?.creadoEn ?? '').trim();
+  const pollIdRaw = candidate?.pollId ?? candidate?.id ?? candidate?.poll_id;
+  const pollIdText = String(pollIdRaw ?? '').trim();
+  const pollIdNumber = Number(pollIdRaw);
+  const pollId =
+    pollIdText.length > 0
+      ? Number.isFinite(pollIdNumber) && pollIdNumber > 0
+        ? Math.round(pollIdNumber)
+        : pollIdText
+      : undefined;
+
+  return {
+    type: 'POLL_V1',
+    pollId,
+    question,
+    allowMultiple: normalizeBooleanLike(
+      candidate?.allowMultiple ?? candidate?.permiteMultiples
+    ),
+    options,
+    totalVotes,
+    statusText: String(
+      candidate?.statusText ?? candidate?.instruction ?? candidate?.instruccion ?? ''
+    ).trim() || undefined,
+    createdAt: createdAt || undefined,
+    createdBy: createdBySafe,
+  };
+}
+
+export function isPollMessageLike(mensaje: any): boolean {
+  const tipo = String(mensaje?.tipo || '').trim().toUpperCase();
+  if (tipo === 'POLL') return true;
+  return !!parsePollPayload(mensaje);
+}
+
 
 
 /**
@@ -138,19 +601,31 @@ export async function decryptContenidoE2E(
       return String(contenido ?? '');
     }
 
-    if (payload?.type === 'E2E' || payload?.type === 'E2E_GROUP') {
+    payload = normalizeE2EPayloadShape(payload);
+
+    const payloadTypeNormalized = String(payload?.type || '')
+      .trim()
+      .toUpperCase();
+    const decryptAsE2E =
+      payloadTypeNormalized === 'E2E' ||
+      payloadTypeNormalized === 'E2E_GROUP' ||
+      hasE2EEnvelopeShape(payload);
+
+    if (decryptAsE2E) {
       const privKeyBase64 = localStorage.getItem(`privateKey_${usuarioActualId}`);
       const isSender = String(emisorId) === String(usuarioActualId);
       const recMap =
-        payload?.type === 'E2E_GROUP' && payload?.forReceptores
+        (payloadTypeNormalized === 'E2E_GROUP' || payload?.forReceptores) &&
+        payload?.forReceptores
           ? payload.forReceptores
           : {};
       const recKeys = Object.keys(recMap || {});
 
       e2eLog('log', 'decrypt-start', debugContext, {
-        payloadType: payload?.type,
-        emisorId: Number(emisorId),
-        receptorId: Number(receptorId),
+          payloadType: payload?.type,
+          payloadTypeNormalized,
+          emisorId: Number(emisorId),
+          receptorId: Number(receptorId),
         usuarioActualId: Number(usuarioActualId),
         isSender,
         hasForEmisor: typeof payload?.forEmisor === 'string',
@@ -168,60 +643,14 @@ export async function decryptContenidoE2E(
       }
 
       const myPrivKey = await cryptoService.importPrivateKey(privKeyBase64);
+      let myPrivKeySha1: CryptoKey | null = null;
+      const candidateEnvelopes = buildE2EEnvelopeCandidates(
+        payload,
+        usuarioActualId,
+        isSender
+      );
 
-      let aesEncryptedBase64: string | undefined;
-      if (isSender) {
-        aesEncryptedBase64 = payload.forEmisor;
-      } else if (payload.type === 'E2E_GROUP') {
-        const forReceptores = payload.forReceptores || {};
-        const direct =
-          forReceptores[String(usuarioActualId)] ??
-          forReceptores[usuarioActualId] ??
-          payload.forReceptor;
-        if (direct) {
-          const directSource =
-            forReceptores[String(usuarioActualId)] != null
-              ? 'forReceptores[string]'
-              : forReceptores[usuarioActualId] != null
-              ? 'forReceptores[number]'
-              : payload.forReceptor != null
-              ? 'forReceptor'
-              : 'unknown';
-          e2eLog('log', 'decrypt-group-direct-key', debugContext, {
-            directSource,
-          });
-          aesEncryptedBase64 = direct;
-        } else {
-          const candidates = Object.values(forReceptores);
-          e2eLog('warn', 'decrypt-group-no-direct-key', debugContext, {
-            forReceptoresCount: candidates.length,
-            forReceptoresKeys: Object.keys(forReceptores),
-          });
-          for (let i = 0; i < candidates.length; i++) {
-            const candidate = candidates[i];
-            if (typeof candidate !== 'string') continue;
-            try {
-              const maybe = await cryptoService.decryptRSA(candidate, myPrivKey);
-              if (maybe) {
-                aesEncryptedBase64 = candidate;
-                e2eLog('log', 'decrypt-group-fallback-key-ok', debugContext, {
-                  candidateIndex: i,
-                });
-                break;
-              }
-            } catch (err) {
-              e2eLog('log', 'decrypt-group-fallback-key-failed', debugContext, {
-                candidateIndex: i,
-                error: errorToString(err),
-              });
-            }
-          }
-        }
-      } else {
-        aesEncryptedBase64 = payload.forReceptor;
-      }
-
-      if (!aesEncryptedBase64) {
+      if (candidateEnvelopes.length === 0) {
         e2eLog('warn', 'decrypt-no-aes-envelope-for-user', debugContext, {
           payloadType: payload?.type,
           hasForEmisor: typeof payload?.forEmisor === 'string',
@@ -230,47 +659,84 @@ export async function decryptContenidoE2E(
         });
         return '[Mensaje Cifrado - Llave no disponible para este usuario]';
       }
+      if (
+        typeof payload?.ciphertext !== 'string' ||
+        !payload.ciphertext.trim() ||
+        typeof payload?.iv !== 'string' ||
+        !payload.iv.trim()
+      ) {
+        e2eLog('warn', 'decrypt-invalid-cipher-shape', debugContext, {
+          payloadType: payload?.type,
+          hasCiphertext: typeof payload?.ciphertext === 'string',
+          hasIv: typeof payload?.iv === 'string',
+        });
+        return rawString;
+      }
 
       try {
-        let aesRawStr = '';
-        try {
-          aesRawStr = await cryptoService.decryptRSA(aesEncryptedBase64, myPrivKey);
-        } catch (err) {
-          e2eLog('error', 'decrypt-rsa-envelope-failed', debugContext, {
-            payloadType: payload?.type,
-            error: errorToString(err),
-          });
-          return '[Error de descifrado E2E]';
+        for (let i = 0; i < candidateEnvelopes.length; i++) {
+          const envelope = candidateEnvelopes[i];
+          try {
+            let aesRawStr = '';
+            try {
+              aesRawStr = await cryptoService.decryptRSA(envelope, myPrivKey);
+            } catch (primaryErr) {
+              try {
+                if (!myPrivKeySha1) {
+                  myPrivKeySha1 = await cryptoService.importPrivateKeyWithHash(
+                    privKeyBase64,
+                    'SHA-1'
+                  );
+                }
+                aesRawStr = await cryptoService.decryptRSA(envelope, myPrivKeySha1);
+              } catch {
+                aesRawStr = '';
+              }
+              if (!aesRawStr) throw primaryErr;
+            }
+            const aesKeyBase64 = extractAesKeyBase64FromRaw(aesRawStr);
+            const aesKey = await cryptoService.importAESKey(aesKeyBase64);
+            const plain = await cryptoService.decryptAES(
+              payload.ciphertext,
+              payload.iv,
+              aesKey
+            );
+            e2eLog('log', 'decrypt-success', debugContext, {
+              payloadType: payload?.type,
+              envelopeIndex: i,
+            });
+            return plain;
+          } catch (err) {
+            e2eLog('log', 'decrypt-envelope-candidate-failed', debugContext, {
+              payloadType: payload?.type,
+              envelopeIndex: i,
+              error: errorToString(err),
+            });
+            try {
+              // Compatibilidad defensiva: algunos backends pueden enviar el envelope
+              // ya como AES base64 en claro (sin RSA) por transición.
+              const directAes = extractAesKeyBase64FromRaw(envelope);
+              const directKey = await cryptoService.importAESKey(directAes);
+              const plain = await cryptoService.decryptAES(
+                payload.ciphertext,
+                payload.iv,
+                directKey
+              );
+              e2eLog('log', 'decrypt-success-direct-aes-envelope', debugContext, {
+                payloadType: payload?.type,
+                envelopeIndex: i,
+              });
+              return plain;
+            } catch {
+              // seguimos con el siguiente candidato
+            }
+          }
         }
-
-        let aesKey: CryptoKey;
-        try {
-          aesKey = await cryptoService.importAESKey(aesRawStr);
-        } catch (err) {
-          e2eLog('error', 'decrypt-import-aes-key-failed', debugContext, {
-            payloadType: payload?.type,
-            error: errorToString(err),
-          });
-          return '[Error de descifrado E2E]';
-        }
-
-        let plain = '';
-        try {
-          plain = await cryptoService.decryptAES(payload.ciphertext, payload.iv, aesKey);
-        } catch (err) {
-          e2eLog('error', 'decrypt-aes-content-failed', debugContext, {
-            payloadType: payload?.type,
-            hasCiphertext: typeof payload?.ciphertext === 'string',
-            hasIv: typeof payload?.iv === 'string',
-            error: errorToString(err),
-          });
-          return '[Error de descifrado E2E]';
-        }
-
-        e2eLog('log', 'decrypt-success', debugContext, {
+        e2eLog('error', 'decrypt-no-valid-envelope-candidate', debugContext, {
           payloadType: payload?.type,
+          tried: candidateEnvelopes.length,
         });
-        return plain;
+        return '[Error de descifrado E2E]';
       } catch (err) {
         e2eLog('error', 'decrypt-final-step-failed', debugContext, {
           payloadType: payload?.type,
@@ -309,14 +775,20 @@ export async function decryptPreviewStringE2E(
     } else {
       return String(contenido ?? '');
     }
+    payload = normalizeE2EPayloadShape(payload);
     const payloadType = String(payload?.type || '').trim().toUpperCase();
+    const decryptAsTextE2E =
+      payloadType === 'E2E' ||
+      payloadType === 'E2E_GROUP' ||
+      hasE2EEnvelopeShape(payload);
     if (
-      payloadType !== 'E2E' &&
-      payloadType !== 'E2E_GROUP' &&
+      !decryptAsTextE2E &&
       payloadType !== 'E2E_AUDIO' &&
       payloadType !== 'E2E_GROUP_AUDIO' &&
       payloadType !== 'E2E_IMAGE' &&
-      payloadType !== 'E2E_GROUP_IMAGE'
+      payloadType !== 'E2E_GROUP_IMAGE' &&
+      payloadType !== 'E2E_FILE' &&
+      payloadType !== 'E2E_GROUP_FILE'
     ) {
       return rawString;
     }
@@ -331,26 +803,32 @@ export async function decryptPreviewStringE2E(
       const privKeyBase64 = localStorage.getItem(`privateKey_${usuarioActualId}`);
       if (!privKeyBase64) return 'Imagen';
       const myPrivKey = await cryptoService.importPrivateKey(privKeyBase64);
-      const groupCandidates =
-        payloadType === 'E2E_GROUP_IMAGE' && payload.forReceptores
-          ? [
-              payload.forReceptores[String(usuarioActualId)],
-              payload.forReceptores[usuarioActualId],
-              ...Object.values(payload.forReceptores),
-            ]
-          : [];
-      const candidates = [
-        payload.forReceptor,
-        payload.forEmisor,
-        ...groupCandidates,
-        payload.forAdmin,
-      ];
+      let myPrivKeySha1: CryptoKey | null = null;
+      const candidates = buildE2EEnvelopeCandidates(
+        payload,
+        usuarioActualId,
+        false
+      );
 
       for (const candidate of candidates) {
         if (!candidate || typeof candidate !== 'string') continue;
         try {
-          const aesRawStr = await cryptoService.decryptRSA(candidate, myPrivKey);
-          const aesKey = await cryptoService.importAESKey(aesRawStr);
+          let aesRawStr = '';
+          try {
+            aesRawStr = await cryptoService.decryptRSA(candidate, myPrivKey);
+          } catch (primaryErr) {
+            if (!myPrivKeySha1) {
+              myPrivKeySha1 = await cryptoService.importPrivateKeyWithHash(
+                privKeyBase64,
+                'SHA-1'
+              );
+            }
+            aesRawStr = await cryptoService.decryptRSA(candidate, myPrivKeySha1);
+            if (!aesRawStr) throw primaryErr;
+          }
+          const aesKey = await cryptoService.importAESKey(
+            extractAesKeyBase64FromRaw(aesRawStr)
+          );
           if (payload?.captionCiphertext && payload?.captionIv) {
             const caption = await cryptoService.decryptAES(
               payload.captionCiphertext,
@@ -362,10 +840,90 @@ export async function decryptPreviewStringE2E(
           }
           return 'Imagen';
         } catch {
-          // Intentamos con la siguiente llave disponible.
+          try {
+            const directKey = await cryptoService.importAESKey(
+              extractAesKeyBase64FromRaw(candidate)
+            );
+            if (payload?.captionCiphertext && payload?.captionIv) {
+              const caption = await cryptoService.decryptAES(
+                payload.captionCiphertext,
+                payload.captionIv,
+                directKey
+              );
+              const cleanCaption = String(caption || '').trim();
+              if (cleanCaption) return `Imagen: ${cleanCaption}`;
+            }
+            return 'Imagen';
+          } catch {
+            // Intentamos con la siguiente llave disponible.
+          }
         }
       }
       return 'Imagen';
+    }
+
+    if (payloadType === 'E2E_FILE' || payloadType === 'E2E_GROUP_FILE') {
+      const fileName = String(payload?.fileNombre || 'Archivo').trim() || 'Archivo';
+      const privKeyBase64 = localStorage.getItem(`privateKey_${usuarioActualId}`);
+      if (!privKeyBase64) return `Archivo: ${fileName}`;
+      const myPrivKey = await cryptoService.importPrivateKey(privKeyBase64);
+      let myPrivKeySha1: CryptoKey | null = null;
+      const candidates = buildE2EEnvelopeCandidates(
+        payload,
+        usuarioActualId,
+        false
+      );
+
+      for (const candidate of candidates) {
+        if (!candidate || typeof candidate !== 'string') continue;
+        try {
+          let aesRawStr = '';
+          try {
+            aesRawStr = await cryptoService.decryptRSA(candidate, myPrivKey);
+          } catch (primaryErr) {
+            if (!myPrivKeySha1) {
+              myPrivKeySha1 = await cryptoService.importPrivateKeyWithHash(
+                privKeyBase64,
+                'SHA-1'
+              );
+            }
+            aesRawStr = await cryptoService.decryptRSA(candidate, myPrivKeySha1);
+            if (!aesRawStr) throw primaryErr;
+          }
+          const aesKey = await cryptoService.importAESKey(
+            extractAesKeyBase64FromRaw(aesRawStr)
+          );
+          if (payload?.captionCiphertext && payload?.captionIv) {
+            const caption = await cryptoService.decryptAES(
+              payload.captionCiphertext,
+              payload.captionIv,
+              aesKey
+            );
+            const cleanCaption = String(caption || '').trim();
+            if (cleanCaption) return `Archivo: ${fileName} - ${cleanCaption}`;
+          }
+          return `Archivo: ${fileName}`;
+        } catch {
+          try {
+            const directKey = await cryptoService.importAESKey(
+              extractAesKeyBase64FromRaw(candidate)
+            );
+            if (payload?.captionCiphertext && payload?.captionIv) {
+              const caption = await cryptoService.decryptAES(
+                payload.captionCiphertext,
+                payload.captionIv,
+                directKey
+              );
+              const cleanCaption = String(caption || '').trim();
+              if (cleanCaption) return `Archivo: ${fileName} - ${cleanCaption}`;
+            }
+            return `Archivo: ${fileName}`;
+          } catch {
+            // Intentamos con la siguiente llave disponible.
+          }
+        }
+      }
+      return `Archivo: ${fileName}`;
     }
 
     if (payload.auditStatus === 'NO_AUDITABLE') {
@@ -381,29 +939,45 @@ export async function decryptPreviewStringE2E(
     }
 
     const myPrivKey = await cryptoService.importPrivateKey(privKeyBase64);
-
-    const groupCandidates =
-      payload.type === 'E2E_GROUP' && payload.forReceptores
-        ? [
-            payload.forReceptores[String(usuarioActualId)],
-            payload.forReceptores[usuarioActualId],
-            ...Object.values(payload.forReceptores),
-          ]
-        : [];
-    const candidates = [
-      payload.forReceptor,
-      payload.forEmisor,
-      ...groupCandidates,
-      payload.forAdmin,
-    ];
+    let myPrivKeySha1: CryptoKey | null = null;
+    const candidates = buildE2EEnvelopeCandidates(
+      payload,
+      usuarioActualId,
+      false
+    );
     for (const candidate of candidates) {
       if (!candidate || typeof candidate !== 'string') continue;
       try {
-        const aesRawStr = await cryptoService.decryptRSA(candidate, myPrivKey);
-        const aesKey = await cryptoService.importAESKey(aesRawStr);
+        let aesRawStr = '';
+        try {
+          aesRawStr = await cryptoService.decryptRSA(candidate, myPrivKey);
+        } catch (primaryErr) {
+          if (!myPrivKeySha1) {
+            myPrivKeySha1 = await cryptoService.importPrivateKeyWithHash(
+              privKeyBase64,
+              'SHA-1'
+            );
+          }
+          aesRawStr = await cryptoService.decryptRSA(candidate, myPrivKeySha1);
+          if (!aesRawStr) throw primaryErr;
+        }
+        const aesKey = await cryptoService.importAESKey(
+          extractAesKeyBase64FromRaw(aesRawStr)
+        );
         return await cryptoService.decryptAES(payload.ciphertext, payload.iv, aesKey);
       } catch {
-        // Intentamos con la siguiente llave disponible.
+        try {
+          const directKey = await cryptoService.importAESKey(
+            extractAesKeyBase64FromRaw(candidate)
+          );
+          return await cryptoService.decryptAES(
+            payload.ciphertext,
+            payload.iv,
+            directKey
+          );
+        } catch {
+          // Intentamos con la siguiente llave disponible.
+        }
       }
     }
 
@@ -540,6 +1114,7 @@ export function formatPreviewText(raw?: string | null): string {
 }
 
 export function isSystemMessageLike(mensaje: any): boolean {
+  if (isTemporalExpiredMessageLike(mensaje)) return false;
   const tipo = String(mensaje?.tipo || '')
     .trim()
     .toUpperCase();
@@ -553,12 +1128,78 @@ export function isSystemMessageLike(mensaje: any): boolean {
   const eventCode = String(mensaje?.systemEvent || mensaje?.evento || '')
     .trim()
     .toUpperCase();
+  const systemEvents = new Set([
+    'GROUP_MEMBER_LEFT',
+    'GROUP_MEMBER_REMOVED',
+    'GROUP_MEMBER_EXPELLED',
+    'GROUP_MEMBER_KICKED',
+    'GROUP_USER_REMOVED',
+    'GROUP_USER_EXPELLED',
+    'GROUP_USER_KICKED',
+  ]);
 
   return (
     systemTypes.has(tipo) ||
     mensaje?.esSistema === true ||
-    eventCode === 'GROUP_MEMBER_LEFT'
+    systemEvents.has(eventCode)
   );
+}
+
+export function isTemporalExpiredMessageLike(mensaje: any): boolean {
+  if (!mensaje) return false;
+  const reason = String(
+    mensaje?.motivoEliminacion ?? mensaje?.motivo_eliminacion ?? ''
+  )
+    .trim()
+    .toUpperCase();
+  const status = String(
+    mensaje?.estadoTemporal ?? mensaje?.estado_temporal ?? ''
+  )
+    .trim()
+    .toUpperCase();
+  const eventCode = String(mensaje?.systemEvent ?? mensaje?.evento ?? '')
+    .trim()
+    .toUpperCase();
+  return (
+    reason === 'TEMPORAL_EXPIRADO' ||
+    status === 'EXPIRADO' ||
+    eventCode === 'TEMPORAL_MESSAGE_EXPIRED'
+  );
+}
+
+function formatTemporalDurationForPlaceholder(secondsRaw: unknown): string {
+  const seconds = Number(secondsRaw);
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
+  if (seconds % (24 * 60 * 60) === 0) {
+    const days = Math.round(seconds / (24 * 60 * 60));
+    return `${days} ${days === 1 ? 'dia' : 'dias'}`;
+  }
+  if (seconds % (60 * 60) === 0) {
+    const hours = Math.round(seconds / (60 * 60));
+    return `${hours} ${hours === 1 ? 'hora' : 'horas'}`;
+  }
+  if (seconds % 60 === 0) {
+    const mins = Math.round(seconds / 60);
+    return `${mins} ${mins === 1 ? 'minuto' : 'minutos'}`;
+  }
+  return `${Math.round(seconds)} segundos`;
+}
+
+export function resolveTemporalExpiredPlaceholderText(mensaje: any): string {
+  const explicit = String(
+    mensaje?.placeholderTexto ??
+      mensaje?.placeholder_texto ??
+      mensaje?.contenido ??
+      ''
+  ).trim();
+  if (explicit) return explicit;
+  const duration = formatTemporalDurationForPlaceholder(
+    mensaje?.mensajeTemporalSegundos ?? mensaje?.mensaje_temporal_segundos
+  );
+  if (duration) {
+    return `Se trataba de un mensaje temporal que solo estaba disponible los primeros ${duration}.`;
+  }
+  return 'Se trataba de un mensaje temporal que ya ha expirado.';
 }
 
 export function joinMembersLine(
@@ -614,6 +1255,31 @@ export function getNombrePorId(
  * Construye el preview de un mensaje en funcion de si es grupo/individual.
  * Es pura: no muta nada; tu decides donde la usas.
  */
+function extractFilePayloadFromContent(contenido: unknown): any | null {
+  const raw = typeof contenido === 'string' ? contenido : JSON.stringify(contenido ?? '');
+  if (!raw || !String(raw).trim()) return null;
+  const parsed = parsePossiblySerializedE2EPayload(String(raw));
+  if (!parsed || typeof parsed !== 'object') return null;
+  const payloadType = String(parsed?.type || '').trim().toUpperCase();
+  if (payloadType !== 'E2E_FILE' && payloadType !== 'E2E_GROUP_FILE') return null;
+  return parsed;
+}
+
+function resolveFilePreviewName(mensaje: any): string {
+  const direct = String(mensaje?.fileNombre || '').trim();
+  if (direct) return direct;
+  const payload = extractFilePayloadFromContent(mensaje?.contenido);
+  const fromPayload = String(payload?.fileNombre || '').trim();
+  return fromPayload || 'Archivo';
+}
+
+function resolveFilePreviewLabel(mensaje: any): string {
+  const fileName = resolveFilePreviewName(mensaje);
+  const caption = String(mensaje?.contenido ?? '').trim();
+  if (caption && !caption.startsWith('{')) return `Archivo: ${fileName} - ${caption}`;
+  return `Archivo: ${fileName}`;
+}
+
 export function buildPreviewFromMessage(
   mensaje: any,
   chatItem: any | undefined,
@@ -625,17 +1291,48 @@ export function buildPreviewFromMessage(
     return truncate(systemText || 'Evento del grupo', maxLen);
   }
 
-  if (mensaje?.activo === false) return 'Mensaje eliminado';
+  if (mensaje?.activo === false) {
+    if (isTemporalExpiredMessageLike(mensaje)) {
+      return truncate(resolveTemporalExpiredPlaceholderText(mensaje), maxLen);
+    }
+    return 'Mensaje eliminado';
+  }
+  const pollPayload = parsePollPayload(mensaje);
+  if (pollPayload) {
+    const pollText = `Encuesta: ${pollPayload.question}`;
+    if (!chatItem) return truncate(pollText, maxLen);
+    if (chatItem.esGrupo) {
+      const prefijo =
+        mensaje.emisorId === usuarioActualId
+          ? 'yo: '
+          : (mensaje.emisorNombre ||
+              getNombrePorId([chatItem], mensaje.emisorId) ||
+              'Alguien') + ': ';
+      return truncate(prefijo + pollText, maxLen);
+    }
+    const prefijo = mensaje.emisorId === usuarioActualId ? 'Tú: ' : '';
+    return truncate(prefijo + pollText, maxLen);
+  }
   const isImage =
     String(mensaje?.tipo || '')
       .trim()
       .toUpperCase() === 'IMAGE' ||
     !!mensaje?.imageUrl ||
     !!mensaje?.imageDataUrl;
+  const isFile =
+    String(mensaje?.tipo || '')
+      .trim()
+      .toUpperCase() === 'FILE' ||
+    !!mensaje?.fileUrl ||
+    !!mensaje?.fileDataUrl ||
+    !!extractFilePayloadFromContent(mensaje?.contenido);
   if (isImage) {
     const caption = String(mensaje?.contenido ?? '').trim();
     const label = caption ? `Imagen: ${caption}` : 'Imagen';
     return truncate(label, maxLen);
+  }
+  if (isFile) {
+    return truncate(resolveFilePreviewLabel(mensaje), maxLen);
   }
   const texto = String(mensaje?.contenido ?? '').trim();
 
@@ -696,11 +1393,31 @@ export function computePreviewPatch(
       mensaje.tipo.toUpperCase() === 'IMAGE') ||
     !!mensaje?.imageUrl ||
     !!mensaje?.imageDataUrl;
+  const esArchivo =
+    (typeof mensaje?.tipo === 'string' &&
+      mensaje.tipo.toUpperCase() === 'FILE') ||
+    !!mensaje?.fileUrl ||
+    !!mensaje?.fileDataUrl ||
+    !!extractFilePayloadFromContent(mensaje?.contenido);
 
   if (isSystemMessageLike(mensaje)) {
     preview = String(mensaje?.contenido ?? '').trim() || 'Evento del grupo';
   } else if (mensaje?.activo === false) {
-    preview = 'Mensaje eliminado';
+    preview = isTemporalExpiredMessageLike(mensaje)
+      ? resolveTemporalExpiredPlaceholderText(mensaje)
+      : 'Mensaje eliminado';
+  } else if (parsePollPayload(mensaje)) {
+    const poll = parsePollPayload(mensaje)!;
+    const pollText = `Encuesta: ${poll.question}`;
+    if (chatItem && !chatItem.esGrupo) {
+      const pref = mensaje?.emisorId === usuarioActualId ? 'Tú: ' : '';
+      preview = `${pref}${pollText}`.trim();
+    } else {
+      const emisorEsActual = Number(mensaje?.emisorId) === Number(usuarioActualId);
+      const emisor = String(mensaje?.emisorNombre ?? '').trim();
+      const prefix = emisorEsActual ? 'yo: ' : emisor ? `${emisor}: ` : '';
+      preview = `${prefix}${pollText}`.trim();
+    }
   } else if (chatItem && !chatItem.esGrupo) {
     const pref = mensaje?.emisorId === usuarioActualId ? 'Tú: ' : '';
     if (esAudio) {
@@ -710,6 +1427,8 @@ export function computePreviewPatch(
     } else if (esImagen) {
       const caption = String(mensaje?.contenido || '').trim();
       preview = `${pref}${caption ? `Imagen: ${caption}` : 'Imagen'}`.trim();
+    } else if (esArchivo) {
+      preview = `${pref}${resolveFilePreviewLabel(mensaje)}`.trim();
     } else {
       preview = `${pref}${String(mensaje?.contenido ?? '').trim()}`.trim();
     }
@@ -724,6 +1443,8 @@ export function computePreviewPatch(
     } else if (esImagen) {
       const caption = String(mensaje?.contenido || '').trim();
       preview = `${prefix}${caption ? `Imagen: ${caption}` : 'Imagen'}`;
+    } else if (esArchivo) {
+      preview = `${prefix}${resolveFilePreviewLabel(mensaje)}`;
     } else {
       preview = `${prefix}${String(mensaje?.contenido ?? '')}`;
     }
@@ -747,7 +1468,8 @@ function toLastMessageTipoDTO(raw: unknown): ChatListItemDTO['ultimaMensajeTipo'
     tipo === 'IMAGE' ||
     tipo === 'VIDEO' ||
     tipo === 'FILE' ||
-    tipo === 'SYSTEM'
+    tipo === 'SYSTEM' ||
+    tipo === 'POLL'
   ) {
     return tipo;
   }
@@ -842,6 +1564,26 @@ export function mergeChatListItemForDisplay(
         : Number.isFinite(Number(fallback.ultimaMensajeAudioDuracionMs)) &&
           Number(fallback.ultimaMensajeAudioDuracionMs) > 0
         ? Number(fallback.ultimaMensajeAudioDuracionMs)
+        : null,
+    ultimaMensajeFileUrl: firstNonEmptyString(
+      preferred.ultimaMensajeFileUrl,
+      fallback.ultimaMensajeFileUrl
+    ),
+    ultimaMensajeFileMime: firstNonEmptyString(
+      preferred.ultimaMensajeFileMime,
+      fallback.ultimaMensajeFileMime
+    ),
+    ultimaMensajeFileNombre: firstNonEmptyString(
+      preferred.ultimaMensajeFileNombre,
+      fallback.ultimaMensajeFileNombre
+    ),
+    ultimaMensajeFileSizeBytes:
+      Number.isFinite(Number(preferred.ultimaMensajeFileSizeBytes)) &&
+      Number(preferred.ultimaMensajeFileSizeBytes) >= 0
+        ? Number(preferred.ultimaMensajeFileSizeBytes)
+        : Number.isFinite(Number(fallback.ultimaMensajeFileSizeBytes)) &&
+          Number(fallback.ultimaMensajeFileSizeBytes) >= 0
+        ? Number(fallback.ultimaMensajeFileSizeBytes)
         : null,
     ultimaMensajeTipo:
       toLastMessageTipoDTO(preferred.ultimaMensajeTipo) ||
@@ -1061,5 +1803,6 @@ export function parseAudioPreviewText(txt?: string): {
       label.toLowerCase() === 'tu',
   };
 }
+
 
 

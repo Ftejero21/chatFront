@@ -60,13 +60,20 @@ export class CryptoService {
    * Importa la clave privada desde Base64
    */
   async importPrivateKey(base64: string): Promise<CryptoKey> {
+    return this.importPrivateKeyWithHash(base64, 'SHA-256');
+  }
+
+  async importPrivateKeyWithHash(
+    base64: string,
+    hash: 'SHA-256' | 'SHA-1'
+  ): Promise<CryptoKey> {
     const binaryDer = this.base64ToBuffer(base64);
     return await window.crypto.subtle.importKey(
       "pkcs8",
       binaryDer,
       {
         name: "RSA-OAEP",
-        hash: "SHA-256",
+        hash,
       },
       true,
       ["decrypt"]
@@ -199,7 +206,15 @@ export class CryptoService {
   }
 
   private base64ToBuffer(base64: string): ArrayBuffer {
-    const binary = window.atob(base64);
+    const normalized = String(base64 || '')
+      .trim()
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+      .replace(/\s+/g, '');
+    const padLen = normalized.length % 4;
+    const withPadding =
+      padLen === 0 ? normalized : normalized + '='.repeat(4 - padLen);
+    const binary = window.atob(withPadding);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
         bytes[i] = binary.charCodeAt(i);

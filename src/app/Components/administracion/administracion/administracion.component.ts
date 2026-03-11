@@ -1,4 +1,4 @@
-Ôªøimport { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { AuthService } from '../../../Service/auth/auth.service';
 import { UsuarioDTO } from '../../../Interface/UsuarioDTO';
 import { DashboardStatsDTO } from '../../../Interface/DashboardStatsDTO';
@@ -8,7 +8,11 @@ import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import Swal from 'sweetalert2';
 import { StompSubscription } from '@stomp/stompjs';
 import { ChatService } from '../../../Service/chat/chat.service';
-import { decryptPreviewStringE2E, resolveMediaUrl } from '../../../utils/chat-utils';
+import {
+  decryptPreviewStringE2E,
+  parsePollPayload,
+  resolveMediaUrl,
+} from '../../../utils/chat-utils';
 import { CryptoService } from '../../../Service/crypto/crypto.service';
 import { environment } from '../../../environments';
 import { SessionService } from '../../../Service/session/session.service';
@@ -40,6 +44,39 @@ type AdminImageE2EPayload = {
   forAdmin: string;
 };
 
+type AdminFileE2EPayload = {
+  type: 'E2E_FILE' | 'E2E_GROUP_FILE';
+  ivFile: string;
+  fileUrl: string;
+  fileMime?: string;
+  fileNombre?: string;
+  fileSizeBytes?: number;
+  captionIv?: string;
+  captionCiphertext?: string;
+  forAdmin?: string;
+  forEmisor?: string;
+  forReceptor?: string;
+  forReceptores?: Record<string, string>;
+};
+type AdminPollVoterView = {
+  userId: number;
+  photoUrl: string | null;
+  initials: string;
+};
+
+type AdminPollOptionView = {
+  id: string;
+  text: string;
+  count: number;
+  percent: number;
+  selected: boolean;
+  isLeading: boolean;
+  voters: AdminPollVoterView[];
+};
+
+type TemporalEstado = 'ACTIVO' | 'EXPIRADO' | 'NO_TEMPORAL';
+type AdminTemporalFilter = 'TODOS' | TemporalEstado;
+
 @Component({
   selector: 'app-administracion',
   templateUrl: './administracion.component.html',
@@ -60,13 +97,28 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   userChats: any[] = [];
   selectedChat: any | null = null;
   selectedChatMensajes: any[] = [];
+  showAdminFilePreview: boolean = false;
+  adminFilePreviewSrc: string = '';
+  adminFilePreviewName: string = '';
+  adminFilePreviewSize: string = '';
+  adminFilePreviewType: string = '';
+  adminFilePreviewMime: string = '';
+  adminTemporalFilter: AdminTemporalFilter = 'TODOS';
   adminAudioStates = new Map<string, { playing: boolean; current: number; duration: number }>();
   private adminDecryptedAudioUrlByCacheKey = new Map<string, string>();
+  
   private adminDecryptingAudioByCacheKey = new Map<string, Promise<string | null>>();
+  
   private adminDecryptedImageUrlByCacheKey = new Map<string, string>();
+  
   private adminDecryptingImageByCacheKey = new Map<string, Promise<string | null>>();
+  
+  private adminDecryptedFileUrlByCacheKey = new Map<string, string>();
+  private adminDecryptingFileByCacheKey = new Map<string, Promise<string | null>>();
   private adminImageCaptionByCacheKey = new Map<string, string>();
   private adminDecryptingImageCaptionByCacheKey = new Map<string, Promise<string>>();
+  private adminFileCaptionByCacheKey = new Map<string, string>();
+  private adminDecryptingFileCaptionByCacheKey = new Map<string, Promise<string>>();
   private adminCurrentAudioEl: HTMLAudioElement | null = null;
   private adminCurrentAudioKey: string | null = null;
   inspectedUserId: number | null = null;
@@ -105,7 +157,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   private reportUserNamesById = new Map<number, string>();
   private reportesWsSub: StompSubscription | null = null;
 
-  // Suscripci√≥n a b√∫squeda por input en tiempo real (debounce)
+  // SuscripciÛn a b˙squeda por input en tiempo real (debounce)
   private searchSubject = new Subject<string>();
   private searchSubscription!: Subscription;
   private auditPrivateKeyImportCache:
@@ -135,7 +187,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.usuarioActualId = parseInt(id, 10);
     this.cargarAdminPerfil(this.usuarioActualId);
     this.inicializarWsReportesAdmin();
-    // Configurar b√∫squeda con un poco de retraso (300ms) para no saturar al teclear
+    // Configurar b˙squeda con un poco de retraso (300ms) para no saturar al teclear
     this.searchSubscription = this.searchSubject.pipe(
       debounceTime(300),
       distinctUntilChanged()
@@ -169,14 +221,22 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         URL.revokeObjectURL(url);
       } catch {}
     }
+    for (const url of this.adminDecryptedFileUrlByCacheKey.values()) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {}
+    }
     this.adminDecryptedAudioUrlByCacheKey.clear();
     this.adminDecryptingAudioByCacheKey.clear();
     this.adminDecryptedImageUrlByCacheKey.clear();
     this.adminDecryptingImageByCacheKey.clear();
+    this.adminDecryptedFileUrlByCacheKey.clear();
+    this.adminDecryptingFileByCacheKey.clear();
     this.adminImageCaptionByCacheKey.clear();
     this.adminDecryptingImageCaptionByCacheKey.clear();
+    this.adminFileCaptionByCacheKey.clear();
+    this.adminDecryptingFileCaptionByCacheKey.clear();
   }
-
   cargarEstadisticas(): void {
     this.authService.getDashboardStats().subscribe({
       next: (data) => {
@@ -186,7 +246,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           this.reportesHoyCount = Math.max(0, reportesDiariosHoy);
         }
       },
-      error: (err) => console.error("Error cargando estad√≠sticas", err)
+      error: (err) => console.error("Error cargando estadÌsticas", err)
     });
   }
 
@@ -374,7 +434,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.selectedChat = null;
     this.selectedChatMensajes = [];
     this.selectedChatMessagesSource = 'admin';
-    this.headerSubtitle = 'Revisi√≥n de reportes de desbaneo en tiempo real.';
+    this.headerSubtitle = 'RevisiÛn de reportes de desbaneo en tiempo real.';
     this.appealViewFilter = 'ABIERTOS';
     this.cargarSolicitudesDesbaneo(0);
   }
@@ -401,7 +461,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     if (this.appealViewFilter === 'RECHAZADA') {
       return 'No hay reportes rechazados por mostrar.';
     }
-    return 'No hay reportes pendientes o en revisi√≥n por mostrar.';
+    return 'No hay reportes pendientes o en revisiÛn por mostrar.';
   }
 
   public get reportesBadgeText(): string {
@@ -507,11 +567,11 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           </div>
           <div class="swal-unban-body">
             <label class="swal-unban-label">Motivo de desbaneo (opcional)</label>
-            <p class="swal-unban-helper">Si lo dejas vac√≠o, backend completar√° un motivo autom√°tico.</p>
+            <p class="swal-unban-helper">Si lo dejas vacÌo, backend completar· un motivo autom·tico.</p>
           </div>
         `,
         input: 'textarea',
-        inputPlaceholder: 'Ej: Se verific√≥ el caso y procede reactivar la cuenta.',
+        inputPlaceholder: 'Ej: Se verificÛ el caso y procede reactivar la cuenta.',
         showCancelButton: true,
         confirmButtonText: 'Desbanear',
         cancelButtonText: 'No desbanear',
@@ -536,7 +596,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
             await Swal.fire({
               title: 'Solicitud rechazada',
               text:
-                'La solicitud qued√≥ en estado RECHAZADA. El backend notificar√° al usuario por email.',
+                'La solicitud quedÛ en estado RECHAZADA. El backend notificar· al usuario por email.',
               icon: 'success',
               confirmButtonColor: '#ef4444',
             });
@@ -555,7 +615,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       await Swal.fire({
         title: 'Solicitud aprobada',
         text:
-          'La solicitud qued√≥ en estado APROBADA. El backend aplicar√° el desbaneo y enviar√° el email al usuario.',
+          'La solicitud quedÛ en estado APROBADA. El backend aplicar· el desbaneo y enviar· el email al usuario.',
         icon: 'success',
         confirmButtonColor: '#10b981',
       });
@@ -610,7 +670,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           RATE_LIMIT_SCOPES.ADMIN_GLOBAL
         );
         Swal.fire({
-          title: 'L√≠mite temporal',
+          title: 'LÌmite temporal',
           text: `Demasiadas acciones administrativas. Reintenta en ${remaining || 30}s.`,
           icon: 'warning',
           confirmButtonColor: '#2563eb',
@@ -691,7 +751,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
   realizarBusqueda(term: string): void {
     if (!term || term.trim() === '') {
-      // Si se borra la b√∫squeda, mostrar la tabla de recientes inicial
+      // Si se borra la b˙squeda, mostrar la tabla de recientes inicial
       this.usuariosMostrados = this.usuariosLocales;
       return;
     }
@@ -763,30 +823,61 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.currentUserName = user.nombre;
     this.headerSubtitle = `Inspeccionando registros de: ${user.nombre}`;
     this.inspectedUserId = Number(user.id);
+    this.adminTemporalFilter = 'TODOS';
     this.selectedChat = null;
     this.selectedChatMensajes = [];
+    this.loadInspectedUserConversations();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  private loadInspectedUserConversations(
+    preserveSelectedChatId?: number | null
+  ): void {
+    const inspectedId = Number(this.inspectedUserId || 0);
+    if (!Number.isFinite(inspectedId) || inspectedId <= 0) {
+      this.userChats = [];
+      this.loadingConversations = false;
+      return;
+    }
 
     this.loadingConversations = true;
     this.userChats = [];
 
-    this.chatService.listarConversacionesAdmin(Number(user.id)).subscribe({
-      next: async (data: any) => {
-        try {
-          this.userChats = await this.normalizeAdminChatSummaries(data || []);
-        } catch (err) {
-          console.error('Error normalizando conversaciones admin', err);
-          this.userChats = Array.isArray(data) ? data : [];
-        }
-        this.loadingConversations = false;
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      },
-      error: (err: any) => {
-        console.error("Error cargando chats", err);
-        this.loadingConversations = false;
-        this.userChats = [];
-        Swal.fire('Error', 'No se pudieron cargar las conversaciones del usuario.', 'error');
-      }
-    });
+    this.chatService
+      .listarConversacionesAdmin(inspectedId, true)
+      .subscribe({
+        next: async (data: any) => {
+          try {
+            this.userChats = await this.normalizeAdminChatSummaries(data || []);
+          } catch (err) {
+            console.error('Error normalizando conversaciones admin', err);
+            this.userChats = Array.isArray(data) ? data : [];
+          }
+          this.loadingConversations = false;
+
+          const keepId = Number(preserveSelectedChatId || 0);
+          if (!Number.isFinite(keepId) || keepId <= 0) return;
+          const match = (this.userChats || []).find(
+            (chat: any) => Number(chat?.id) === keepId
+          );
+          if (match) {
+            this.openChatDetail(match);
+            return;
+          }
+          this.closeChatDetail();
+        },
+        error: (err: any) => {
+          console.error('Error cargando chats', err);
+          this.loadingConversations = false;
+          this.userChats = [];
+          this.closeChatDetail();
+          Swal.fire(
+            'Error',
+            'No se pudieron cargar las conversaciones del usuario.',
+            'error'
+          );
+        },
+      });
   }
 
   private async normalizeAdminChatSummaries(chats: any[]): Promise<any[]> {
@@ -798,6 +889,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     if (!chat) return chat;
 
     const tipo = this.resolveAdminLastMessageTipo(chat);
+    const summaryTemporal = this.resolveTemporalMetaForSummary(chat);
     await this.syncAdminSummaryMedia(chat, tipo);
     const preview = await this.resolveAdminChatPreview(chat, tipo);
     const fecha = chat?.ultimoMensajeFecha ?? chat?.fechaUltimoMensaje ?? null;
@@ -829,11 +921,21 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       totalMensajes,
       __ultimoTipo: tipo || null,
       __ultimoAudioDurMs: Number(chat?.__ultimoAudioDurMs || 0),
-      __ultimoEsAudio: chat?.__ultimoEsAudio === true,
+            __ultimoEsAudio: chat?.__ultimoEsAudio === true,
       __ultimoEsImagen: chat?.__ultimoEsImagen === true,
       __ultimoImagenUrl: String(chat?.__ultimoImagenUrl || '').trim(),
       __ultimoImagenNombre: String(chat?.__ultimoImagenNombre || '').trim(),
       __ultimoImagenCaption: String(chat?.__ultimoImagenCaption || '').trim(),
+      __ultimoEsArchivo: chat?.__ultimoEsArchivo === true,
+      __ultimoArchivoNombre: String(chat?.__ultimoArchivoNombre || '').trim(),
+      __ultimoArchivoMime: String(chat?.__ultimoArchivoMime || '').trim(),
+      __ultimoArchivoCaption: String(chat?.__ultimoArchivoCaption || '').trim(),
+      __ultimoTemporalEnabled: summaryTemporal.enabled,
+      __ultimoTemporalSegundos:summaryTemporal.seconds,
+      __ultimoTemporalExpiresAt: summaryTemporal.expiresAt,
+      __ultimoTemporalExpired: summaryTemporal.expired,
+      __ultimoTemporalStatus: summaryTemporal.status,
+      __ultimoTemporalLabel: this.formatTemporalDurationShort(summaryTemporal.seconds),
     };
   }
 
@@ -848,8 +950,14 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       chat?.activoUltimoMensaje ??
       chat?.ultimoMensajeActivoFlag;
     const isInactive = activoRaw === false || Number(activoRaw) === 0;
+    const temporalSummary = this.resolveTemporalMetaForSummary(chat);
 
-    if (isInactive) return 'Mensaje eliminado';
+    if (isInactive) {
+      if (temporalSummary.status === 'EXPIRADO') {
+        return this.resolveTemporalPlaceholderTextForItem(chat);
+      }
+      return 'Mensaje eliminado';
+    }
 
     let textoResuelto = 'Sin datos';
     if (tipo === 'AUDIO' || chat?.__ultimoEsAudio === true || this.isAudioLikePayload(chat, tipo, true)) {
@@ -858,6 +966,25 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     } else if (tipo === 'IMAGE' || chat?.__ultimoEsImagen === true) {
       const caption = String(chat?.__ultimoImagenCaption || '').trim();
       textoResuelto = caption ? `Imagen: ${caption}` : 'Imagen';
+    } else if (tipo === 'FILE' || chat?.__ultimoEsArchivo === true || this.isFileLikePayload(chat, tipo, true)) {
+      const raw = this.getAdminLastMessageRaw(chat);
+      const payloadCandidate = this.extractAdminPayloadCandidate(raw);
+      const filePayload =
+        this.parseAdminFileE2EPayload(payloadCandidate) || this.parseAdminFileE2EPayload(raw);
+      const fileName = String(chat?.__ultimoArchivoNombre || filePayload?.fileNombre || '').trim();
+
+      if (filePayload) {
+        const cachedCaption = String(chat?.__ultimoArchivoCaption || '').trim();
+        const caption = cachedCaption || (await this.decryptAdminFileCaption(filePayload));
+        textoResuelto = this.buildAdminFileLabel(fileName, caption);
+      } else if (raw && !this.isLikelySerializedPayloadText(raw)) {
+        const plain = String(raw).trim();
+        textoResuelto = /^archivo\s*:/i.test(plain)
+          ? plain
+          : this.buildAdminFileLabel(fileName, plain);
+      } else {
+        textoResuelto = this.buildAdminFileLabel(fileName);
+      }
     } else {
       const raw = this.getAdminLastMessageRaw(chat);
       if (!raw) {
@@ -883,23 +1010,32 @@ export class AdministracionComponent implements OnInit, OnDestroy {
             'admin-chat-preview'
           );
           const normalized = String(decrypted ?? '').trim();
-          textoResuelto = normalized || '[Mensaje Cifrado]';
+          const pollPreview = this.buildAdminPollPreviewText(normalized);
+          textoResuelto = pollPreview || normalized || '[Mensaje Cifrado]';
         } catch {
           textoResuelto = '[Mensaje Cifrado]';
         }
       } else {
-        textoResuelto = raw;
+        const pollPreview = this.buildAdminPollPreviewText(raw);
+        textoResuelto = pollPreview || raw;
       }
     }
 
-    if (this.isAdminGroupChat(chat) && textoResuelto !== 'Sin datos' && textoResuelto !== 'Mensaje eliminado') {
+    if (
+      this.isAdminGroupChat(chat) &&
+      textoResuelto !== 'Sin datos' &&
+      textoResuelto !== 'Mensaje eliminado'
+    ) {
       const sender = this.buildAdminSenderName(chat);
-      if (sender && !/^[^:]{1,80}:\s*/.test(textoResuelto)) return `${sender}: ${textoResuelto}`;
+      const hasSenderPrefix = /^[^:]{1,80}:\s*/.test(textoResuelto);
+      const forcePrefixForPoll = /^encuesta:\s*/i.test(textoResuelto);
+      if (sender && (!hasSenderPrefix || forcePrefixForPoll)) {
+        return `${sender}: ${textoResuelto}`;
+      }
     }
 
     return textoResuelto;
   }
-
   private resolveAdminLastMessageTipo(chat: any): string {
     const explicit = this.normalizeAdminLastMessageTipo(
       chat?.ultimoMensajeTipo ?? chat?.ultimaMensajeTipo ?? chat?.messageType
@@ -912,7 +1048,15 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   private normalizeAdminLastMessageTipo(tipo: unknown): string {
     const t = String(tipo || '').trim().toUpperCase();
     if (!t) return '';
-    if (t === 'TEXT' || t === 'AUDIO' || t === 'IMAGE' || t === 'VIDEO' || t === 'FILE' || t === 'SYSTEM') {
+    if (
+      t === 'TEXT' ||
+      t === 'POLL' ||
+      t === 'AUDIO' ||
+      t === 'IMAGE' ||
+      t === 'VIDEO' ||
+      t === 'FILE' ||
+      t === 'SYSTEM'
+    ) {
       return t;
     }
     return '';
@@ -924,8 +1068,17 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     if (!payloadType) return '';
     if (payloadType === 'E2E_AUDIO' || payloadType === 'E2E_GROUP_AUDIO') return 'AUDIO';
     if (payloadType === 'E2E_IMAGE' || payloadType === 'E2E_GROUP_IMAGE') return 'IMAGE';
+    if (payloadType === 'E2E_FILE' || payloadType === 'E2E_GROUP_FILE') return 'FILE';
     if (payloadType === 'E2E' || payloadType === 'E2E_GROUP') return 'TEXT';
+    if (payloadType === 'POLL_V1') return 'POLL';
     return '';
+  }
+
+  private buildAdminPollPreviewText(raw: unknown): string | null {
+    const poll = parsePollPayload(raw);
+    if (!poll) return null;
+    const question = String(poll?.question || '').trim();
+    return question ? `Encuesta: ${question}` : 'Encuesta';
   }
 
   private getAdminLastMessageRaw(chat: any): string {
@@ -1030,23 +1183,48 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     chat.__ultimoImagenCaption = '';
     chat.__ultimoImagenUrl = '';
 
-    if (!chat.__ultimoEsImagen) return;
-
-    if (imagePayload) {
-      const objectUrl = await this.decryptAdminImagePayloadToObjectUrl(
-        imagePayload,
-        chat?.ultimoMensajeId ?? chat?.ultimaMensajeId
-      );
-      chat.__ultimoImagenUrl = String(objectUrl || '').trim();
-      chat.__ultimoImagenNombre =
-        chat.__ultimoImagenNombre || String(imagePayload?.imageNombre || '').trim();
-      chat.__ultimoImagenCaption = await this.decryptAdminImageCaption(imagePayload);
-      return;
+    if (chat.__ultimoEsImagen) {
+      if (imagePayload) {
+        const objectUrl = await this.decryptAdminImagePayloadToObjectUrl(
+          imagePayload,
+          chat?.ultimoMensajeId ?? chat?.ultimaMensajeId
+        );
+        chat.__ultimoImagenUrl = String(objectUrl || '').trim();
+        chat.__ultimoImagenNombre =
+          chat.__ultimoImagenNombre || String(imagePayload?.imageNombre || '').trim();
+        chat.__ultimoImagenCaption = await this.decryptAdminImageCaption(imagePayload);
+      } else {
+        chat.__ultimoImagenUrl = resolveMediaUrl(directImageUrl, environment.backendBaseUrl) || '';
+      }
     }
 
-    chat.__ultimoImagenUrl = resolveMediaUrl(directImageUrl, environment.backendBaseUrl) || '';
-  }
+    const filePayload =
+      this.parseAdminFileE2EPayload(payloadCandidate) || this.parseAdminFileE2EPayload(payload);
+    const directFileName = String(
+      chat?.ultimoMensajeFileNombre ??
+        chat?.ultimaMensajeFileNombre ??
+        chat?.ultimoFileNombre ??
+        chat?.fileNombre ??
+        ''
+    ).trim();
+    const directFileMime = String(
+      chat?.ultimoMensajeFileMime ??
+        chat?.ultimaMensajeFileMime ??
+        chat?.ultimoFileMime ??
+        chat?.fileMime ??
+        ''
+    ).trim();
 
+    chat.__ultimoEsArchivo =
+      resolvedTipo === 'FILE' || this.isFileLikePayload(chat, resolvedTipo, true) || !!filePayload;
+    chat.__ultimoArchivoNombre = directFileName || String(filePayload?.fileNombre || '').trim();
+    chat.__ultimoArchivoMime = directFileMime || String(filePayload?.fileMime || '').trim();
+    chat.__ultimoArchivoCaption = '';
+
+    if (chat.__ultimoEsArchivo && filePayload) {
+      chat.__ultimoArchivoCaption = await this.decryptAdminFileCaption(filePayload);
+    }
+  }
   private buildAdminSenderName(chat: any): string {
     const full = String(chat?.ultimoMensajeEmisorNombreCompleto ?? '').trim();
     if (full) return full;
@@ -1067,6 +1245,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
   openChatDetail(chat: any): void {
     this.selectedChat = chat;
+    this.adminTemporalFilter = 'TODOS';
     this.selectedChatMensajes = [];
 
     const chatId = Number(chat?.id);
@@ -1105,6 +1284,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.selectedChat = null;
     this.selectedChatMensajes = [];
     this.loadingChatMessages = false;
+    this.closeAdminFilePreview();
   }
 
   private async buildChatMessages(chat: any, rawMessages: any[] = []): Promise<any[]> {
@@ -1112,11 +1292,27 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
     const normalized = await Promise.all(
       rawMessages.map(async (msg: any, index: number) => {
+        const temporalMeta = this.resolveTemporalMetaForMessage(msg);
         const emisorId = Number(msg?.emisorId ?? msg?.emisor?.id ?? 0);
         const receptorId = Number(msg?.receptorId ?? msg?.receptor?.id ?? 0);
-        const tipo = String(msg?.tipo ?? msg?.messageType ?? '').trim().toUpperCase();
+        const isTemporalExpired = temporalMeta.status === 'EXPIRADO';
+        const auditSnapshot = isTemporalExpired
+          ? this.resolveAdminExpiredTemporalAuditSnapshot(msg)
+          : null;
+        let tipo = String(
+          auditSnapshot?.tipo ?? msg?.tipo ?? msg?.messageType ?? ''
+        )
+          .trim()
+          .toUpperCase();
         let audioDurMs = this.extractAudioDurationMs(msg, false);
-        const rawContenido =
+        if (
+          (!Number.isFinite(audioDurMs) || audioDurMs <= 0) &&
+          Number.isFinite(Number(auditSnapshot?.audioDuracionMs))
+        ) {
+          audioDurMs = Number(auditSnapshot?.audioDuracionMs);
+        }
+        let rawContenido =
+          auditSnapshot?.contenido ??
           msg?.contenido ??
           msg?.mensaje ??
           msg?.texto ??
@@ -1128,10 +1324,22 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           msg?.previewAdmin ??
           msg?.ultimoMensajeDescifrado ??
           '';
+        let pollPayload = parsePollPayload(msg?.poll) || parsePollPayload(rawContenido);
         const e2eAudioPayload = this.parseAdminAudioE2EPayload(rawContenido);
         const e2eImagePayload = this.parseAdminImageE2EPayload(rawContenido);
-        const isImage = this.isImageLikePayload(msg, tipo, false) || !!e2eImagePayload;
-        const isAudio = !isImage && this.isAudioLikePayload(msg, tipo, false);
+        const e2eFilePayload = this.parseAdminFileE2EPayload(rawContenido);
+        const isImage =
+          this.isImageLikePayload(msg, tipo, false) ||
+          !!e2eImagePayload ||
+          !!String(auditSnapshot?.imageUrl || '').trim();
+        const isAudio =
+          !isImage &&
+          (this.isAudioLikePayload(msg, tipo, false) ||
+            !!String(auditSnapshot?.audioUrl || '').trim());
+        const isFile =
+          !isImage &&
+          !isAudio &&
+          (this.isFileLikePayload(msg, tipo, false) || !!e2eFilePayload);
         if (
           (!Number.isFinite(audioDurMs) || audioDurMs <= 0) &&
           Number.isFinite(Number(e2eAudioPayload?.audioDuracionMs))
@@ -1148,20 +1356,64 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           rawContenido,
           e2eImagePayload
         );
+        let resolvedFileUrl = this.resolveFileUrlFromPayload(
+          msg,
+          rawContenido,
+          e2eFilePayload
+        );
+        const snapshotAudioUrl = this.resolveAdminMediaUrlCandidate(
+          auditSnapshot?.audioUrl
+        );
+        const snapshotImageUrl = this.resolveAdminMediaUrlCandidate(
+          auditSnapshot?.imageUrl
+        );
+        const snapshotFileUrl = this.resolveAdminMediaUrlCandidate(
+          (auditSnapshot as any)?.fileUrl
+        );
+        if (snapshotAudioUrl) resolvedAudioUrl = snapshotAudioUrl;
+        if (snapshotImageUrl) resolvedImageUrl = snapshotImageUrl;
+        if (snapshotFileUrl) resolvedFileUrl = snapshotFileUrl;
+        if (!isImage) resolvedImageUrl = '';
         const imageMime = String(
-          msg?.imageMime ??
+          auditSnapshot?.imageMime ??
+            msg?.imageMime ??
             msg?.imagenMime ??
             e2eImagePayload?.imageMime ??
             ''
         ).trim();
         const imageNombre = String(
-          msg?.imageNombre ??
+          auditSnapshot?.imageNombre ??
+            msg?.imageNombre ??
             msg?.imagenNombre ??
             msg?.imageName ??
             e2eImagePayload?.imageNombre ??
             ''
         ).trim();
+        const fileMime = String(
+          (auditSnapshot as any)?.fileMime ??
+            msg?.fileMime ??
+            msg?.archivoMime ??
+            e2eFilePayload?.fileMime ??
+            ''
+        ).trim();
+        const fileNombre = String(
+          (auditSnapshot as any)?.fileNombre ??
+            msg?.fileNombre ??
+            msg?.archivoNombre ??
+            msg?.fileName ??
+            e2eFilePayload?.fileNombre ??
+            ''
+        ).trim();
+        const fileSizeRaw = Number(
+          (auditSnapshot as any)?.fileSizeBytes ??
+            msg?.fileSizeBytes ??
+            e2eFilePayload?.fileSizeBytes ??
+            NaN
+        );
+        const fileSizeBytes =
+          Number.isFinite(fileSizeRaw) && fileSizeRaw >= 0 ? Math.round(fileSizeRaw) : null;
 
+        const placeholderText = this.resolveTemporalPlaceholderTextForItem(msg);
         let text = String(rawContenido ?? '');
         if (isImage) {
           if (e2eImagePayload) {
@@ -1193,6 +1445,37 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           if (!resolvedAudioUrl) {
             text = `${text} (audio no disponible)`;
           }
+        } else if (isFile) {
+          if (!tipo || tipo === 'TEXT') tipo = 'FILE';
+          const displayName = fileNombre || String(e2eFilePayload?.fileNombre || '').trim();
+          if (e2eFilePayload) {
+            const decryptCandidateUserIds = this.buildDecryptCandidateIds(
+              emisorId,
+              receptorId,
+              chat
+            );
+            const resolvedFileUrlCandidate = resolvedFileUrl;
+            resolvedFileUrl = '';
+            const decryptedFileUrl =
+              await this.decryptAdminFilePayloadToObjectUrl(
+                e2eFilePayload,
+                msg?.id,
+                decryptCandidateUserIds,
+                resolvedFileUrlCandidate
+              );
+            if (decryptedFileUrl) {
+              resolvedFileUrl = String(decryptedFileUrl || '').trim();
+            }
+            const caption = await this.decryptAdminFileCaption(e2eFilePayload);
+            text = this.buildAdminFileLabel(displayName, caption);
+          } else if (this.isLikelySerializedPayloadText(text)) {
+            text = this.buildAdminFileLabel(displayName);
+          } else {
+            const plain = String(text || '').trim();
+            text = /^archivo\s*:/i.test(plain)
+              ? plain
+              : this.buildAdminFileLabel(displayName, plain);
+          }
         } else {
           try {
             if (text && this.isEncryptedE2EPayload(text)) {
@@ -1200,6 +1483,25 @@ export class AdministracionComponent implements OnInit, OnDestroy {
             }
           } catch {
             // Si falla descifrado dejamos el contenido tal cual.
+          }
+          pollPayload = pollPayload || parsePollPayload(text);
+          const pollPreview = this.buildAdminPollPreviewText(text);
+          if (pollPreview) {
+            text = pollPreview;
+            if (!tipo || tipo === 'TEXT') tipo = 'POLL';
+          }
+        }
+        if (isTemporalExpired) {
+          const hasRenderableOriginal =
+            !!String(text || '').trim() ||
+            !!String(resolvedAudioUrl || '').trim() ||
+            !!String(resolvedImageUrl || '').trim() ||
+            !!String(resolvedFileUrl || '').trim();
+          if (!hasRenderableOriginal) {
+            text = placeholderText;
+            resolvedAudioUrl = null;
+            resolvedImageUrl = '';
+            resolvedFileUrl = '';
           }
         }
 
@@ -1230,19 +1532,55 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           imageUrl: resolvedImageUrl,
           imageMime: imageMime || null,
           imageNombre: imageNombre || null,
+          fileUrl: resolvedFileUrl || null,
+          fileMime: fileMime || null,
+          fileNombre: fileNombre || null,
+          fileSizeBytes,
           senderName,
           senderLastName,
           senderFullName,
+          emisorId,
+          receptorId,
+          chatId: Number(chat?.id || msg?.chatId || 0) || null,
+          pollPayload,
           isFromInspectedUser: this.inspectedUserId !== null && emisorId === this.inspectedUserId,
           activo: Number(msg?.activo ?? 1),
-          reenviado:
-            msg?.reenviado === true ||
-            msg?.reenvio === true ||
-            msg?.forwarded === true,
-          replyToMessageId: msg?.replyToMessageId ?? null,
-          replySnippet: msg?.replySnippet ?? null,
-          replyAuthorName: msg?.replyAuthorName ?? null,
-          createdAt: msg?.fechaEnvio || msg?.fecha || msg?.createdAt || msg?.timestamp || null,
+          reenviado: this.normalizeBooleanLike(
+            this.pickFirstCandidate([
+              auditSnapshot?.reenviado,
+              msg?.reenviado,
+              msg?.reenvio,
+              msg?.forwarded,
+            ])
+          ),
+          replyToMessageId: this.pickFirstCandidate([
+            auditSnapshot?.replyToMessageId,
+            msg?.replyToMessageId,
+          ]),
+          replySnippet: this.pickFirstCandidate([
+            auditSnapshot?.replySnippet,
+            msg?.replySnippet,
+          ]),
+          replyAuthorName: this.pickFirstCandidate([
+            auditSnapshot?.replyAuthorName,
+            msg?.replyAuthorName,
+          ]),
+          createdAt: this.pickFirstCandidate([
+            auditSnapshot?.fechaEnvio,
+            msg?.fechaEnvio,
+            msg?.fecha,
+            msg?.createdAt,
+            msg?.timestamp,
+          ]),
+          mensajeTemporal: temporalMeta.enabled,
+          mensajeTemporalSegundos: temporalMeta.seconds,
+          expiraEn: temporalMeta.expiresAt,
+          temporalExpirado: temporalMeta.expired,
+          estadoTemporal: temporalMeta.status,
+          motivoEliminacion:
+            msg?.motivoEliminacion ?? msg?.motivo_eliminacion ?? null,
+          placeholderTexto:
+            msg?.placeholderTexto ?? msg?.placeholder_texto ?? placeholderText,
         };
       })
     );
@@ -1252,6 +1590,628 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       const bTime = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
       return aTime - bTime;
     });
+  }
+
+  private pickFirstCandidate(values: any[]): any {
+    for (const value of values) {
+      if (value === undefined || value === null) continue;
+      if (typeof value === 'string' && !value.trim()) continue;
+      return value;
+    }
+    return null;
+  }
+
+  private pickFromSourcesByKeys(
+    sources: any[],
+    keys: string[],
+    allowObjects: boolean = false
+  ): any {
+    if (!Array.isArray(sources) || !Array.isArray(keys)) return null;
+    for (const source of sources) {
+      if (!source || typeof source !== 'object') continue;
+      for (const key of keys) {
+        if (!key) continue;
+        const value = source?.[key];
+        if (value === undefined || value === null) continue;
+        if (typeof value === 'string' && !value.trim()) continue;
+        if (!allowObjects && typeof value === 'object') continue;
+        return value;
+      }
+    }
+    return null;
+  }
+
+  private collectAdminTemporalAuditSources(msg: any): any[] {
+    const keys = [
+      'auditoriaTemporal',
+      'auditoria_temporal',
+      'auditoriaMensajeTemporal',
+      'auditoria_mensaje_temporal',
+      'mensajeTemporalAuditoria',
+      'mensaje_temporal_auditoria',
+      'snapshotTemporal',
+      'snapshot_temporal',
+      'snapshotAuditoria',
+      'snapshot_auditoria',
+      'auditSnapshot',
+      'audit_snapshot',
+      'temporalAudit',
+      'temporal_audit',
+      'auditoria',
+      'audit',
+      'expiredTemporalSnapshot',
+      'expired_temporal_snapshot',
+    ];
+    const sources: any[] = [];
+    for (const key of keys) {
+      const candidate = msg?.[key];
+      if (!candidate || typeof candidate !== 'object') continue;
+      sources.push(candidate);
+    }
+    return sources;
+  }
+
+  private resolveAdminMediaUrlCandidate(value: unknown): string {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('blob:') || raw.startsWith('data:')) return raw;
+    return resolveMediaUrl(raw, environment.backendBaseUrl) || raw;
+  }
+
+  private resolveAdminExpiredTemporalAuditSnapshot(msg: any): {
+    contenido: string | null;
+    tipo: string;
+    audioUrl: string | null;
+    imageUrl: string;
+    imageMime: string | null;
+    imageNombre: string | null;
+    audioDuracionMs: number | null;
+    reenviado: boolean | null;
+    replyToMessageId: any;
+    replySnippet: string | null;
+    replyAuthorName: string | null;
+    fechaEnvio: string | null;
+  } {
+    const rootSource = msg && typeof msg === 'object' ? [msg] : [];
+    const nestedSources = this.collectAdminTemporalAuditSources(msg);
+
+    const directContent = this.pickFromSourcesByKeys(rootSource, [
+      'contenidoOriginal',
+      'contenido_original',
+      'mensajeOriginal',
+      'mensaje_original',
+      'textoOriginal',
+      'texto_original',
+      'contentOriginal',
+      'content_original',
+      'contenidoAuditoria',
+      'contenido_auditoria',
+      'snapshotContenido',
+      'snapshot_contenido',
+    ]);
+    const nestedContent = this.pickFromSourcesByKeys(nestedSources, [
+      'contenidoOriginal',
+      'contenido_original',
+      'mensajeOriginal',
+      'mensaje_original',
+      'textoOriginal',
+      'texto_original',
+      'contentOriginal',
+      'content_original',
+      'contenido',
+      'mensaje',
+      'texto',
+      'content',
+      'contenidoPlano',
+      'mensajePlano',
+      'textoPlano',
+      'rawContent',
+      'raw_content',
+      'ciphertextOriginal',
+      'ciphertext_original',
+      'snapshotContenido',
+      'snapshot_contenido',
+    ]);
+    const contenidoRaw = this.pickFirstCandidate([directContent, nestedContent]);
+
+    const directTipo = this.pickFromSourcesByKeys(rootSource, [
+      'tipoOriginal',
+      'tipo_original',
+      'messageTypeOriginal',
+      'message_type_original',
+      'contenidoTipoOriginal',
+      'contenido_tipo_original',
+    ]);
+    const nestedTipo = this.pickFromSourcesByKeys(nestedSources, [
+      'tipoOriginal',
+      'tipo_original',
+      'messageTypeOriginal',
+      'message_type_original',
+      'tipo',
+      'messageType',
+      'type',
+      'snapshotTipo',
+      'snapshot_tipo',
+    ]);
+    const tipoRaw = this.pickFirstCandidate([directTipo, nestedTipo]);
+
+    const directAudioUrl = this.pickFromSourcesByKeys(rootSource, [
+      'audioUrlOriginal',
+      'audio_url_original',
+      'urlAudioOriginal',
+      'url_audio_original',
+      'audioPathOriginal',
+      'audio_path_original',
+    ]);
+    const nestedAudioUrl = this.pickFromSourcesByKeys(nestedSources, [
+      'audioUrlOriginal',
+      'audio_url_original',
+      'urlAudioOriginal',
+      'url_audio_original',
+      'audioPathOriginal',
+      'audio_path_original',
+      'audioUrl',
+      'urlAudio',
+      'audioPath',
+      'audio_path',
+      'mediaUrl',
+      'url',
+      'snapshotAudioUrl',
+      'snapshot_audio_url',
+    ]);
+
+    const directImageUrl = this.pickFromSourcesByKeys(rootSource, [
+      'imageUrlOriginal',
+      'image_url_original',
+      'imagenUrlOriginal',
+      'imagen_url_original',
+      'urlImagenOriginal',
+      'url_imagen_original',
+      'imagePathOriginal',
+      'image_path_original',
+    ]);
+    const nestedImageUrl = this.pickFromSourcesByKeys(nestedSources, [
+      'imageUrlOriginal',
+      'image_url_original',
+      'imagenUrlOriginal',
+      'imagen_url_original',
+      'urlImagenOriginal',
+      'url_imagen_original',
+      'imagePathOriginal',
+      'image_path_original',
+      'imageUrl',
+      'imagenUrl',
+      'urlImagen',
+      'imagePath',
+      'mediaUrl',
+      'url',
+      'snapshotImageUrl',
+      'snapshot_image_url',
+    ]);
+
+    const imageMime = this.pickFirstCandidate([
+      this.pickFromSourcesByKeys(rootSource, [
+        'imageMimeOriginal',
+        'image_mime_original',
+        'imagenMimeOriginal',
+        'imagen_mime_original',
+      ]),
+      this.pickFromSourcesByKeys(nestedSources, [
+        'imageMimeOriginal',
+        'image_mime_original',
+        'imagenMimeOriginal',
+        'imagen_mime_original',
+        'imageMime',
+        'imagenMime',
+      ]),
+    ]);
+    const imageNombre = this.pickFirstCandidate([
+      this.pickFromSourcesByKeys(rootSource, [
+        'imageNombreOriginal',
+        'image_nombre_original',
+        'imagenNombreOriginal',
+        'imagen_nombre_original',
+        'imageNameOriginal',
+        'image_name_original',
+      ]),
+      this.pickFromSourcesByKeys(nestedSources, [
+        'imageNombreOriginal',
+        'image_nombre_original',
+        'imagenNombreOriginal',
+        'imagen_nombre_original',
+        'imageNameOriginal',
+        'image_name_original',
+        'imageNombre',
+        'imagenNombre',
+        'imageName',
+      ]),
+    ]);
+    const audioDuracionMs = this.pickFirstCandidate([
+      this.pickFromSourcesByKeys(rootSource, [
+        'audioDuracionMsOriginal',
+        'audio_duracion_ms_original',
+        'audioDurationMsOriginal',
+        'audio_duration_ms_original',
+      ]),
+      this.pickFromSourcesByKeys(nestedSources, [
+        'audioDuracionMsOriginal',
+        'audio_duracion_ms_original',
+        'audioDurationMsOriginal',
+        'audio_duration_ms_original',
+        'audioDuracionMs',
+        'audioDurationMs',
+        'durMs',
+      ]),
+    ]);
+    const reenviadoRaw = this.pickFirstCandidate([
+      this.pickFromSourcesByKeys(rootSource, [
+        'reenviadoOriginal',
+        'reenviado_original',
+        'forwardedOriginal',
+        'forwarded_original',
+      ]),
+      this.pickFromSourcesByKeys(nestedSources, [
+        'reenviadoOriginal',
+        'reenviado_original',
+        'forwardedOriginal',
+        'forwarded_original',
+        'reenviado',
+        'reenvio',
+        'forwarded',
+      ]),
+    ]);
+    const replyToMessageId = this.pickFirstCandidate([
+      this.pickFromSourcesByKeys(rootSource, [
+        'replyToMessageIdOriginal',
+        'reply_to_message_id_original',
+      ]),
+      this.pickFromSourcesByKeys(nestedSources, [
+        'replyToMessageIdOriginal',
+        'reply_to_message_id_original',
+        'replyToMessageId',
+        'reply_to_message_id',
+      ]),
+    ]);
+    const replySnippet = this.pickFirstCandidate([
+      this.pickFromSourcesByKeys(rootSource, [
+        'replySnippetOriginal',
+        'reply_snippet_original',
+      ]),
+      this.pickFromSourcesByKeys(nestedSources, [
+        'replySnippetOriginal',
+        'reply_snippet_original',
+        'replySnippet',
+        'reply_snippet',
+      ]),
+    ]);
+    const replyAuthorName = this.pickFirstCandidate([
+      this.pickFromSourcesByKeys(rootSource, [
+        'replyAuthorNameOriginal',
+        'reply_author_name_original',
+      ]),
+      this.pickFromSourcesByKeys(nestedSources, [
+        'replyAuthorNameOriginal',
+        'reply_author_name_original',
+        'replyAuthorName',
+        'reply_author_name',
+      ]),
+    ]);
+    const fechaEnvio = this.pickFirstCandidate([
+      this.pickFromSourcesByKeys(rootSource, [
+        'fechaEnvioOriginal',
+        'fecha_envio_original',
+        'createdAtOriginal',
+        'created_at_original',
+      ]),
+      this.pickFromSourcesByKeys(nestedSources, [
+        'fechaEnvioOriginal',
+        'fecha_envio_original',
+        'createdAtOriginal',
+        'created_at_original',
+        'fechaEnvio',
+        'fecha',
+        'createdAt',
+        'timestamp',
+      ]),
+    ]);
+
+    const tipo =
+      this.normalizeAdminLastMessageTipo(tipoRaw) ||
+      this.inferAdminLastMessageTipoFromRaw(contenidoRaw) ||
+      '';
+
+    const contenidoText =
+      contenidoRaw === undefined || contenidoRaw === null
+        ? null
+        : String(contenidoRaw);
+
+    const audioUrlRaw = this.pickFirstCandidate([directAudioUrl, nestedAudioUrl]);
+    const imageUrlRaw = this.pickFirstCandidate([directImageUrl, nestedImageUrl]);
+
+    const audioDurNum = Number(audioDuracionMs);
+    return {
+      contenido: contenidoText,
+      tipo,
+      audioUrl: String(audioUrlRaw || '').trim() || null,
+      imageUrl: String(imageUrlRaw || '').trim(),
+      imageMime: String(imageMime || '').trim() || null,
+      imageNombre: String(imageNombre || '').trim() || null,
+      audioDuracionMs:
+        Number.isFinite(audioDurNum) && audioDurNum > 0
+          ? Math.round(audioDurNum)
+          : null,
+      reenviado:
+        reenviadoRaw === undefined || reenviadoRaw === null
+          ? null
+          : this.normalizeBooleanLike(reenviadoRaw),
+      replyToMessageId:
+        replyToMessageId === undefined ? null : replyToMessageId,
+      replySnippet:
+        replySnippet === undefined || replySnippet === null
+          ? null
+          : String(replySnippet),
+      replyAuthorName:
+        replyAuthorName === undefined || replyAuthorName === null
+          ? null
+          : String(replyAuthorName),
+      fechaEnvio:
+        fechaEnvio === undefined || fechaEnvio === null
+          ? null
+          : String(fechaEnvio),
+    };
+  }
+
+  private normalizeBooleanLike(value: any): boolean {
+    if (value === true) return true;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n === 1;
+    const text = String(value || '').trim().toLowerCase();
+    return text === 'true' || text === 'yes' || text === 'si';
+  }
+
+  private normalizePositiveSeconds(value: any): number | null {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.round(n);
+  }
+
+  private normalizeDateIso(value: any): string | null {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const ts = Date.parse(raw);
+    if (!Number.isFinite(ts)) return null;
+    return new Date(ts).toISOString();
+  }
+
+  private resolveTemporalMeta(
+    enabledCandidates: any[],
+    secondsCandidates: any[],
+    expiresCandidates: any[],
+    statusCandidates: any[] = []
+  ): {
+    enabled: boolean;
+    seconds: number | null;
+    expiresAt: string | null;
+    expired: boolean;
+    status: TemporalEstado;
+  } {
+    const enabledRaw = this.pickFirstCandidate(enabledCandidates);
+    const secondsRaw = this.pickFirstCandidate(secondsCandidates);
+    const expiresRaw = this.pickFirstCandidate(expiresCandidates);
+    const statusRaw = this.pickFirstCandidate(statusCandidates);
+
+    const seconds = this.normalizePositiveSeconds(secondsRaw);
+    const expiresAt = this.normalizeDateIso(expiresRaw);
+    const enabled = this.normalizeBooleanLike(enabledRaw) || !!seconds || !!expiresAt;
+    const expired =
+      !!expiresAt && Number.isFinite(Date.parse(expiresAt)) && Date.parse(expiresAt) <= Date.now();
+    const status = this.normalizeTemporalStatus(statusRaw, enabled, expired);
+
+    return { enabled, seconds, expiresAt, expired, status };
+  }
+
+  private resolveTemporalMetaForMessage(msg: any): {
+    enabled: boolean;
+    seconds: number | null;
+    expiresAt: string | null;
+    expired: boolean;
+    status: TemporalEstado;
+  } {
+    return this.resolveTemporalMeta(
+      [msg?.mensajeTemporal, msg?.mensaje_temporal, msg?.temporal, msg?.isTemporal],
+      [
+        msg?.mensajeTemporalSegundos,
+        msg?.mensaje_temporal_segundos,
+        msg?.temporalSegundos,
+        msg?.ttlSeconds,
+        msg?.ttl_segundos,
+        msg?.ttl,
+      ],
+      [msg?.expiraEn, msg?.expira_en, msg?.expiresAt, msg?.expires_at],
+      [msg?.estadoTemporal, msg?.estado_temporal, msg?.temporalEstado]
+    );
+  }
+
+  private resolveTemporalMetaForSummary(chat: any): {
+    enabled: boolean;
+    seconds: number | null;
+    expiresAt: string | null;
+    expired: boolean;
+    status: TemporalEstado;
+  } {
+    const lastMsg = chat?.ultimoMensajeDto || chat?.ultimoMensajeData || chat?.ultimoMensajePayload || null;
+    return this.resolveTemporalMeta(
+      [
+        chat?.ultimoMensajeTemporal,
+        chat?.ultimo_mensaje_temporal,
+        chat?.mensajeTemporal,
+        lastMsg?.mensajeTemporal,
+        lastMsg?.mensaje_temporal,
+      ],
+      [
+        chat?.ultimoMensajeTemporalSegundos,
+        chat?.ultimo_mensaje_temporal_segundos,
+        chat?.mensajeTemporalSegundos,
+        chat?.ultimoMensajeTtlSegundos,
+        chat?.ultimoMensajeTtlSeconds,
+        lastMsg?.mensajeTemporalSegundos,
+        lastMsg?.mensaje_temporal_segundos,
+      ],
+      [
+        chat?.ultimoMensajeExpiraEn,
+        chat?.ultimoMensajeExpira_en,
+        chat?.ultimoMensajeExpiresAt,
+        chat?.expiraEn,
+        chat?.expira_en,
+        lastMsg?.expiraEn,
+        lastMsg?.expira_en,
+        lastMsg?.expiresAt,
+      ],
+      [
+        chat?.ultimoMensajeEstadoTemporal,
+        chat?.ultimo_mensaje_estado_temporal,
+        lastMsg?.estadoTemporal,
+        lastMsg?.estado_temporal,
+      ]
+    );
+  }
+
+  private normalizeTemporalStatus(
+    statusRaw: any,
+    enabledFallback: boolean,
+    expiredFallback: boolean
+  ): TemporalEstado {
+    const normalized = String(statusRaw || '')
+      .trim()
+      .toUpperCase();
+    if (
+      normalized === 'ACTIVO' ||
+      normalized === 'EXPIRADO' ||
+      normalized === 'NO_TEMPORAL'
+    ) {
+      return normalized as TemporalEstado;
+    }
+    if (!enabledFallback) return 'NO_TEMPORAL';
+    return expiredFallback ? 'EXPIRADO' : 'ACTIVO';
+  }
+
+  private formatTemporalDurationShort(secondsRaw: number | null | undefined): string {
+    const seconds = Number(secondsRaw || 0);
+    if (!Number.isFinite(seconds) || seconds <= 0) return '';
+    if (seconds % (24 * 60 * 60) === 0) return `${seconds / (24 * 60 * 60)}d`;
+    if (seconds % (60 * 60) === 0) return `${seconds / (60 * 60)}h`;
+    if (seconds % 60 === 0) return `${seconds / 60}m`;
+    return `${seconds}s`;
+  }
+
+  public adminTemporalChipLabel(item: any): string {
+    const duration = this.formatTemporalDurationShort(
+      Number(item?.mensajeTemporalSegundos ?? item?.__ultimoTemporalSegundos ?? 0)
+    );
+    return duration ? `Temporal ${duration}` : 'Temporal';
+  }
+
+  public adminTemporalStatusLabel(item: any): string {
+    const status = this.resolveTemporalStatusForItem(item);
+    if (status === 'ACTIVO') return 'Activo';
+    if (status === 'EXPIRADO') return 'Expirado';
+    return 'No temporal';
+  }
+
+  public adminTemporalStatusClass(item: any): string {
+    const status = this.resolveTemporalStatusForItem(item);
+    if (status === 'ACTIVO') return 'admin-temporal-chip--active';
+    if (status === 'EXPIRADO') return 'admin-temporal-chip--expired';
+    return 'admin-temporal-chip--none';
+  }
+
+  private resolveTemporalStatusForItem(item: any): TemporalEstado {
+    const raw = String(item?.estadoTemporal ?? item?.__ultimoTemporalStatus ?? '')
+      .trim()
+      .toUpperCase();
+    if (
+      raw === 'ACTIVO' ||
+      raw === 'EXPIRADO' ||
+      raw === 'NO_TEMPORAL'
+    ) {
+      return raw as TemporalEstado;
+    }
+    const enabled =
+      !!item?.mensajeTemporal || !!item?.__ultimoTemporalEnabled;
+    const expired =
+      !!item?.temporalExpirado || !!item?.__ultimoTemporalExpired;
+    if (!enabled) return 'NO_TEMPORAL';
+    return expired ? 'EXPIRADO' : 'ACTIVO';
+  }
+
+  public isAdminTemporalExpiredMessage(item: any): boolean {
+    return this.resolveTemporalStatusForItem(item) === 'EXPIRADO';
+  }
+
+  public isAdminDeletedByUserMessage(item: any): boolean {
+    const isInactive = Number(item?.activo ?? 1) === 0 || item?.activo === false;
+    if (!isInactive) return false;
+    return !this.isAdminTemporalExpiredMessage(item);
+  }
+
+  private formatTemporalDurationLong(secondsRaw: unknown): string {
+    const seconds = Number(secondsRaw);
+    if (!Number.isFinite(seconds) || seconds <= 0) return '';
+    if (seconds % (24 * 60 * 60) === 0) {
+      const days = Math.round(seconds / (24 * 60 * 60));
+      return `${days} ${days === 1 ? 'dia' : 'dias'}`;
+    }
+    if (seconds % (60 * 60) === 0) {
+      const hours = Math.round(seconds / (60 * 60));
+      return `${hours} ${hours === 1 ? 'hora' : 'horas'}`;
+    }
+    if (seconds % 60 === 0) {
+      const mins = Math.round(seconds / 60);
+      return `${mins} ${mins === 1 ? 'minuto' : 'minutos'}`;
+    }
+    return `${Math.round(seconds)} segundos`;
+  }
+
+  private resolveTemporalPlaceholderTextForItem(item: any): string {
+    const explicit = String(
+      item?.placeholderTexto ??
+        item?.placeholder_texto ??
+        item?.ultimoMensajePlaceholderTexto ??
+        item?.ultimo_mensaje_placeholder_texto ??
+        item?.contenido ??
+        item?.ultimoMensaje ??
+        item?.ultimoMensajeTexto ??
+        ''
+    ).trim();
+    if (explicit) return explicit;
+    const duration = this.formatTemporalDurationLong(
+      item?.mensajeTemporalSegundos ??
+        item?.mensaje_temporal_segundos ??
+        item?.ultimoMensajeTemporalSegundos ??
+        item?.ultimo_mensaje_temporal_segundos
+    );
+    if (duration) {
+      return `Se trataba de un mensaje temporal que solo estaba disponible los primeros ${duration}.`;
+    }
+    return 'Se trataba de un mensaje temporal que ya ha expirado.';
+  }
+
+  public setAdminTemporalFilter(filter: AdminTemporalFilter): void {
+    this.adminTemporalFilter = filter;
+  }
+
+  public isAdminTemporalFilterActive(filter: AdminTemporalFilter): boolean {
+    return this.adminTemporalFilter === filter;
+  }
+
+  public get filteredSelectedChatMensajes(): any[] {
+    const list = Array.isArray(this.selectedChatMensajes)
+      ? this.selectedChatMensajes
+      : [];
+    if (this.adminTemporalFilter === 'TODOS') return list;
+    return list.filter(
+      (msg) => this.resolveTemporalStatusForItem(msg) === this.adminTemporalFilter
+    );
   }
 
   private isAudioLikePayload(payload: any, tipo: string, isSummary: boolean): boolean {
@@ -1303,6 +2263,62 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     );
   }
 
+  private isFileLikePayload(payload: any, tipo: string, isSummary: boolean): boolean {
+    if (tipo === 'FILE') return true;
+    if (isSummary) {
+      return !!(
+        payload?.ultimoMensajeFileUrl ||
+        payload?.ultimaMensajeFileUrl ||
+        payload?.ultimoFileUrl ||
+        payload?.fileUrl ||
+        payload?.ultimoMensajeFileNombre ||
+        payload?.ultimaMensajeFileNombre ||
+        payload?.fileNombre
+      );
+    }
+    return !!(
+      payload?.fileUrl ||
+      payload?.archivoUrl ||
+      payload?.urlArchivo ||
+      payload?.filePath ||
+      payload?.fileMime ||
+      payload?.fileNombre ||
+      payload?.archivoNombre
+    );
+  }
+
+  private resolveFileUrlFromPayload(
+    payload: any,
+    rawContenido: unknown,
+    e2eFilePayload?: AdminFileE2EPayload | null
+  ): string {
+    const directE2E = String(
+      e2eFilePayload?.fileUrl ?? this.parseAdminFileE2EPayload(rawContenido)?.fileUrl ?? ''
+    ).trim();
+    if (directE2E) {
+      return resolveMediaUrl(directE2E, environment.backendBaseUrl) || directE2E;
+    }
+
+    const candidates = [
+      payload?.fileUrl,
+      payload?.archivoUrl,
+      payload?.urlArchivo,
+      payload?.filePath,
+      payload?.mediaUrl,
+      payload?.url,
+      rawContenido,
+    ];
+
+    for (const candidate of candidates) {
+      const raw = String(candidate ?? '').trim();
+      if (!raw) continue;
+      if (!this.isLikelyFileUrl(raw)) continue;
+      const resolved = resolveMediaUrl(raw, environment.backendBaseUrl) || raw;
+      if (resolved) return resolved;
+    }
+
+    return '';
+  }
   private resolveImageUrlFromPayload(
     payload: any,
     rawContenido: unknown,
@@ -1324,8 +2340,11 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       payload?.imagePath,
       payload?.mediaUrl,
       payload?.url,
-      rawContenido,
     ];
+
+    if (!this.isLikelySerializedPayloadText(rawContenido)) {
+      candidates.push(rawContenido);
+    }
 
     for (const candidate of candidates) {
       const raw = String(candidate ?? '').trim();
@@ -1336,7 +2355,6 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     }
     return '';
   }
-
   private resolveAudioUrlFromPayload(
     payload: any,
     rawContenido: unknown,
@@ -1439,6 +2457,71 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     return parsed;
   }
 
+  private parseAdminFileE2EPayload(
+    contenido: unknown
+  ): AdminFileE2EPayload | null {
+    const payload = this.parseAdminPayload(contenido);
+    if (!payload) return null;
+
+    const type = String(payload?.type || '').trim().toUpperCase();
+    if (type !== 'E2E_FILE' && type !== 'E2E_GROUP_FILE') return null;
+
+    const ivFile = String(payload?.ivFile || '').trim();
+    if (!ivFile) return null;
+
+    const forAdmin = String(payload?.forAdmin || '').trim();
+    const forEmisor = String(payload?.forEmisor || '').trim();
+    const forReceptor = String(payload?.forReceptor || '').trim();
+    const forReceptoresRaw =
+      payload?.forReceptores && typeof payload.forReceptores === 'object'
+        ? payload.forReceptores
+        : null;
+    const forReceptores = forReceptoresRaw
+      ? Object.entries(forReceptoresRaw).reduce((acc, [k, v]) => {
+          const key = String(k || '').trim();
+          const value = String(v || '').trim();
+          if (!key || !value) return acc;
+          acc[key] = value;
+          return acc;
+        }, {} as Record<string, string>)
+      : undefined;
+    const hasRecipientEnvelope = !!(
+      forAdmin ||
+      forEmisor ||
+      forReceptor ||
+      (forReceptores && Object.keys(forReceptores).length)
+    );
+    if (!hasRecipientEnvelope) return null;
+
+    const parsed: AdminFileE2EPayload = {
+      type: type as AdminFileE2EPayload['type'],
+      ivFile,
+      fileUrl: String(
+        payload?.fileUrl ?? payload?.archivoUrl ?? payload?.urlArchivo ?? ''
+      ).trim(),
+    };
+    if (forAdmin) parsed.forAdmin = forAdmin;
+    if (forEmisor) parsed.forEmisor = forEmisor;
+    if (forReceptor) parsed.forReceptor = forReceptor;
+    if (forReceptores && Object.keys(forReceptores).length) {
+      parsed.forReceptores = forReceptores;
+    }
+
+    const fileMime = String(payload?.fileMime || '').trim();
+    if (fileMime) parsed.fileMime = fileMime;
+    const fileNombre = String(payload?.fileNombre || '').trim();
+    if (fileNombre) parsed.fileNombre = fileNombre;
+    const fileSizeRaw = Number(payload?.fileSizeBytes);
+    if (Number.isFinite(fileSizeRaw) && fileSizeRaw >= 0) {
+      parsed.fileSizeBytes = Math.round(fileSizeRaw);
+    }
+    const captionIv = String(payload?.captionIv || '').trim();
+    if (captionIv) parsed.captionIv = captionIv;
+    const captionCiphertext = String(payload?.captionCiphertext || '').trim();
+    if (captionCiphertext) parsed.captionCiphertext = captionCiphertext;
+
+    return parsed;
+  }
   private buildAdminImageE2ECacheKey(
     messageId: unknown,
     payload: AdminImageE2EPayload
@@ -1520,11 +2603,11 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.adminDecryptingImageByCacheKey.set(cacheKey, decryptPromise);
     return decryptPromise;
   }
-
-  private async decryptAdminImageCaption(
+    private async decryptAdminImageCaption(
     payload: AdminImageE2EPayload
   ): Promise<string> {
     if (!payload?.captionCiphertext || !payload?.captionIv) return '';
+    if (!payload?.forAdmin) return '';
 
     const cacheKey = `caption:${payload.ivFile}:${payload.imageUrl}`;
     const cached = this.adminImageCaptionByCacheKey.get(cacheKey);
@@ -1562,6 +2645,197 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     return promise;
   }
 
+  private buildAdminFileE2ECacheKey(
+    messageId: unknown,
+    payload: AdminFileE2EPayload
+  ): string {
+    const id = Number(messageId);
+    if (Number.isFinite(id) && id > 0) {
+      return `msg-file:${id}:${payload.ivFile}`;
+    }
+    return `payload-file:${payload.type}:${payload.ivFile}:${payload.fileUrl}`;
+  }
+
+  private async decryptAdminFilePayloadToObjectUrl(
+    payload: AdminFileE2EPayload,
+    messageId: unknown,
+    candidateUserIds: number[] = [],
+    fallbackEncryptedUrl?: string
+  ): Promise<string | null> {
+    const cacheKey = this.buildAdminFileE2ECacheKey(messageId, payload);
+    const cached = this.adminDecryptedFileUrlByCacheKey.get(cacheKey);
+    if (cached) return cached;
+
+    const inFlight = this.adminDecryptingFileByCacheKey.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const decryptPromise = (async (): Promise<string | null> => {
+      try {
+        let aesRawBase64 = '';
+        if (payload.forAdmin) {
+          const auditPrivateKey = await this.importAuditPrivateKeyFromStorage();
+          if (auditPrivateKey) {
+            try {
+              aesRawBase64 = await this.cryptoService.decryptRSA(
+                String(payload.forAdmin),
+                auditPrivateKey
+              );
+            } catch {
+              aesRawBase64 = '';
+            }
+          }
+        }
+        if (!aesRawBase64) {
+          aesRawBase64 = await this.decryptAdminFileAesWithLocalCandidates(
+            payload,
+            candidateUserIds
+          );
+        }
+        if (!aesRawBase64) return null;
+        const aesKey = await this.cryptoService.importAESKey(aesRawBase64);
+
+        const encryptedUrl = resolveMediaUrl(
+          payload.fileUrl || String(fallbackEncryptedUrl || '').trim(),
+          environment.backendBaseUrl
+        );
+        if (!encryptedUrl) return null;
+
+        const response = await fetch(encryptedUrl);
+        if (!response.ok) {
+          console.warn('[ADMIN_E2E][file-fetch-failed]', {
+            messageId: Number(messageId || 0),
+            status: Number(response.status),
+          });
+          return null;
+        }
+
+        const encryptedBytes = await response.arrayBuffer();
+        const decryptedBuffer = await this.cryptoService.decryptAESBinary(
+          encryptedBytes,
+          payload.ivFile,
+          aesKey
+        );
+        const mime = String(payload.fileMime || 'application/octet-stream').trim() || 'application/octet-stream';
+        const objectUrl = URL.createObjectURL(
+          new Blob([decryptedBuffer], { type: mime })
+        );
+
+        const prev = this.adminDecryptedFileUrlByCacheKey.get(cacheKey);
+        if (prev && prev !== objectUrl) {
+          try {
+            URL.revokeObjectURL(prev);
+          } catch {}
+        }
+        this.adminDecryptedFileUrlByCacheKey.set(cacheKey, objectUrl);
+        return objectUrl;
+      } catch (err) {
+        console.warn('[ADMIN_E2E][file-decrypt-failed]', {
+          messageId: Number(messageId || 0),
+          error: String((err as any)?.message || err),
+        });
+        return null;
+      } finally {
+        this.adminDecryptingFileByCacheKey.delete(cacheKey);
+      }
+    })();
+
+    this.adminDecryptingFileByCacheKey.set(cacheKey, decryptPromise);
+    return decryptPromise;
+  }
+
+  private buildAdminFileEnvelopeCandidates(
+    payload: AdminFileE2EPayload,
+    userId: number
+  ): string[] {
+    const ordered: string[] = [];
+    const pushIfAny = (value: unknown) => {
+      const clean = String(value || '').trim();
+      if (!clean) return;
+      if (!ordered.includes(clean)) ordered.push(clean);
+    };
+
+    pushIfAny(payload.forEmisor);
+    if (payload.type === 'E2E_FILE') {
+      pushIfAny(payload.forReceptor);
+    } else {
+      pushIfAny(payload.forReceptores?.[String(userId)]);
+      const allGroupEnvelopes = Object.values(payload.forReceptores || {});
+      for (const env of allGroupEnvelopes) pushIfAny(env);
+    }
+
+    pushIfAny(payload.forAdmin);
+    return ordered;
+  }
+
+  private async decryptAdminFileAesWithLocalCandidates(
+    payload: AdminFileE2EPayload,
+    candidateUserIds: number[]
+  ): Promise<string> {
+    const ids = Array.isArray(candidateUserIds) ? candidateUserIds : [];
+    for (const userIdRaw of ids) {
+      const userId = Number(userIdRaw);
+      if (!Number.isFinite(userId) || userId <= 0) continue;
+      const keyRaw = String(localStorage.getItem('privateKey_' + userId) || '').trim();
+      if (!keyRaw) continue;
+
+      try {
+        const privateKey = await this.cryptoService.importPrivateKey(keyRaw);
+        const envelopes = this.buildAdminFileEnvelopeCandidates(payload, userId);
+        for (const envelope of envelopes) {
+          try {
+            const plain = await this.cryptoService.decryptRSA(envelope, privateKey);
+            if (String(plain || '').trim()) return String(plain).trim();
+          } catch {
+            // Seguimos intentando con el siguiente sobre/candidato.
+          }
+        }
+      } catch {
+        // Ignoramos claves privadas locales invalidas.
+      }
+    }
+    return '';
+  }
+  private async decryptAdminFileCaption(
+    payload: AdminFileE2EPayload
+  ): Promise<string> {
+    if (!payload?.captionCiphertext || !payload?.captionIv) return '';
+    if (!payload?.forAdmin) return '';
+
+    const cacheKey = `file-caption:${payload.ivFile}:${payload.fileUrl}`;
+    const cached = this.adminFileCaptionByCacheKey.get(cacheKey);
+    if (typeof cached === 'string') return cached;
+
+    const inFlight = this.adminDecryptingFileCaptionByCacheKey.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const promise = (async () => {
+      try {
+        const auditPrivateKey = await this.importAuditPrivateKeyFromStorage();
+        if (!auditPrivateKey) return '';
+        const aesRawBase64 = await this.cryptoService.decryptRSA(
+          String(payload.forAdmin),
+          auditPrivateKey
+        );
+        const aesKey = await this.cryptoService.importAESKey(aesRawBase64);
+        const plain = await this.cryptoService.decryptAES(
+          String(payload.captionCiphertext),
+          String(payload.captionIv),
+          aesKey
+        );
+        const caption = String(plain || '').trim();
+        this.adminFileCaptionByCacheKey.set(cacheKey, caption);
+        return caption;
+      } catch {
+        this.adminFileCaptionByCacheKey.set(cacheKey, '');
+        return '';
+      } finally {
+        this.adminDecryptingFileCaptionByCacheKey.delete(cacheKey);
+      }
+    })();
+
+    this.adminDecryptingFileCaptionByCacheKey.set(cacheKey, promise);
+    return promise;
+  }
   private buildAdminAudioE2ECacheKey(
     messageId: unknown,
     payload: AdminAudioE2EPayload
@@ -1660,6 +2934,25 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     return false;
   }
 
+  private isLikelyFileUrl(value: string): boolean {
+    const raw = String(value || '').trim();
+    if (!raw) return false;
+    const lower = raw.toLowerCase();
+    if (lower.startsWith('blob:')) return true;
+    if (lower.startsWith('data:application/')) return true;
+    if (
+      lower.includes('/api/uploads/file') ||
+      lower.includes('/uploads/file') ||
+      lower.includes('/uploads/media') ||
+      lower.includes('/files/')
+    ) {
+      return true;
+    }
+    if (/\.(pdf|docx?|xlsx?|pptx?|txt|csv|zip|rar|7z|bin)(\?|#|$)/i.test(raw)) {
+      return true;
+    }
+    return false;
+  }
   private isLikelyImageUrl(value: string): boolean {
     const raw = String(value || '').trim();
     if (!raw) return false;
@@ -1713,6 +3006,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
   public isAdminImagePreviewChat(chat: any): boolean {
     const tipo = this.resolveAdminLastMessageTipo(chat);
+    if (tipo === 'FILE' || chat?.__ultimoEsArchivo === true) return false;
     if (tipo === 'IMAGE') return true;
     if (chat?.__ultimoEsImagen === true) return true;
     const raw = this.getAdminLastMessageRaw(chat);
@@ -1721,7 +3015,6 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     const preview = String(chat?.ultimoMensajePreview || chat?.ultimoMensaje || '').toLowerCase();
     return preview.includes('imagen');
   }
-
   public adminImagePreviewSrc(chat: any): string {
     return String(chat?.__ultimoImagenUrl || '').trim();
   }
@@ -1774,8 +3067,342 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
   public isImageMessage(msg: any): boolean {
     const tipo = String(msg?.tipo ?? '').trim().toUpperCase();
+    if (tipo === 'FILE') return false;
     if (tipo === 'IMAGE') return true;
+    if (!!String(msg?.fileUrl ?? '').trim()) return false;
     return !!String(msg?.imageUrl ?? '').trim();
+  }
+
+  public isFileMessage(msg: any): boolean {
+    const tipo = String(msg?.tipo ?? '').trim().toUpperCase();
+    if (tipo === 'FILE') return true;
+    return !!String(msg?.fileUrl ?? '').trim();
+  }
+
+  public getAdminFileSrc(msg: any): string {
+    const raw = String(msg?.fileUrl ?? '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('blob:') || raw.startsWith('data:')) return raw;
+    return resolveMediaUrl(raw, environment.backendBaseUrl) || raw;
+  }
+
+  public getAdminFileName(msg: any): string {
+    const direct = String(msg?.fileNombre ?? '').trim();
+    if (direct) return direct;
+
+    const text = String(msg?.text || '').trim();
+    const match = /^archivo\s*:\s*([^\-]+?)(?:\s*\-\s*.*)?$/i.exec(text);
+    if (match?.[1]) return String(match[1]).trim();
+
+    return 'Archivo';
+  }
+
+  private formatAdminFileSize(bytesRaw: unknown): string {
+    const bytes = Number(bytesRaw);
+    if (!Number.isFinite(bytes) || bytes <= 0) return '';
+    if (bytes < 1024) return `${Math.round(bytes)} B`;
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(kb >= 100 ? 0 : 1)} KB`;
+    const mb = kb / 1024;
+    if (mb < 1024) return `${mb.toFixed(mb >= 100 ? 0 : 1)} MB`;
+    const gb = mb / 1024;
+    return `${gb.toFixed(gb >= 100 ? 0 : 1)} GB`;
+  }
+
+  public getAdminFileSizeLabel(msg: any): string {
+    return this.formatAdminFileSize(msg?.fileSizeBytes);
+  }
+
+  public getAdminFileCaption(msg: any): string {
+    const text = String(msg?.text || '').trim();
+    if (!text || this.isLikelySerializedPayloadText(text)) return '';
+    if (!/^archivo\s*:/i.test(text)) return text;
+
+    const stripped = text.replace(/^archivo\s*:\s*[^\-]+\s*\-\s*/i, '').trim();
+    if (!stripped || stripped === text) return '';
+    return stripped;
+  }
+
+  public getAdminFileTypeLabel(msg: any): string {
+    const mime = String(msg?.fileMime || '').trim().toLowerCase();
+    const name = this.getAdminFileName(msg);
+
+    if (mime === 'application/pdf') return 'Documento PDF';
+    if (mime.startsWith('text/')) return 'Archivo de texto';
+    if (mime.includes('msword') || mime.includes('wordprocessingml')) return 'Documento Word';
+    if (mime.includes('spreadsheetml') || mime.includes('excel') || mime.includes('csv')) {
+      return 'Hoja de calculo';
+    }
+    if (mime.includes('presentation') || mime.includes('powerpoint')) return 'Presentacion';
+    if (mime.includes('zip') || mime.includes('rar') || mime.includes('7z') || mime.includes('tar')) {
+      return 'Archivo comprimido';
+    }
+    if (mime.startsWith('audio/')) return 'Audio';
+    if (mime.startsWith('video/')) return 'Video';
+    if (mime.startsWith('image/')) return 'Imagen';
+
+    const ext = String(name.split('.').pop() || '').trim().toLowerCase();
+    if (ext === 'pdf') return 'Documento PDF';
+    if (ext === 'doc' || ext === 'docx') return 'Documento Word';
+    if (ext === 'xls' || ext === 'xlsx' || ext === 'csv') return 'Hoja de calculo';
+    if (ext === 'ppt' || ext === 'pptx') return 'Presentacion';
+    if (ext === 'zip' || ext === 'rar' || ext === '7z' || ext === 'tar') {
+      return 'Archivo comprimido';
+    }
+
+    return 'Archivo';
+  }
+
+  public getAdminFileIconClass(mimeRaw: unknown): string {
+    const mime = String(mimeRaw || '').trim().toLowerCase();
+    if (!mime) return 'bi-file-earmark';
+    if (mime.includes('pdf')) return 'bi-file-earmark-pdf';
+    if (mime.includes('msword') || mime.includes('wordprocessingml')) {
+      return 'bi-file-earmark-word';
+    }
+    if (mime.includes('spreadsheetml') || mime.includes('excel') || mime.includes('csv')) {
+      return 'bi-file-earmark-excel';
+    }
+    if (mime.includes('presentation') || mime.includes('powerpoint')) {
+      return 'bi-file-earmark-ppt';
+    }
+    if (mime.includes('zip') || mime.includes('rar') || mime.includes('7z') || mime.includes('tar')) {
+      return 'bi-file-earmark-zip';
+    }
+    if (mime.startsWith('audio/')) return 'bi-file-earmark-music';
+    if (mime.startsWith('video/')) return 'bi-file-earmark-play';
+    if (mime.startsWith('text/') || mime.includes('json') || mime.includes('xml')) {
+      return 'bi-file-earmark-text';
+    }
+    return 'bi-file-earmark';
+  }
+
+  public openAdminFilePreview(msg: any, fileSrcRaw: string, event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    const fileSrc = String(fileSrcRaw || '').trim();
+    if (!fileSrc) return;
+
+    this.showAdminFilePreview = true;
+    this.adminFilePreviewSrc = fileSrc;
+    this.adminFilePreviewName = this.getAdminFileName(msg);
+    this.adminFilePreviewSize = this.getAdminFileSizeLabel(msg);
+    this.adminFilePreviewType = this.getAdminFileTypeLabel(msg);
+    this.adminFilePreviewMime = String(msg?.fileMime || '').trim();
+  }
+
+  public closeAdminFilePreview(): void {
+    this.showAdminFilePreview = false;
+    this.adminFilePreviewSrc = '';
+    this.adminFilePreviewName = '';
+    this.adminFilePreviewSize = '';
+    this.adminFilePreviewType = '';
+    this.adminFilePreviewMime = '';
+  }
+  public isPollMessage(msg: any): boolean {
+    if (!msg || Number(msg?.activo) === 0) return false;
+    return !!this.parseAdminPollPayloadForMessage(msg);
+  }
+
+  public getAdminPollQuestion(msg: any): string {
+    const payload = this.parseAdminPollPayloadForMessage(msg);
+    return String(payload?.question || 'Encuesta').trim() || 'Encuesta';
+  }
+
+  public getAdminPollStatusText(msg: any): string {
+    const payload = this.parseAdminPollPayloadForMessage(msg);
+    if (!payload) return 'Selecciona una opciÛn.';
+    const text = String(payload?.statusText || '').trim();
+    if (text) return text;
+    return payload.allowMultiple
+      ? 'Selecciona una o varias opciones.'
+      : 'Selecciona una opciÛn.';
+  }
+
+  public getAdminPollOptionsForRender(msg: any): AdminPollOptionView[] {
+    const payload = this.parseAdminPollPayloadForMessage(msg);
+    if (!payload) return [];
+
+    const viewerId = this.getAdminPollViewerUserId();
+    const withCounts = (payload.options || []).map((option) => {
+      const voterIds = this.collectAdminPollOptionVoterIds(option);
+      const votersFromDetails = Array.isArray(option?.voters) ? option.voters.length : 0;
+      const count = Math.max(
+        Number(option?.voteCount || 0),
+        voterIds.length,
+        votersFromDetails
+      );
+      return {
+        id: String(option?.id || ''),
+        text: String(option?.text || '').trim() || 'OpciÛn',
+        count,
+        selected: viewerId > 0 ? voterIds.includes(viewerId) : option?.votedByMe === true,
+      };
+    });
+
+    const totalVotes = withCounts.reduce((acc, option) => acc + option.count, 0);
+    const maxCount = withCounts.reduce((max, option) => Math.max(max, option.count), 0);
+
+    return withCounts.map((option) => {
+      const rawOption = (payload.options || []).find(
+        (x) => String(x?.id || '') === option.id
+      );
+      return {
+        ...option,
+        percent:
+          totalVotes > 0
+            ? Math.max(0, Math.min(100, (option.count / totalVotes) * 100))
+            : 0,
+        isLeading: option.count > 0 && option.count === maxCount,
+        voters: this.resolveAdminPollVoters(rawOption).slice(0, 3),
+      };
+    });
+  }
+
+  public trackAdminPollOption(_index: number, option: AdminPollOptionView): string {
+    return option.id;
+  }
+
+  public trackAdminPollVoter(_index: number, voter: AdminPollVoterView): string {
+    return `${voter.userId}-${voter.photoUrl || ''}-${voter.initials}`;
+  }
+
+  public openAdminPollVotes(msg: any, event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const payload = this.parseAdminPollPayloadForMessage(msg);
+    if (!payload) return;
+
+    const options = this.getAdminPollOptionsForRender(msg);
+    const html = options
+      .map((option) => {
+        const voters = this.resolveAdminPollVoterNamesForOption(payload, option.id);
+        const votersText = voters.length ? voters.join(', ') : 'Sin votos';
+        return `
+          <div style="text-align:left;margin-bottom:10px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:10px;">
+            <div style="font-weight:700;color:#0f172a;">${this.escapeHtml(option.text)} (${option.count})</div>
+            <div style="font-size:12px;color:#475569;margin-top:4px;">${this.escapeHtml(votersText)}</div>
+          </div>
+        `;
+      })
+      .join('');
+
+    void Swal.fire({
+      title: this.getAdminPollQuestion(msg),
+      html:
+        html ||
+        '<div style="font-size:13px;color:#475569;">No hay votos registrados todavÌa.</div>',
+      width: 560,
+      confirmButtonText: 'Cerrar',
+      confirmButtonColor: '#0ea5e9',
+    });
+  }
+
+  private parseAdminPollPayloadForMessage(msg: any): ReturnType<typeof parsePollPayload> {
+    if (!msg) return null;
+    return (
+      parsePollPayload(msg?.pollPayload) ||
+      parsePollPayload(msg?.poll) ||
+      parsePollPayload(msg?.text) ||
+      parsePollPayload(msg?.contenido) ||
+      null
+    );
+  }
+
+  private getAdminPollViewerUserId(): number {
+    const inspected = Number(this.inspectedUserId || 0);
+    if (Number.isFinite(inspected) && inspected > 0) return inspected;
+    const current = Number(this.usuarioActualId || 0);
+    return Number.isFinite(current) && current > 0 ? current : 0;
+  }
+
+  private collectAdminPollOptionVoterIds(option: any): number[] {
+    const idsFromList = Array.isArray(option?.voterIds)
+      ? option.voterIds
+          .map((v: any) => Number(v))
+          .filter((v: number) => Number.isFinite(v) && v > 0)
+      : [];
+    const idsFromDetails = Array.isArray(option?.voters)
+      ? option.voters
+          .map((v: any) => Number(v?.userId))
+          .filter((v: number) => Number.isFinite(v) && v > 0)
+      : [];
+    return Array.from(new Set([...idsFromList, ...idsFromDetails]));
+  }
+
+  private resolveAdminPollVoters(option: any): AdminPollVoterView[] {
+    const ids = this.collectAdminPollOptionVoterIds(option);
+    if (!ids.length) return [];
+
+    const detailById = new Map<number, any>();
+    for (const detail of option?.voters || []) {
+      const id = Number(detail?.userId);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      if (!detailById.has(id)) detailById.set(id, detail);
+    }
+
+    return ids.map((userId) => {
+      const detail = detailById.get(userId);
+      const fullName = this.resolveAdminPollVoterDisplayName(userId, detail);
+      const detailPhoto = String(detail?.photoUrl || '').trim();
+      const photoUrl = resolveMediaUrl(detailPhoto, environment.backendBaseUrl) || null;
+      return {
+        userId,
+        photoUrl,
+        initials: this.buildAdminInitials(fullName),
+      };
+    });
+  }
+
+  private resolveAdminPollVoterNamesForOption(
+    payload: NonNullable<ReturnType<typeof parsePollPayload>>,
+    optionId: string
+  ): string[] {
+    const option = (payload.options || []).find(
+      (opt) => String(opt?.id || '') === String(optionId)
+    );
+    if (!option) return [];
+    const ids = this.collectAdminPollOptionVoterIds(option);
+    if (!ids.length) return [];
+    return ids.map((userId) => this.resolveAdminPollVoterDisplayName(userId));
+  }
+
+  private resolveAdminPollVoterDisplayName(userIdRaw: unknown, detail?: any): string {
+    const userId = Number(userIdRaw);
+    if (!Number.isFinite(userId) || userId <= 0) return 'Usuario';
+    if (userId === Number(this.inspectedUserId)) return this.currentUserName || 'Usuario';
+    if (userId === Number(this.usuarioActualId)) {
+      return this.adminNombreCompleto || 'Administrador';
+    }
+
+    const explicit = String(detail?.fullName || '').trim();
+    if (explicit) return explicit;
+
+    const member = this.resolveMemberNameById(this.selectedChat, userId);
+    const memberFull = `${member?.nombre || ''} ${member?.apellido || ''}`.trim();
+    if (memberFull) return memberFull;
+
+    return `Usuario ${userId}`;
+  }
+
+  private buildAdminInitials(nameRaw: unknown): string {
+    const text = String(nameRaw || '').trim();
+    if (!text) return '??';
+    const parts = text.split(/\s+/).filter(Boolean);
+    if (!parts.length) return '??';
+    const first = parts[0].charAt(0);
+    const second = parts.length > 1 ? parts[1].charAt(0) : parts[0].charAt(1);
+    return `${first || ''}${second || ''}`.toUpperCase() || '??';
+  }
+
+  private escapeHtml(text: unknown): string {
+    return String(text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   public getAdminAudioSrc(msg: any): string {
@@ -1940,6 +3567,12 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     return `Mensaje de voz (${min}:${sec})`;
   }
 
+  private buildAdminFileLabel(fileNameRaw: unknown, captionRaw?: unknown): string {
+    const fileName = String(fileNameRaw || '').trim() || 'Archivo';
+    const caption = String(captionRaw || '').trim();
+    if (caption) return `Archivo: ${fileName} - ${caption}`;
+    return `Archivo: ${fileName}`;
+  }
   private resolveMemberNameById(
     chat: any,
     userId: number
@@ -1955,7 +3588,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
   private getMensajesObservable(chat: any, chatId: number): Observable<any[]> {
     void chat;
-    return this.chatService.listarMensajesAdminPorChat(chatId);
+    return this.chatService.listarMensajesAdminPorChat(chatId, true);
   }
 
   private isEncryptedE2EPayload(value: string): boolean {
@@ -2066,12 +3699,12 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           next: () => {
             Swal.fire({
               title: 'Cuenta reactivada!',
-              text: `El usuario ${usuario.nombre} ya puede volver a iniciar sesi√≥n.`,
+              text: `El usuario ${usuario.nombre} ya puede volver a iniciar sesiÛn.`,
               icon: 'success',
               confirmButtonColor: '#10b981'
             });
 
-            // Esto actualiza la interfaz autom√°ticamente gracias al *ngIf
+            // Esto actualiza la interfaz autom·ticamente gracias al *ngIf
             usuario.activo = true;
           },
           error: (err) => {
@@ -2157,11 +3790,6 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           { source: `${source}-uid-${userId}` }
         );
         if (plain !== encryptedFallback) {
-          console.log('[ADMIN_E2E] Descifrado OK en admin', {
-            source,
-            userId,
-            candidatesTried: candidates.length,
-          });
           return plain;
         }
       } catch {
@@ -2278,20 +3906,12 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           String(payload.iv || ''),
           aesKey
         );
-        console.log('[ADMIN_E2E] Descifrado OK via forAdmin (AES envelope)', {
-          source,
-          payloadType,
-        });
         return String(plain ?? '');
       } catch {
         // Compatibilidad legado:
         // algunos mensajes guardan forAdmin como texto claro cifrado por RSA.
         const directPlain = String(decryptedForAdmin ?? '').trim();
         if (directPlain) {
-          console.log('[ADMIN_E2E] Descifrado OK via forAdmin (direct plain)', {
-            source,
-            payloadType,
-          });
           return directPlain;
         }
       }
@@ -2320,6 +3940,9 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   }
 
 }
+
+
+
 
 
 

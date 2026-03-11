@@ -781,8 +781,7 @@
   background: #f8fafc;
 }
 
-.invite-search-input,
-.invite-select {
+.invite-search-input {
   width: 100%;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
@@ -792,14 +791,119 @@
   outline: none;
 }
 
-.invite-select {
-  margin-top: 8px;
-}
-
-.invite-search-input:focus,
-.invite-select:focus {
+.invite-search-input:focus {
   border-color: #60a5fa;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.invite-selected-pill {
+  margin-top: 8px;
+  border: 1px solid #86efac;
+  background: #f0fdf4;
+  border-radius: 10px;
+  padding: 7px 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #166534;
+}
+
+.invite-selected-pill button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #15803d;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.invite-selected-pill button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.invite-suggestions {
+  margin-top: 8px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  overflow: hidden;
+  max-height: 200px;
+  overflow-y: auto;
+  background: #fff;
+}
+
+.invite-suggestion {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #f1f5f9;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.invite-suggestion:last-child {
+  border-bottom: 0;
+}
+
+.invite-suggestion:hover {
+  background: #f0fdf4;
+}
+
+.invite-suggestion.is-selected {
+  background: #dcfce7;
+}
+
+.invite-suggestion:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.invite-suggestion-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.invite-suggestion-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.invite-suggestion-email {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.invite-suggestion i {
+  color: #15803d;
+  flex: 0 0 auto;
+}
+
+.invite-empty {
+  padding: 10px;
+  text-align: center;
+  font-size: 12px;
+  color: #64748b;
+  background: #f8fafc;
 }
 
 .invite-icon {
@@ -879,8 +983,8 @@
 
 .member-top-row {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 4px;
   align-items: center;
 }
 
@@ -919,20 +1023,73 @@
   border-radius: 999px;
   padding: 3px 7px;
   white-space: nowrap;
+  margin-left: 2px;
 }
 
-.member-admin-action {
+.member-actions-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.member-actions-toggle {
+  width: 30px;
+  height: 30px;
   border: 1px solid #bfdbfe;
   background: #eff6ff;
   color: #1d4ed8;
   border-radius: 8px;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 4px 7px;
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
 }
 
-.member-admin-action:disabled {
+.member-actions-toggle.is-open {
+  background: #dbeafe;
+}
+
+.member-actions-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.member-actions-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 168px;
+  background: #ffffff;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 12px 28px -16px rgba(15, 23, 42, 0.55);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.member-action-btn {
+  width: 100%;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 7px 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.member-action-btn.is-danger {
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.member-action-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

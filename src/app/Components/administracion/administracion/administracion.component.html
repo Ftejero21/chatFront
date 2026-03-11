@@ -1,4 +1,4 @@
-Ôªø<div class="flex min-h-screen w-full relative bg-[#f0f9ff] overflow-x-hidden">
+<div class="flex min-h-screen w-full relative bg-[#f0f9ff] overflow-x-hidden">
 
 
     <div class="md:hidden fixed top-4 right-4 z-50">
@@ -96,7 +96,7 @@
                     type="button"
                     (click)="logoutFromAdmin()"
                     class="flex-1 lg:flex-none px-6 py-2.5 rounded-xl text-sm font-bold text-rose-600 bg-white border border-rose-200 hover:bg-rose-50 transition-colors">
-                    Cerrar sesi√≥n
+                    Cerrar sesiÛn
                 </button>
             </div>
         </header>
@@ -181,7 +181,7 @@
                                         <span class="admin-users-loader-spinner" aria-hidden="true"></span>
                                         <div>
                                             <p class="admin-users-loader-title">Cargando usuarios</p>
-                                            <p class="admin-users-loader-subtitle">Preparando la p√°gina actual del listado...</p>
+                                            <p class="admin-users-loader-subtitle">Preparando la p·gina actual del listado...</p>
                                         </div>
                                     </div>
                                     <div class="admin-users-loader-skeleton">
@@ -238,8 +238,8 @@
 
             <div class="admin-pagination-wrap" *ngIf="!loadingUsuarios && totalElements > 0 && (!busquedaTerm || !busquedaTerm.trim())">
                 <div class="admin-pagination-meta">
-                    P√°gina {{ currentPage + 1 }} de {{ totalPages }}
-                    <span class="admin-pagination-dot">‚Ä¢</span>
+                    P·gina {{ currentPage + 1 }} de {{ totalPages }}
+                    <span class="admin-pagination-dot">ï</span>
                     {{ totalElements }} usuarios
                 </div>
                 <div class="admin-pagination-actions">
@@ -284,7 +284,7 @@
             <div class="glass-card overflow-hidden w-full p-4 md:p-5">
                 <div class="reports-meta-line">
                     <span class="reports-meta-title">Total en vista: {{ appealTotalElements }}</span>
-                    <span class="reports-meta-hint">Actualizaci√≥n en tiempo real</span>
+                    <span class="reports-meta-hint">ActualizaciÛn en tiempo real</span>
                 </div>
 
                 <div class="reports-filter-tabs" role="tablist" aria-label="Filtrar reportes">
@@ -294,7 +294,7 @@
                         [class.is-active]="isAppealFilterActive('ABIERTOS')"
                         (click)="setAppealViewFilter('ABIERTOS')"
                     >
-                        Pendientes + En revisi√≥n
+                        Pendientes + En revisiÛn
                     </button>
                     <button
                         type="button"
@@ -348,8 +348,8 @@
 
                 <div class="admin-pagination-wrap" *ngIf="!loadingAppeals && appealTotalElements > 0">
                     <div class="admin-pagination-meta">
-                        P√°gina {{ appealPage + 1 }} de {{ appealTotalPages }}
-                        <span class="admin-pagination-dot">‚Ä¢</span>
+                        P·gina {{ appealPage + 1 }} de {{ appealTotalPages }}
+                        <span class="admin-pagination-dot">ï</span>
                         {{ appealTotalElements }} reportes
                     </div>
                     <div class="admin-pagination-actions">
@@ -392,6 +392,44 @@
         </div>
       </div>
 
+      <div class="glass-card p-4 admin-conv-controls">
+        <span class="admin-conv-controls__label">Filtro temporal</span>
+        <div class="admin-temporal-filters">
+          <button
+            type="button"
+            class="admin-temporal-filter-btn"
+            [class.is-active]="isAdminTemporalFilterActive('TODOS')"
+            (click)="setAdminTemporalFilter('TODOS')"
+          >
+            Todos
+          </button>
+          <button
+            type="button"
+            class="admin-temporal-filter-btn"
+            [class.is-active]="isAdminTemporalFilterActive('ACTIVO')"
+            (click)="setAdminTemporalFilter('ACTIVO')"
+          >
+            Activos
+          </button>
+          <button
+            type="button"
+            class="admin-temporal-filter-btn"
+            [class.is-active]="isAdminTemporalFilterActive('EXPIRADO')"
+            (click)="setAdminTemporalFilter('EXPIRADO')"
+          >
+            Expirados
+          </button>
+          <button
+            type="button"
+            class="admin-temporal-filter-btn"
+            [class.is-active]="isAdminTemporalFilterActive('NO_TEMPORAL')"
+            (click)="setAdminTemporalFilter('NO_TEMPORAL')"
+          >
+            No temporal
+          </button>
+        </div>
+      </div>
+
       <!-- Loading -->
       <div *ngIf="loadingConversations" class="glass-card p-6 text-slate-500 text-sm">
         Cargando conversaciones...
@@ -429,8 +467,8 @@
                   <!-- Info secundaria -->
                   <p class="text-xs text-slate-400 uppercase tracking-widest mt-1">
                     <span *ngIf="chat.id">ID: #CH-{{ chat.id }}</span>
-                    <span *ngIf="chat.fechaCreacion"> ‚Ä¢ {{ chat.fechaCreacion }}</span>
-                    <span *ngIf="chat.tipo"> ‚Ä¢ {{ chat.tipo }}</span>
+                    <span *ngIf="chat.fechaCreacion"> ï {{ chat.fechaCreacion }}</span>
+                    <span *ngIf="chat.tipo"> ï {{ chat.tipo }}</span>
                   </p>
                 </div>
               </div>
@@ -453,13 +491,28 @@
               </span>
             </div>
 
-            <!-- √öltimo mensaje (si viene en el DTO) -->
+            <!-- ⁄ltimo mensaje (si viene en el DTO) -->
             <div class="mt-4 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
               <div class="flex items-center justify-between gap-2 mb-1">
-                <p class="text-xs text-slate-500">√öltimo mensaje</p>
+                <p class="text-xs text-slate-500">⁄ltimo mensaje</p>
                 <div class="flex items-center gap-2 text-[10px] text-slate-400">
                   <span *ngIf="chat.ultimoMensajeTipo" class="px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-500 font-semibold">
                     {{ chat.ultimoMensajeTipo }}
+                  </span>
+                  <span
+                    *ngIf="chat.__ultimoTemporalEnabled || chat.__ultimoTemporalStatus === 'EXPIRADO'"
+                    class="admin-temporal-chip"
+                    [ngClass]="adminTemporalStatusClass(chat)"
+                  >
+                    <i class="bi bi-hourglass-split"></i>
+                    {{ adminTemporalChipLabel(chat) }}
+                  </span>
+                  <span
+                    *ngIf="chat.__ultimoTemporalEnabled || chat.__ultimoTemporalStatus === 'EXPIRADO'"
+                    class="admin-temporal-state"
+                    [ngClass]="adminTemporalStatusClass(chat)"
+                  >
+                    {{ adminTemporalStatusLabel(chat) }}
                   </span>
                   <span *ngIf="(chat.ultimoMensajeFecha || chat.fechaUltimoMensaje)">
                     {{ (chat.ultimoMensajeFecha || chat.fechaUltimoMensaje) | date:'dd/MM/yyyy HH:mm' }}
@@ -470,7 +523,7 @@
                 <span class="preview-audio compact">
                   <span *ngIf="adminAudioPreviewLabel(chat)" class="me-label">{{ adminAudioPreviewLabel(chat) }}:</span>
                   <i class="fas fa-microphone" aria-hidden="true"></i>
-                  <span class="sep">‚Ä¢</span>
+                  <span class="sep">ï</span>
                   <span class="time">{{ adminAudioPreviewTime(chat) }}</span>
                 </span>
               </ng-container>
@@ -490,7 +543,7 @@
                       </span>
                     </ng-template>
                     <span *ngIf="adminImagePreviewCaption(chat) as caption" class="preview-text">
-                      <span class="preview-caption-chip">‚Äú{{ caption }}‚Äù</span>
+                      <span class="preview-caption-chip">ì{{ caption }}î</span>
                     </span>
                   </span>
                 </ng-container>
@@ -533,7 +586,7 @@
 
               <ng-container *ngIf="!loadingChatMessages">
                 <div
-                  *ngFor="let msg of selectedChatMensajes"
+                  *ngFor="let msg of filteredSelectedChatMensajes"
                   class="flex"
                   [class.justify-end]="msg.isFromInspectedUser"
                   [class.justify-start]="!msg.isFromInspectedUser"
@@ -559,82 +612,219 @@
                       class="mb-2 rounded-lg border-l-4 border-sky-300 bg-sky-50/70 px-3 py-2"
                     >
                       <p class="text-[10px] font-bold uppercase tracking-wide text-sky-700">
-                        Respuesta a {{ (msg.replyAuthorName === 'T√∫') ? 'ti' : (msg.replyAuthorName || ('mensaje #' + msg.replyToMessageId)) }}
+                        Respuesta a {{ (msg.replyAuthorName === 'T˙') ? 'ti' : (msg.replyAuthorName || ('mensaje #' + msg.replyToMessageId)) }}
                       </p>
                       <p class="text-[12px] text-slate-700 mt-1 break-words">
                         {{ msg.replySnippet || ('Mensaje #' + msg.replyToMessageId) }}
                       </p>
                     </div>
-                    <p *ngIf="msg.activo === 0" class="text-[11px] text-rose-700 font-bold mt-1">
+                    <p *ngIf="isAdminDeletedByUserMessage(msg)" class="text-[11px] text-rose-700 font-bold mt-1">
                       [Mensaje eliminado por el usuario]
                     </p>
                     <span *ngIf="msg.reenviado" class="admin-forwarded-label">
                       <i class="bi bi-reply-fill"></i> Reenviado
                     </span>
-                    <ng-container *ngIf="isImageMessage(msg); else adminNotImageMsg">
-                      <div *ngIf="getAdminImageSrc(msg) as imageSrc; else adminImageMissing" class="mt-2 admin-image-wrap">
-                        <img class="admin-image" [src]="imageSrc" [alt]="getAdminImageAlt(msg)" />
-                        <p *ngIf="getAdminImageCaption(msg)" class="text-sm whitespace-pre-wrap break-words mt-2">
-                          {{ getAdminImageCaption(msg) }}
-                        </p>
-                      </div>
-                      <ng-template #adminImageMissing>
-                        <p class="text-sm whitespace-pre-wrap break-words mt-1">{{ getAdminImageCaption(msg) || 'Imagen (no disponible)' }}</p>
-                      </ng-template>
-                    </ng-container>
-                    <ng-template #adminNotImageMsg>
-                      <ng-container *ngIf="isAudioMessage(msg); else adminMsgText">
-                        <div *ngIf="getAdminAudioSrc(msg) as audioSrc; else adminAudioMissing" class="mt-2">
-                          <div class="audio-bubble" [class.mine]="msg.isFromInspectedUser">
-                            <button
-                              class="audio-play"
-                              [attr.aria-label]="(getAdminAudioState(msg)?.playing ? 'Pausar' : 'Reproducir') + ' audio'"
-                              (click)="toggleAdminPlay(msg, adminAudioRef)"
-                            >
-                              <i
-                                class="fas"
-                                [ngClass]="getAdminAudioState(msg)?.playing ? 'fa-pause' : 'fa-play'"
-                              ></i>
-                            </button>
-                            <div class="audio-wave">
-                              <div class="audio-track">
-                                <div class="audio-progress" [style.width.%]="adminProgressPercent(msg)"></div>
-                              </div>
-                              <div class="audio-time">
-                                {{ adminFormatDur(getAdminAudioState(msg)?.current || msg.audioDuracionMs) }}
-                              </div>
-                            </div>
-                            <audio
-                              #adminAudioRef
-                              [src]="audioSrc"
-                              preload="none"
-                              (loadedmetadata)="onAdminAudioLoadedMetadata(msg, adminAudioRef)"
-                              (timeupdate)="onAdminAudioTimeUpdate(msg, adminAudioRef)"
-                              (ended)="onAdminAudioEnded(msg)"
-                            ></audio>
+                    <div *ngIf="msg.mensajeTemporal || msg.estadoTemporal === 'EXPIRADO'" class="admin-temporal-row">
+                      <span
+                        class="admin-temporal-chip"
+                        [ngClass]="adminTemporalStatusClass(msg)"
+                      >
+                        <i class="bi bi-hourglass-split"></i>
+                        {{ adminTemporalChipLabel(msg) }}
+                      </span>
+                      <span class="admin-temporal-state" [ngClass]="adminTemporalStatusClass(msg)">
+                        {{ adminTemporalStatusLabel(msg) }}
+                      </span>
+                      <span
+                        *ngIf="msg.expiraEn"
+                        class="admin-temporal-expire"
+                      >
+                        Expira: {{ msg.expiraEn | date:'dd/MM/yyyy HH:mm' }}
+                      </span>
+                    </div>
+                    <ng-container *ngIf="isPollMessage(msg); else adminNotPollMsg">
+                      <div class="poll-msg-card mt-2" [class.mine]="msg.isFromInspectedUser">
+                        <div class="poll-msg-head">
+                          <h4 class="poll-msg-question">{{ getAdminPollQuestion(msg) }}</h4>
+                          <div class="poll-msg-subtitle">
+                            <i class="bi bi-check2-circle"></i>
+                            <span>{{ getAdminPollStatusText(msg) }}</span>
                           </div>
                         </div>
-                        <ng-template #adminAudioMissing>
-                          <p class="text-sm whitespace-pre-wrap break-words mt-1">{{ msg.text || 'Mensaje de voz (audio no disponible)' }}</p>
+
+                        <div class="poll-msg-options">
+                          <button
+                            type="button"
+                            class="poll-msg-option"
+                            *ngFor="let option of getAdminPollOptionsForRender(msg); trackBy: trackAdminPollOption"
+                            [class.selected]="option.selected"
+                            disabled
+                          >
+                            <div class="poll-msg-option-row">
+                              <span class="poll-msg-check">
+                                <i class="bi bi-check-lg"></i>
+                              </span>
+                              <span class="poll-msg-option-text">{{ option.text }}</span>
+                              <span class="poll-msg-option-count-wrap">
+                                <ng-container *ngIf="option.voters.length > 0">
+                                  <span class="poll-msg-voters-stack">
+                                    <ng-container
+                                      *ngFor="let voter of option.voters; let idx = index; trackBy: trackAdminPollVoter"
+                                    >
+                                      <img
+                                        *ngIf="voter.photoUrl; else adminPollVoterInitials"
+                                        class="poll-msg-voter-chip poll-msg-voter-chip--img"
+                                        [style.zIndex]="20 - idx"
+                                        [src]="voter.photoUrl"
+                                        alt="Votante"
+                                      />
+                                      <ng-template #adminPollVoterInitials>
+                                        <span
+                                          class="poll-msg-voter-chip poll-msg-voter-chip--fallback"
+                                          [style.zIndex]="20 - idx"
+                                        >
+                                          {{ voter.initials }}
+                                        </span>
+                                      </ng-template>
+                                    </ng-container>
+                                  </span>
+                                </ng-container>
+                                <span class="poll-msg-option-count">{{ option.count }}</span>
+                              </span>
+                            </div>
+                            <span class="poll-msg-progress">
+                              <span
+                                class="poll-msg-progress-fill"
+                                [class.leading]="option.isLeading"
+                                [style.width.%]="option.percent"
+                              ></span>
+                            </span>
+                          </button>
+                        </div>
+
+                        <div class="poll-msg-actions">
+                          <button
+                            type="button"
+                            class="poll-msg-view-votes-btn"
+                            (click)="openAdminPollVotes(msg, $event)"
+                          >
+                            <i class="bi bi-people-fill"></i>
+                            Ver votos
+                          </button>
+                        </div>
+
+                      </div>
+                    </ng-container>
+                    <ng-template #adminNotPollMsg>
+                      <ng-container *ngIf="isImageMessage(msg); else adminNotImageMsg">
+                        <div *ngIf="getAdminImageSrc(msg) as imageSrc; else adminImageMissing" class="mt-2 admin-image-wrap">
+                          <img class="admin-image" [src]="imageSrc" [alt]="getAdminImageAlt(msg)" />
+                          <p *ngIf="getAdminImageCaption(msg)" class="text-sm whitespace-pre-wrap break-words mt-2">
+                            {{ getAdminImageCaption(msg) }}
+                          </p>
+                        </div>
+                        <ng-template #adminImageMissing>
+                          <p class="text-sm whitespace-pre-wrap break-words mt-1">{{ getAdminImageCaption(msg) || 'Imagen (no disponible)' }}</p>
                         </ng-template>
                       </ng-container>
-                    </ng-template>
-                    <ng-template #adminMsgText>
-                      <p class="text-sm whitespace-pre-wrap break-words mt-1">{{ msg.text }}</p>
+                      <ng-template #adminNotImageMsg>
+                        <ng-container *ngIf="isAudioMessage(msg); else adminNotAudioMsg">
+                          <div *ngIf="getAdminAudioSrc(msg) as audioSrc; else adminAudioMissing" class="mt-2">
+                            <div class="audio-bubble" [class.mine]="msg.isFromInspectedUser">
+                              <button
+                                class="audio-play"
+                                [attr.aria-label]="(getAdminAudioState(msg)?.playing ? 'Pausar' : 'Reproducir') + ' audio'"
+                                (click)="toggleAdminPlay(msg, adminAudioRef)"
+                              >
+                                <i
+                                  class="fas"
+                                  [ngClass]="getAdminAudioState(msg)?.playing ? 'fa-pause' : 'fa-play'"
+                                ></i>
+                              </button>
+                              <div class="audio-wave">
+                                <div class="audio-track">
+                                  <div class="audio-progress" [style.width.%]="adminProgressPercent(msg)"></div>
+                                </div>
+                                <div class="audio-time">
+                                  {{ adminFormatDur(getAdminAudioState(msg)?.current || msg.audioDuracionMs) }}
+                                </div>
+                              </div>
+                              <audio
+                                #adminAudioRef
+                                [src]="audioSrc"
+                                preload="none"
+                                (loadedmetadata)="onAdminAudioLoadedMetadata(msg, adminAudioRef)"
+                                (timeupdate)="onAdminAudioTimeUpdate(msg, adminAudioRef)"
+                                (ended)="onAdminAudioEnded(msg)"
+                              ></audio>
+                            </div>
+                          </div>
+                          <ng-template #adminAudioMissing>
+                            <p class="text-sm whitespace-pre-wrap break-words mt-1">{{ msg.text || 'Mensaje de voz (audio no disponible)' }}</p>
+                          </ng-template>
+                        </ng-container>
+                      </ng-template>
+                      <ng-template #adminNotAudioMsg>
+                        <ng-container *ngIf="isFileMessage(msg); else adminMsgText">
+                          <div *ngIf="getAdminFileSrc(msg) as fileSrc; else adminFileMissing" class="mt-2 admin-file-wrap">
+                            <a
+                              class="admin-file-bubble"
+                              [href]="fileSrc"
+                              [attr.download]="getAdminFileName(msg)"
+                              target="_blank"
+                              rel="noopener"
+                              (click)="openAdminFilePreview(msg, fileSrc, $event)"
+                            >
+                              <span class="admin-file-bubble__icon" aria-hidden="true">
+                                <i class="bi" [ngClass]="getAdminFileIconClass(msg?.fileMime)"></i>
+                              </span>
+                              <span class="admin-file-bubble__meta">
+                                <span class="admin-file-bubble__name">{{ getAdminFileName(msg) }}</span>
+                                <span class="admin-file-bubble__meta-line">
+                                  <ng-container *ngIf="getAdminFileSizeLabel(msg) as fileSize; else adminUnknownFileSize">
+                                    {{ fileSize }}
+                                  </ng-container>
+                                  <ng-template #adminUnknownFileSize>Sin tamaÒo</ng-template>
+                                  &nbsp;ï&nbsp;{{ getAdminFileTypeLabel(msg) }}
+                                </span>
+                              </span>
+                            </a>
+                            <p *ngIf="getAdminFileCaption(msg)" class="text-sm whitespace-pre-wrap break-words mt-2">
+                              {{ getAdminFileCaption(msg) }}
+                            </p>
+                          </div>
+                          <ng-template #adminFileMissing>
+                            <p class="text-sm whitespace-pre-wrap break-words mt-1">{{ msg.text || '[Archivo cifrado]' }}</p>
+                          </ng-template>
+                        </ng-container>
+                      </ng-template>
+                      <ng-template #adminMsgText>
+                        <p class="text-sm whitespace-pre-wrap break-words mt-1">{{ msg.text }}</p>
+                      </ng-template>
                     </ng-template>
                   </div>
                 </div>
               </ng-container>
 
-              <div *ngIf="!loadingChatMessages && !selectedChatMensajes?.length" class="text-sm text-slate-500">
-                Este chat no trae mensajes en el payload actual.
+              <div *ngIf="!loadingChatMessages && !filteredSelectedChatMensajes.length" class="text-sm text-slate-500">
+                {{ selectedChatMensajes.length ? 'No hay mensajes para el filtro temporal seleccionado.' : 'Este chat no trae mensajes en el payload actual.' }}
               </div>
             </div>
           </div>
         </div>
       </div>
   </section>
+  <app-file-preview-viewer
+    [open]="showAdminFilePreview"
+    [fileUrl]="adminFilePreviewSrc"
+    [fileName]="adminFilePreviewName"
+    [fileSize]="adminFilePreviewSize"
+    [fileType]="adminFilePreviewType"
+    [fileMime]="adminFilePreviewMime"
+    (closed)="closeAdminFilePreview()"
+  ></app-file-preview-viewer>
     </main>
 </div>
+
 
 
