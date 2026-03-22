@@ -31,6 +31,7 @@ interface E2EEncryptedMediaPayload {
   mediaUrl: string;
   mediaMime?: string;
   mediaDurMs?: number;
+  fileName?: string;
   forEmisor: string;
   forAdmin: string;
   forReceptor?: string;
@@ -107,6 +108,17 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
   public mediaError: string | null = null;
   public mediaItems: GroupMediaViewItem[] = [];
   public mediaDecryptingMessageId: number | null = null;
+  public filesOpen = false;
+  public filesLoading = false;
+  public filesLoadingMore = false;
+  public filesInitialized = false;
+  public filesCountLoading = false;
+  public filesTotalCount: number | null = null;
+  public filesHasMore = true;
+  public filesNextCursor: string | null = null;
+  public filesError: string | null = null;
+  public filesItems: GroupMediaViewItem[] = [];
+  public filesDecryptingMessageId: number | null = null;
   public mediaAudioStates = new Map<number, PanelAudioState>();
   private memberEstadoSubs = new Map<number, StompSubscription>();
   private memberEstados = new Map<number, 'Conectado' | 'Desconectado' | 'Ausente'>();
@@ -140,11 +152,14 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
       this.adminBusyUserId = null;
       this.clearInviteSuccessTimer();
       this.resetMediaState();
+      this.resetFilesState();
       this.clearDecryptedMediaUrls();
       this.clearMemberEstadoSubs();
       this.memberEstados.clear();
       this.prefetchMediaCount(Number(this.group?.id));
+      this.prefetchFilesCount(Number(this.group?.id));
       this.loadMedia(true);
+      this.loadFiles(true);
       this.loadGroupDetail();
     }
   }
@@ -240,10 +255,29 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
   }
 
   public get sharedFilesCount(): number {
-    return Number(this.detail?.filesCount ?? this.group?.filesCount ?? 12) || 0;
+    const fromDetail = Number(this.detail?.filesCount ?? this.group?.filesCount);
+    if (Number.isFinite(fromDetail) && fromDetail > 0) {
+      return fromDetail;
+    }
+    if (Number.isFinite(Number(this.filesTotalCount)) && Number(this.filesTotalCount) >= 0) {
+      return Number(this.filesTotalCount);
+    }
+    if (this.filesInitialized && !this.filesHasMore) return this.filesItems.length;
+    return 0;
+  }
+
+  public get sharedFilesSubtitle(): string {
+    const count = this.sharedFilesCount;
+    if (count > 0) return `${count} archivos`;
+    if (this.filesCountLoading) return 'Calculando...';
+    return 'Sin archivos compartidos';
   }
 
   public trackMediaItem(_: number, item: GroupMediaViewItem): number {
+    return Number(item?.messageId || _);
+  }
+
+  public trackFileItem(_: number, item: GroupMediaViewItem): number {
     return Number(item?.messageId || _);
   }
 
@@ -393,6 +427,87 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
 
   public loadMoreMedia(): void {
     this.loadMedia(false);
+  }
+
+  public async toggleFiles(): Promise<void> {
+    this.filesOpen = !this.filesOpen;
+    if (this.filesOpen && !this.filesInitialized && !this.filesLoading) {
+      this.loadFiles(true);
+    }
+  }
+
+  public loadMoreFiles(): void {
+    this.loadFiles(false);
+  }
+
+  public fileNameLabel(item: GroupMediaViewItem): string {
+    const explicitName = String(item?.fileName || '').trim();
+    if (explicitName) return explicitName;
+
+    const fromUrl = String(item?.mediaUrlRaw || '').split('?')[0].split('#')[0];
+    const parts = fromUrl.split('/').filter((p) => !!p);
+    if (parts.length > 0) {
+      try {
+        return decodeURIComponent(parts[parts.length - 1]);
+      } catch {
+        return parts[parts.length - 1];
+      }
+    }
+
+    return `Archivo #${Number(item?.messageId || 0)}`;
+  }
+
+  public async openFileItem(item: GroupMediaViewItem, event?: MouseEvent): Promise<void> {
+    event?.stopPropagation();
+    if (!item) return;
+
+    if (!item.resolvedUrl && item.encrypted) {
+      this.filesDecryptingMessageId = item.messageId;
+      try {
+        await this.prepareMedia(item, true);
+      } finally {
+        if (this.filesDecryptingMessageId === item.messageId) {
+          this.filesDecryptingMessageId = null;
+        }
+      }
+    }
+
+    const url = String(item.resolvedUrl || '').trim();
+    if (!url) {
+      item.decryptError = item.decryptError || 'No hay URL disponible para abrir este archivo.';
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  public async downloadFileItem(item: GroupMediaViewItem, event?: MouseEvent): Promise<void> {
+    event?.stopPropagation();
+    if (!item) return;
+
+    if (!item.resolvedUrl && item.encrypted) {
+      this.filesDecryptingMessageId = item.messageId;
+      try {
+        await this.prepareMedia(item, true);
+      } finally {
+        if (this.filesDecryptingMessageId === item.messageId) {
+          this.filesDecryptingMessageId = null;
+        }
+      }
+    }
+
+    const url = String(item.resolvedUrl || '').trim();
+    if (!url) {
+      item.decryptError = item.decryptError || 'No hay URL disponible para descargar este archivo.';
+      return;
+    }
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = this.fileNameLabel(item);
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   public async prepareMedia(item: GroupMediaViewItem, silent: boolean = false): Promise<void> {
@@ -960,6 +1075,20 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     this.mediaCurrentAudioMessageId = null;
   }
 
+  private resetFilesState(): void {
+    this.filesOpen = false;
+    this.filesLoading = false;
+    this.filesLoadingMore = false;
+    this.filesInitialized = false;
+    this.filesCountLoading = false;
+    this.filesTotalCount = null;
+    this.filesHasMore = true;
+    this.filesNextCursor = null;
+    this.filesError = null;
+    this.filesItems = [];
+    this.filesDecryptingMessageId = null;
+  }
+
   private clearDecryptedMediaUrls(): void {
     for (const url of this.decryptedMediaUrlByCacheKey.values()) {
       try {
@@ -968,6 +1097,25 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     }
     this.decryptedMediaUrlByCacheKey.clear();
     this.decryptingMediaByCacheKey.clear();
+  }
+
+  private mergeAndSortMediaItems(
+    baseItems: GroupMediaViewItem[],
+    nextItems: GroupMediaViewItem[]
+  ): GroupMediaViewItem[] {
+    const merged = [...(baseItems || []), ...(nextItems || [])];
+    const dedup = new Map<number, GroupMediaViewItem>();
+    for (const item of merged) {
+      if (!Number.isFinite(Number(item?.messageId))) continue;
+      dedup.set(Number(item.messageId), item);
+    }
+
+    return Array.from(dedup.values()).sort((a, b) => {
+      const aTime = new Date(a.fechaEnvio || 0).getTime();
+      const bTime = new Date(b.fechaEnvio || 0).getTime();
+      if (bTime !== aTime) return bTime - aTime;
+      return Number(b.messageId) - Number(a.messageId);
+    });
   }
 
   private loadMedia(reset: boolean): void {
@@ -1001,18 +1149,7 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
           if (reset) {
             this.mediaItems = mapped;
           } else {
-            const merged = [...this.mediaItems, ...mapped];
-            const dedup = new Map<number, GroupMediaViewItem>();
-            for (const item of merged) {
-              if (!Number.isFinite(Number(item?.messageId))) continue;
-              dedup.set(Number(item.messageId), item);
-            }
-            this.mediaItems = Array.from(dedup.values()).sort((a, b) => {
-              const aTime = new Date(a.fechaEnvio || 0).getTime();
-              const bTime = new Date(b.fechaEnvio || 0).getTime();
-              if (bTime !== aTime) return bTime - aTime;
-              return Number(b.messageId) - Number(a.messageId);
-            });
+            this.mediaItems = this.mergeAndSortMediaItems(this.mediaItems, mapped);
           }
 
           const nextCursor = String((res as any)?.nextCursor || '').trim();
@@ -1028,12 +1165,68 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
           void this.autoDecryptLoadedItems(mapped);
           this.cdr.markForCheck();
         },
-          error: (err) => {
-            this.mediaLoading = false;
-            this.mediaLoadingMore = false;
-            this.mediaInitialized = true;
+        error: (err) => {
+          this.mediaLoading = false;
+          this.mediaLoadingMore = false;
+          this.mediaInitialized = true;
           this.mediaError =
             err?.error?.mensaje || 'No se pudo cargar la multimedia del grupo.';
+          this.cdr.markForCheck();
+        },
+      });
+  }
+
+  private loadFiles(reset: boolean): void {
+    const groupId = Number(this.group?.id || this.detail?.id);
+    if (!groupId) return;
+    if (this.filesLoading || this.filesLoadingMore) return;
+    if (!reset && !this.filesHasMore) return;
+
+    this.filesError = null;
+    if (reset) {
+      this.filesLoading = true;
+      this.filesNextCursor = null;
+      this.filesHasMore = true;
+    } else {
+      this.filesLoadingMore = true;
+    }
+
+    this.chatService
+      .listarMediaGrupo(groupId, reset ? null : this.filesNextCursor, 30, ['FILE'])
+      .subscribe({
+        next: (res: GroupMediaListResponseDTO) => {
+          const itemsRaw = Array.isArray((res as any)?.items)
+            ? (res as any).items
+            : [];
+          const mapped = itemsRaw
+            .map((it: GroupMediaItemDTO) => this.mapMediaItem(it, groupId))
+            .filter((it: GroupMediaViewItem) => it.kind === 'FILE');
+
+          if (reset) {
+            this.filesItems = mapped;
+          } else {
+            this.filesItems = this.mergeAndSortMediaItems(this.filesItems, mapped);
+          }
+
+          const nextCursor = String((res as any)?.nextCursor || '').trim();
+          const hasMoreFromBack = !!(res as any)?.hasMore;
+          this.filesNextCursor = nextCursor || null;
+          this.filesHasMore = hasMoreFromBack || !!nextCursor;
+          this.filesInitialized = true;
+          if (!this.filesHasMore) {
+            this.filesTotalCount = this.filesItems.length;
+          }
+          this.filesLoading = false;
+          this.filesLoadingMore = false;
+          void this.autoDecryptLoadedItems(mapped);
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.filesLoading = false;
+          this.filesLoadingMore = false;
+          this.filesInitialized = true;
+          this.filesError =
+            err?.error?.mensaje || 'No se pudieron cargar los archivos del grupo.';
           this.cdr.markForCheck();
         },
       });
@@ -1090,6 +1283,45 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     step(null, 1);
   }
 
+  private prefetchFilesCount(groupIdRaw?: number): void {
+    const groupId = Number(groupIdRaw || this.group?.id || this.detail?.id);
+    if (!groupId) return;
+    if (this.filesCountLoading) return;
+    if (Number.isFinite(Number(this.filesTotalCount)) && Number(this.filesTotalCount) >= 0) return;
+
+    this.filesCountLoading = true;
+    let total = 0;
+    const maxPages = 40;
+
+    const step = (cursor: string | null, page: number) => {
+      this.chatService
+        .listarMediaGrupo(groupId, cursor, 50, ['FILE'])
+        .subscribe({
+          next: (res: GroupMediaListResponseDTO) => {
+            const items = Array.isArray((res as any)?.items) ? (res as any).items : [];
+            total += items.length;
+            const nextCursor = String((res as any)?.nextCursor || '').trim();
+            const hasMore = !!(res as any)?.hasMore || !!nextCursor;
+
+            if (hasMore && nextCursor && page < maxPages) {
+              step(nextCursor, page + 1);
+              return;
+            }
+
+            this.filesTotalCount = total;
+            this.filesCountLoading = false;
+            this.cdr.markForCheck();
+          },
+          error: () => {
+            this.filesCountLoading = false;
+            this.cdr.markForCheck();
+          },
+        });
+    };
+
+    step(null, 1);
+  }
+
   private mapMediaItem(raw: GroupMediaItemDTO, fallbackChatId: number): GroupMediaViewItem {
     const contenidoRaw = String(raw?.contenidoRaw ?? raw?.contenido ?? '').trim();
     const payload = this.parseE2EEncryptedMediaPayload(contenidoRaw);
@@ -1123,7 +1355,7 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
       mime,
       sizeBytes: Number(raw?.sizeBytes || 0) || 0,
       durMs,
-      fileName: String(raw?.fileName || '').trim(),
+      fileName: String(payload?.fileName || raw?.fileName || '').trim(),
       thumbUrl: resolveMediaUrl(String(raw?.thumbUrl || ''), environment.backendBaseUrl) || '',
       encrypted: !!payload,
       e2ePayload: payload,
@@ -1176,8 +1408,13 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
         type: type as E2EEncryptedMediaPayload['type'],
         ivFile,
         mediaUrl,
-        mediaMime: String(payload?.audioMime || payload?.mediaMime || '').trim() || undefined,
+        mediaMime: String(
+          payload?.audioMime || payload?.fileMime || payload?.mediaMime || ''
+        ).trim() || undefined,
         mediaDurMs: Number(payload?.audioDuracionMs || payload?.durMs || 0) || undefined,
+        fileName: String(
+          payload?.fileNombre || payload?.fileName || payload?.nombreArchivo || ''
+        ).trim() || undefined,
         forEmisor,
         forAdmin,
       };
@@ -1331,10 +1568,17 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
         ) {
           this.prefetchMediaCount(groupId);
         }
+        if (
+          !this.filesCountLoading &&
+          !Number.isFinite(Number(this.filesTotalCount))
+        ) {
+          this.prefetchFilesCount(groupId);
+        }
       },
       error: (err) => {
         this.loading = false;
         this.mediaCountLoading = false;
+        this.filesCountLoading = false;
         this.detail = null;
         this.loadError = err?.error?.mensaje || 'No se pudo cargar el detalle del grupo.';
       },

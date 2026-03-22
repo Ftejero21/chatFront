@@ -29,7 +29,7 @@
           </svg>
         </div>
         <div class="file-viewer-header__meta">
-          <h2 class="file-viewer-header__name">{{ fileName || 'Archivo' }}</h2>
+          <h2 class="file-viewer-header__name">{{ resolvedFileName || 'Archivo' }}</h2>
           <p class="file-viewer-header__sub">
             <span *ngIf="fileSize">{{ fileSize }}</span>
             <span *ngIf="fileSize"> • </span>
@@ -101,85 +101,97 @@
       </div>
     </div>
 
-    <div class="file-viewer-body custom-scrollbar">
-      <div class="file-viewer-canvas" [style.transform]="zoomScale()">
+    <div class="file-viewer-body custom-scrollbar" [class.file-viewer-body--pdf]="previewKind === 'pdf'">
+      <div
+        class="file-viewer-canvas"
+        [class.file-viewer-canvas--pdf]="previewKind === 'pdf'"
+        [style.transform]="zoomScale()"
+      >
         <ng-container [ngSwitch]="previewKind">
           <img
             *ngSwitchCase="'image'"
             class="file-viewer-media file-viewer-media--image"
-            [src]="fileUrl"
-            [alt]="fileName || 'Archivo'"
+            [src]="previewUrl"
+            [alt]="resolvedFileName || 'Archivo'"
+            (error)="onMediaRenderError('image')"
           />
 
-          <div *ngSwitchCase="'pdf'" class="pdf-pages-wrap">
+          <div *ngSwitchCase="'pdf'" class="pdf-embed-wrap">
             <div *ngIf="pdfRendering" class="file-viewer-status">Cargando PDF...</div>
             <div *ngIf="pdfError" class="file-viewer-status file-viewer-status--error">{{ pdfError }}</div>
             <div #pdfPagesHost class="pdf-pages-host"></div>
           </div>
 
-          <video
-            *ngSwitchCase="'video'"
-            class="file-viewer-media file-viewer-media--video"
-            [src]="fileUrl"
-            controls
-          ></video>
-
           <audio
             *ngSwitchCase="'audio'"
             class="file-viewer-audio"
-            [src]="fileUrl"
+            [src]="previewUrl"
             controls
+            preload="metadata"
+            (error)="onMediaRenderError('audio')"
           ></audio>
 
           <div *ngSwitchCase="'text'" class="file-viewer-text-wrap">
             <div *ngIf="loadingText" class="file-viewer-status">Cargando previsualizacion...</div>
             <div *ngIf="textError" class="file-viewer-status file-viewer-status--error">{{ textError }}</div>
-            <pre *ngIf="!loadingText && !textError" class="file-viewer-text">{{
-              textPreview || 'Sin contenido para mostrar.'
-            }}</pre>
-          </div>
 
-          <div *ngSwitchCase="'word'" class="word-preview-wrap">
-            <div *ngIf="wordLoading" class="file-viewer-status">Cargando documento Word...</div>
-            <div *ngIf="wordError" class="file-viewer-status file-viewer-status--error">{{ wordError }}</div>
-            <div *ngIf="!wordLoading && !wordError" class="word-preview-doc">
-              <p
-                *ngFor="let paragraph of wordParagraphs; trackBy: trackWordParagraph"
-                class="word-preview-paragraph"
-              >
-                {{ paragraph }}
-              </p>
-            </div>
-          </div>
-
-          <div *ngSwitchCase="'zip'" class="zip-preview-wrap">
-            <div *ngIf="zipLoading" class="file-viewer-status">Analizando ZIP...</div>
-            <div *ngIf="zipError" class="file-viewer-status file-viewer-status--error">{{ zipError }}</div>
-            <ng-container *ngIf="!zipLoading && !zipError">
-              <div class="zip-preview-summary">{{ zipSummary || 'ZIP sin contenido visible.' }}</div>
-              <ul class="zip-entry-list" *ngIf="zipEntries.length; else zipEmpty">
-                <li
-                  class="zip-entry-item"
-                  *ngFor="let entry of zipEntries; trackBy: trackZipEntry"
-                  [class.zip-entry-item--dir]="entry.isDir"
-                  [style.paddingLeft.px]="12 + entry.depth * 16"
-                >
-                  <i
-                    class="bi zip-entry-icon"
-                    [ngClass]="entry.isDir ? 'bi-folder2-open' : 'bi-file-earmark'"
-                    aria-hidden="true"
-                  ></i>
-                  <span class="zip-entry-label">{{ entry.label }}</span>
-                </li>
-              </ul>
-              <ng-template #zipEmpty>
-                <div class="file-viewer-status">ZIP sin contenido visible.</div>
-              </ng-template>
+            <ng-container *ngIf="!loadingText && !textError">
+              <div *ngIf="preview.isHtmlText" class="text-preview-note">
+                El archivo HTML se muestra como texto plano por seguridad.
+              </div>
+              <div *ngIf="textTruncated" class="text-preview-note text-preview-note--warning">
+                Contenido truncado para seguridad de memoria (maximo {{ formatBytes(524288) }}).
+              </div>
+              <pre class="file-viewer-text">{{ textPreview || 'Sin contenido para mostrar.' }}</pre>
             </ng-container>
           </div>
 
-          <div *ngSwitchDefault class="file-viewer-status">
-            No hay previsualizacion disponible para este tipo de archivo.
+          <div *ngSwitchCase="'office'" class="file-viewer-status-wrap">
+            <div *ngIf="officeLoading" class="file-viewer-status">Cargando documento Office...</div>
+            <div *ngIf="officeError" class="file-viewer-status file-viewer-status--error">{{ officeError }}</div>
+            <ng-container *ngIf="!officeLoading && !officeError">
+              <div *ngIf="officeParagraphs.length" class="word-preview-wrap">
+                <div class="word-preview-doc">
+                  <p
+                    *ngFor="let paragraph of officeParagraphs; trackBy: trackOfficeParagraph"
+                    class="word-preview-paragraph"
+                  >
+                    {{ paragraph }}
+                  </p>
+                </div>
+              </div>
+              <div *ngIf="!officeParagraphs.length" class="file-viewer-status">{{ preview.message }}</div>
+            </ng-container>
+          </div>
+
+          <div *ngSwitchCase="'archive'" class="file-viewer-status-wrap">
+            <div *ngIf="archiveLoading" class="file-viewer-status">Leyendo archivo ZIP...</div>
+            <div *ngIf="archiveError" class="file-viewer-status file-viewer-status--error">{{ archiveError }}</div>
+            <ng-container *ngIf="!archiveLoading && !archiveError">
+              <div *ngIf="archiveEntries.length" class="archive-preview-wrap">
+                <div class="archive-preview-summary">{{ archiveSummary }}</div>
+                <ul class="archive-entry-list">
+                  <li
+                    class="archive-entry-item"
+                    *ngFor="let entry of archiveEntries; trackBy: trackArchiveEntry"
+                    [class.archive-entry-item--dir]="entry.isDir"
+                    [style.paddingLeft.px]="12 + entry.depth * 16"
+                  >
+                    <i
+                      class="bi archive-entry-icon"
+                      [ngClass]="entry.isDir ? 'bi-folder2-open' : 'bi-file-earmark-zip'"
+                      aria-hidden="true"
+                    ></i>
+                    <span class="archive-entry-label">{{ entry.label }}</span>
+                  </li>
+                </ul>
+              </div>
+              <div *ngIf="!archiveEntries.length" class="file-viewer-status">{{ preview.message }}</div>
+            </ng-container>
+          </div>
+
+          <div *ngSwitchDefault class="file-viewer-status-wrap">
+            <div class="file-viewer-status">{{ preview.message || 'No hay previsualizacion disponible para este tipo de archivo.' }}</div>
           </div>
         </ng-container>
       </div>
@@ -196,3 +208,4 @@
     </footer>
   </section>
 </div>
+

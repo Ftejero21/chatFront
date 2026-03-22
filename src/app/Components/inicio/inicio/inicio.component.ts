@@ -556,6 +556,17 @@ export class InicioComponent {
   private escribiendoTimeout: any;
   private grabandoAudioTimeout: any;
   private callInfoTimer?: any;
+  private outgoingRingbackCtx?: AudioContext;
+  private outgoingRingbackOsc?: OscillatorNode;
+  private outgoingRingbackGain?: GainNode;
+  private outgoingRingbackTimer?: any;
+  private outgoingRingbackActive = false;
+  private incomingRingtoneCtx?: AudioContext;
+  private incomingRingtoneOsc?: OscillatorNode;
+  private incomingRingtoneGain?: GainNode;
+  private incomingRingtoneTimer?: any;
+  private incomingRingtoneActive = false;
+  private outgoingCallPendingAcceptance = false;
   private notifsLoadedOnce = false;
   private aiWaitTicker?: any;
   private aiWaitDots = 0;
@@ -725,6 +736,7 @@ export class InicioComponent {
             this.ngZone.run(() => {
               this.ultimaInvite = invite; // muestra el panel entrante
               this.currentCallId = invite.callId; // guarda el id
+              this.startIncomingRingtone();
               this.cdr.markForCheck();
             });
           }
@@ -754,13 +766,21 @@ export class InicioComponent {
                 // Ambos continuan con WebRTC (A crea offer; B maneja la offer entrante)
                 this.currentCallId = answer.callId;
                 if (soyCaller) {
+                  this.stopOutgoingRingback();
+                  this.outgoingCallPendingAcceptance = false;
+                  this.isMuted = false;
+                  this.setLocalAudioEnabled(true);
                   await this.onAnswerAccepted(answer.callId, answer.fromUserId);
                   // quita “Llamando…”
                   this.callInfoMessage = null;
+                } else if (soyCallee) {
+                  this.stopIncomingRingtone();
                 }
               } else {
                 // ? Rechazada
                 if (soyCaller) {
+                  this.stopOutgoingRingback();
+                  this.outgoingCallPendingAcceptance = false;
                   // SOLO el caller ve el mensaje
                   const nombre =
                     (this.chatActual?.receptor?.nombre || '') +
@@ -784,6 +804,7 @@ export class InicioComponent {
                   );
                 } else if (soyCallee) {
                   // El callee NO debe ver mensaje de rechazo: solo limpiar banner/estado
+                  this.stopIncomingRingtone();
                   this.ultimaInvite = undefined;
                   this.showCallUI = false;
                   this.callInfoMessage = null;
@@ -798,6 +819,9 @@ export class InicioComponent {
         // ?? Llamadas: fin (colgar)
         this.wsService.suscribirseAFinLlamada(this.usuarioActualId, (end) => {
           this.ngZone.run(() => {
+            this.stopOutgoingRingback();
+            this.stopIncomingRingtone();
+            this.outgoingCallPendingAcceptance = false;
             if (this.ultimaInvite && end.callId === this.ultimaInvite.callId) {
               this.ultimaInvite = undefined; // ?? quita el banner
               this.currentCallId = undefined;
@@ -815,6 +839,7 @@ export class InicioComponent {
             const colgoElOtro = Number(end.byUserId) !== Number(yo);
 
             if (colgoElOtro) {
+              this.playHangupTone();
               // ?? nombre del peer (si lo tienes en el chat actual)
               const peer = this.chatActual?.receptor;
               const peerNombre =
@@ -9937,6 +9962,7 @@ private async decryptPreviewString(
    */
   public async aceptarLlamada(): Promise<void> {
     if (!this.ultimaInvite) return;
+    this.stopIncomingRingtone();
 
     // ?? Primero probamos acceder a cam/mic. Si falla, rechazamos con motivo.
     try {
@@ -9972,6 +9998,7 @@ private async decryptPreviewString(
    */
   public rechazarLlamada(): void {
     if (!this.ultimaInvite) return;
+    this.stopIncomingRingtone();
     this.wsService.responderLlamada(
       this.ultimaInvite.callId,
       this.ultimaInvite.callerId,
@@ -9987,6 +10014,10 @@ private async decryptPreviewString(
    * Termina la videollamada actual, cortando la conexión tanto si fuiste el creador como si fuiste el invitado.
    */
   public colgar(): void {
+    this.stopOutgoingRingback();
+    this.stopIncomingRingtone();
+    this.outgoingCallPendingAcceptance = false;
+    this.playHangupTone();
     const callId = this.currentCallId ?? this.ultimaInvite?.callId;
     if (callId) {
       this.wsService.colgarLlamada(callId, this.usuarioActualId);
@@ -9998,6 +10029,9 @@ private async decryptPreviewString(
    * Limpia y apaga recursos locales de una llamada finalizada (cierra la cámara, micrófono y conexión remota).
    */
   private cerrarLlamadaLocal(): void {
+    this.stopOutgoingRingback();
+    this.stopIncomingRingtone();
+    this.outgoingCallPendingAcceptance = false;
     try {
       this.localStream?.getTracks().forEach((t) => t.stop());
     } catch {}
@@ -10186,6 +10220,7 @@ private async decryptPreviewString(
    */
   public async iniciarVideollamada(chatId?: number): Promise<void> {
     if (!this.chatActual || this.chatActual.esGrupo) return;
+    this.stopIncomingRingtone();
 
     const callerId = this.usuarioActualId;
     const calleeId = Number(this.chatActual?.receptor?.id);
@@ -10198,15 +10233,303 @@ private async decryptPreviewString(
 
     this.remoteStream = null; // <- asegura que NO hay remoto aún
     this.showCallUI = true;
+    this.outgoingCallPendingAcceptance = true;
+    this.isMuted = true;
+    this.setLocalAudioEnabled(false);
 
     const nombreCallee =
       `${this.chatActual?.receptor?.nombre || ''} ${
         this.chatActual?.receptor?.apellido || ''
       }`.trim() || 'la otra persona';
-    this.showRemoteStatus(`Llamando a ${nombreCallee}?`, 'is-ringing');
+    this.showRemoteStatus(`Llamando a ${nombreCallee}`, 'is-ringing');
+    this.startOutgoingRingback();
 
     // Envía invitación
     this.wsService.iniciarLlamada(callerId, calleeId, chatId);
+  }
+
+  /**
+   * Activa/desactiva de forma masiva las pistas de audio locales.
+   */
+  private setLocalAudioEnabled(enabled: boolean): void {
+    try {
+      this.localStream
+        ?.getAudioTracks()
+        .forEach((t) => (t.enabled = !!enabled));
+    } catch {}
+  }
+
+  /**
+   * Reproduce tono local de llamada saliente mientras esperamos que la otra persona acepte.
+   */
+  private startOutgoingRingback(): void {
+    this.stopOutgoingRingback();
+    this.stopIncomingRingtone();
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+
+      const ctx: AudioContext = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      // Saliente: tono suave y menos agresivo.
+      osc.type = 'triangle';
+      osc.frequency.value = 440;
+      gain.gain.value = 0;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+
+      this.outgoingRingbackCtx = ctx;
+      this.outgoingRingbackOsc = osc;
+      this.outgoingRingbackGain = gain;
+      this.outgoingRingbackActive = true;
+
+      const pattern = [
+        { freq: 440, ms: 420, vol: 0.038 },
+        { freq: 523, ms: 420, vol: 0.038 },
+        { freq: 440, ms: 420, vol: 0.038 },
+        { freq: 0, ms: 1020, vol: 0 },
+      ];
+      let idx = 0;
+
+      const step = () => {
+        if (
+          !this.outgoingRingbackActive ||
+          !this.outgoingRingbackOsc ||
+          !this.outgoingRingbackGain ||
+          !this.outgoingRingbackCtx
+        ) {
+          return;
+        }
+        const p = pattern[idx];
+        idx = (idx + 1) % pattern.length;
+
+        if (p.freq > 0 && p.vol > 0) {
+          this.outgoingRingbackOsc.frequency.setValueAtTime(
+            p.freq,
+            this.outgoingRingbackCtx.currentTime
+          );
+          this.outgoingRingbackGain.gain.setTargetAtTime(
+            p.vol,
+            this.outgoingRingbackCtx.currentTime,
+            0.01
+          );
+        } else {
+          this.outgoingRingbackGain.gain.setTargetAtTime(
+            0,
+            this.outgoingRingbackCtx.currentTime,
+            0.02
+          );
+        }
+
+        this.outgoingRingbackTimer = setTimeout(step, p.ms);
+      };
+
+      step();
+      void ctx.resume().catch(() => {});
+    } catch (e) {
+      console.warn('No se pudo iniciar el tono de llamada saliente', e);
+      this.stopOutgoingRingback();
+    }
+  }
+
+  /**
+   * Detiene y limpia cualquier tono local de llamada saliente en curso.
+   */
+  private stopOutgoingRingback(): void {
+    this.outgoingRingbackActive = false;
+    if (this.outgoingRingbackTimer) {
+      clearTimeout(this.outgoingRingbackTimer);
+      this.outgoingRingbackTimer = undefined;
+    }
+    try {
+      if (this.outgoingRingbackGain && this.outgoingRingbackCtx) {
+        this.outgoingRingbackGain.gain.setValueAtTime(
+          0,
+          this.outgoingRingbackCtx.currentTime
+        );
+      }
+    } catch {}
+    try {
+      this.outgoingRingbackOsc?.stop();
+    } catch {}
+    try {
+      this.outgoingRingbackOsc?.disconnect();
+    } catch {}
+    try {
+      this.outgoingRingbackGain?.disconnect();
+    } catch {}
+    try {
+      void this.outgoingRingbackCtx?.close();
+    } catch {}
+    this.outgoingRingbackOsc = undefined;
+    this.outgoingRingbackGain = undefined;
+    this.outgoingRingbackCtx = undefined;
+  }
+
+  /**
+   * Reproduce tono de llamada entrante mientras el usuario decide aceptar/rechazar.
+   */
+  private startIncomingRingtone(): void {
+    this.stopIncomingRingtone();
+    this.stopOutgoingRingback();
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+
+      const ctx: AudioContext = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      // Entrante (estilo Teams): campana suave en dos notas.
+      osc.type = 'sine';
+      osc.frequency.value = 659;
+      gain.gain.value = 0;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+
+      this.incomingRingtoneCtx = ctx;
+      this.incomingRingtoneOsc = osc;
+      this.incomingRingtoneGain = gain;
+      this.incomingRingtoneActive = true;
+
+      // Patrón "ring-ring" más suave y musical.
+      const pattern = [
+        { freq: 659, ms: 260, vol: 0.03 }, // E5
+        { freq: 523, ms: 260, vol: 0.028 }, // C5
+        { freq: 0, ms: 170, vol: 0 },
+        { freq: 659, ms: 260, vol: 0.03 },
+        { freq: 523, ms: 260, vol: 0.028 },
+        { freq: 0, ms: 1120, vol: 0 },
+      ];
+      let idx = 0;
+
+      const step = () => {
+        if (
+          !this.incomingRingtoneActive ||
+          !this.incomingRingtoneOsc ||
+          !this.incomingRingtoneGain ||
+          !this.incomingRingtoneCtx
+        ) {
+          return;
+        }
+
+        const p = pattern[idx];
+        idx = (idx + 1) % pattern.length;
+
+        if (p.freq > 0) {
+          this.incomingRingtoneOsc.frequency.setValueAtTime(
+            p.freq,
+            this.incomingRingtoneCtx.currentTime
+          );
+          this.incomingRingtoneGain.gain.setTargetAtTime(
+            p.vol,
+            this.incomingRingtoneCtx.currentTime,
+            0.01
+          );
+        } else {
+          this.incomingRingtoneGain.gain.setTargetAtTime(
+            0,
+            this.incomingRingtoneCtx.currentTime,
+            0.02
+          );
+        }
+
+        this.incomingRingtoneTimer = setTimeout(step, p.ms);
+      };
+
+      step();
+      void ctx.resume().catch(() => {});
+    } catch (e) {
+      console.warn('No se pudo iniciar el tono de llamada entrante', e);
+      this.stopIncomingRingtone();
+    }
+  }
+
+  /**
+   * Detiene el tono de llamada entrante.
+   */
+  private stopIncomingRingtone(): void {
+    this.incomingRingtoneActive = false;
+    if (this.incomingRingtoneTimer) {
+      clearTimeout(this.incomingRingtoneTimer);
+      this.incomingRingtoneTimer = undefined;
+    }
+    try {
+      if (this.incomingRingtoneGain && this.incomingRingtoneCtx) {
+        this.incomingRingtoneGain.gain.setValueAtTime(
+          0,
+          this.incomingRingtoneCtx.currentTime
+        );
+      }
+    } catch {}
+    try {
+      this.incomingRingtoneOsc?.stop();
+    } catch {}
+    try {
+      this.incomingRingtoneOsc?.disconnect();
+    } catch {}
+    try {
+      this.incomingRingtoneGain?.disconnect();
+    } catch {}
+    try {
+      void this.incomingRingtoneCtx?.close();
+    } catch {}
+    this.incomingRingtoneOsc = undefined;
+    this.incomingRingtoneGain = undefined;
+    this.incomingRingtoneCtx = undefined;
+  }
+
+  /**
+   * Reproduce un tono corto de finalización de llamada, tipo "hang up".
+   */
+  private playHangupTone(): void {
+    try {
+      this.stopOutgoingRingback();
+      this.stopIncomingRingtone();
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+
+      const ctx: AudioContext = new AudioCtx();
+      const master = ctx.createGain();
+      master.gain.value = 1;
+      master.connect(ctx.destination);
+
+      const now = ctx.currentTime;
+      // Colgar: caída rápida de tono, corta y reconocible.
+      const notes = [
+        { freq: 740, start: 0, dur: 0.11 },
+        { freq: 560, start: 0.12, dur: 0.12 },
+        { freq: 370, start: 0.25, dur: 0.14 },
+      ];
+
+      for (const n of notes) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(n.freq, now + n.start);
+        osc.connect(gain);
+        gain.connect(master);
+        gain.gain.setValueAtTime(0.0001, now + n.start);
+        gain.gain.linearRampToValueAtTime(0.09, now + n.start + 0.015);
+        gain.gain.exponentialRampToValueAtTime(
+          0.0001,
+          now + n.start + n.dur
+        );
+        osc.start(now + n.start);
+        osc.stop(now + n.start + n.dur + 0.02);
+      }
+
+      void ctx.resume().catch(() => {});
+      setTimeout(() => {
+        void ctx.close().catch(() => {});
+      }, 1000);
+    } catch (e) {
+      console.warn('No se pudo reproducir el tono de colgar', e);
+    }
   }
 
   /**
@@ -10246,6 +10569,7 @@ private async decryptPreviewString(
     sdp: string;
   }): Promise<void> {
     // ? ocultar banner de llamada entrante
+    this.stopIncomingRingtone();
     this.ultimaInvite = undefined;
 
     this.showCallUI = true;
@@ -10495,10 +10819,9 @@ private async decryptPreviewString(
    */
   public toggleMute(): void {
     if (!this.localStream) return;
+    if (this.outgoingCallPendingAcceptance) return;
     this.isMuted = !this.isMuted;
-    this.localStream
-      .getAudioTracks()
-      .forEach((t) => (t.enabled = !this.isMuted));
+    this.setLocalAudioEnabled(!this.isMuted);
   }
 
   /**
@@ -13196,6 +13519,8 @@ private async decryptPreviewString(
     this.showPollVotesPanel = false;
     this.showPollVotesPanelMounted = false;
     this.pollVotesPanelMessageId = null;
+    this.stopOutgoingRingback();
+    this.stopIncomingRingtone();
   }
 }
 

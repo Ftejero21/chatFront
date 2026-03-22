@@ -201,14 +201,74 @@
       </div>
     </div>
 
-    <button type="button" class="action-row">
+    <button type="button" class="action-row" [class.is-open]="filesOpen" (click)="toggleFiles()">
       <span class="action-icon action-icon--blue"><i class="bi bi-link-45deg"></i></span>
       <span class="action-body">
         <span class="action-title">Enlaces y documentos</span>
-        <span class="action-subtitle">{{ sharedFilesCount }} archivos</span>
+        <span class="action-subtitle">{{ sharedFilesSubtitle }}</span>
       </span>
-      <i class="bi bi-chevron-right"></i>
+      <i class="bi" [ngClass]="filesOpen ? 'bi-chevron-up' : 'bi-chevron-right'"></i>
     </button>
+
+    <div *ngIf="filesOpen" class="media-collapse">
+      <div *ngIf="filesLoading" class="media-loading">Cargando archivos...</div>
+      <div *ngIf="!filesLoading && filesError" class="media-error">{{ filesError }}</div>
+
+      <div *ngIf="!filesLoading && !filesError && filesItems.length === 0" class="media-empty">
+        No hay documentos o archivos en este grupo.
+      </div>
+
+      <div *ngIf="!filesLoading && !filesError && filesItems.length > 0" class="media-list">
+        <article
+          class="media-item"
+          [class.media-item--mine]="item.emisorId === currentUserId"
+          [class.media-item--other]="item.emisorId !== currentUserId"
+          *ngFor="let item of filesItems; trackBy: trackFileItem">
+          <header class="media-item-head">
+            <div class="media-item-sender">
+              {{ item.emisorId === currentUserId ? 'Tú' : (item.emisorNombreCompleto || ('Usuario #' + item.emisorId)) }}
+            </div>
+            <div class="media-item-meta">
+              <span *ngIf="mediaDateLabel(item)">{{ mediaDateLabel(item) }}</span>
+            </div>
+          </header>
+
+          <div class="group-file-row">
+            <div class="group-file-meta-wrap">
+              <div class="group-file-name" [title]="fileNameLabel(item)">{{ fileNameLabel(item) }}</div>
+              <div class="group-file-meta-line">
+                <span *ngIf="item.mime">{{ item.mime }}</span>
+                <span *ngIf="mediaSizeLabel(item.sizeBytes)">{{ mediaSizeLabel(item.sizeBytes) }}</span>
+              </div>
+            </div>
+            <div class="group-file-actions">
+              <button type="button" class="group-file-btn" (click)="openFileItem(item, $event)">
+                Abrir
+              </button>
+              <button type="button" class="group-file-btn group-file-btn--secondary" (click)="downloadFileItem(item, $event)">
+                Descargar
+              </button>
+            </div>
+          </div>
+
+          <div class="media-locked" *ngIf="item.decrypting || filesDecryptingMessageId === item.messageId || item.decryptError">
+            <p class="media-lock-label" *ngIf="item.decrypting || filesDecryptingMessageId === item.messageId">
+              Descifrando archivo...
+            </p>
+            <p *ngIf="item.decryptError" class="media-item-error">{{ item.decryptError }}</p>
+          </div>
+        </article>
+
+        <button
+          *ngIf="filesHasMore"
+          type="button"
+          class="media-load-more"
+          [disabled]="filesLoadingMore"
+          (click)="loadMoreFiles()">
+          {{ filesLoadingMore ? 'Cargando...' : 'Cargar más' }}
+        </button>
+      </div>
+    </div>
 
     <button type="button" class="action-row" (click)="toggleMute()">
       <span class="action-icon action-icon--green"><i class="bi bi-bell"></i></span>

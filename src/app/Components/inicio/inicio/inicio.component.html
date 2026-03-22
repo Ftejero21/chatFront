@@ -474,42 +474,22 @@
             </div>
           </div>
 
-          <div *ngIf="showCallUI" class="call-overlay">
-            <div class="call-window" [class.is-ended]="callStatusClass === 'is-ended'">
-              <div class="remote-area">
-                <video *ngIf="hasRemoteVideoActive" class="remote-video" [appMediaStream]="remoteStream" autoplay
-                  playsinline></video>
-                <div *ngIf="!hasRemoteVideoActive" class="remote-overlay" [ngClass]="callStatusClass">
-                  <ng-container *ngIf="peerAvatarUrl; else remoteIcon">
-                    <img [src]="peerAvatarUrl" alt="avatar" class="avatar" />
-                  </ng-container>
-                  <ng-template #remoteIcon>
-                    <i class="bi bi-person-circle avatar-icon" aria-hidden="true"></i>
-                  </ng-template>
-                  <div class="peer-name">{{ peerDisplayName }}</div>
-                  <div *ngIf="callInfoMessage" class="status-row">
-                    <i class="bi" [ngClass]="{
-                      'bi-telephone-fill': callStatusClass === 'is-ringing',
-                      'bi-telephone-x-fill': callStatusClass === 'is-ended' || callStatusClass === 'is-error'
-                    }"></i>
-                    <span class="text">{{ callInfoMessage }}</span>
-                  </div>
-                </div>
-              </div>
-              <video class="local-video" [appMediaStream]="localStream" autoplay playsinline muted></video>
-              <div class="call-controls">
-                <button class="cc-btn" (click)="toggleMute()" [attr.aria-pressed]="isMuted">
-                  <i class="bi" [ngClass]="isMuted ? 'bi-mic-mute-fill' : 'bi-mic-fill'"></i>
-                </button>
-                <button class="cc-btn" (click)="toggleCam()" [attr.aria-pressed]="camOff">
-                  <i class="bi" [ngClass]="camOff ? 'bi-camera-video-off-fill' : 'bi-camera-video-fill'"></i>
-                </button>
-                <button class="cc-btn hang" (click)="colgar()">
-                  <i class="bi bi-telephone-x-fill"></i>
-                </button>
-              </div>
-            </div>
-          </div>
+          <app-video-call-overlay
+            *ngIf="showCallUI"
+            [hasRemoteVideoActive]="hasRemoteVideoActive"
+            [remoteStream]="remoteStream"
+            [localStream]="localStream"
+            [peerAvatarUrl]="peerAvatarUrl"
+            [peerDisplayName]="peerDisplayName"
+            [callInfoMessage]="callInfoMessage"
+            [callStatusClass]="callStatusClass"
+            [isMuted]="isMuted"
+            [camOff]="camOff"
+            [hasLocalVideo]="hasLocalVideo"
+            (toggleMuteClick)="toggleMute()"
+            (toggleCamClick)="toggleCam()"
+            (hangClick)="colgar()"
+          ></app-video-call-overlay>
 
           <div *ngIf="ultimaInvite && !showCallUI" class="incoming-call-banner">
             <div class="caller">

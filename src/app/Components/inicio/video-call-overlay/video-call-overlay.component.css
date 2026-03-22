@@ -1,0 +1,347 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+:host {
+  --primary-blue: #0066ff;
+  --success-green: #00d68f;
+  --bg-dark-blue: #0a192f;
+  --light-white: #f8fafc;
+}
+
+.call-overlay {
+  position: fixed;
+  inset: 0;
+  font-family: "Inter", sans-serif;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: var(--light-white);
+  overflow: hidden;
+  z-index: 9999;
+}
+
+.main-container {
+  width: 95%;
+  max-width: 1100px;
+  aspect-ratio: 16 / 9;
+  background: radial-gradient(circle at center, #112240 0%, #0a192f 100%);
+  border-radius: 32px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 40px 100px -20px rgba(0, 0, 0, 0.8);
+  border: 1px solid rgba(0, 102, 255, 0.15);
+}
+
+.caller-info {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -60%);
+  text-align: center;
+  z-index: 10;
+}
+
+.avatar-glow {
+  width: 160px;
+  height: 160px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 3px solid var(--primary-blue);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 28px;
+  position: relative;
+  color: var(--primary-blue);
+  box-shadow: 0 20px 40px rgba(0, 102, 255, 0.2);
+}
+
+.avatar-glow::after {
+  content: "";
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid var(--primary-blue);
+  animation: pulseBlue 3s infinite;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  position: relative;
+  z-index: 1;
+}
+
+.avatar-icon {
+  font-size: 4.5rem;
+  line-height: 1;
+  position: relative;
+  z-index: 1;
+}
+
+.peer-name {
+  margin: 0 0 8px;
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+
+.call-type {
+  margin: 0 0 16px;
+  color: #60a5fa;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.875rem;
+}
+
+.status-badge {
+  background: rgba(255, 255, 255, 1);
+  color: var(--bg-dark-blue);
+  padding: 10px 24px;
+  border-radius: 100px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+}
+
+.dot-blink {
+  width: 10px;
+  height: 10px;
+  background: var(--success-green);
+  border-radius: 50%;
+  animation: blink 1.2s infinite;
+}
+
+.self-video {
+  position: absolute;
+  bottom: 30px;
+  right: 30px;
+  width: 280px;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.6);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  z-index: 20;
+  transition: all 0.3s ease;
+}
+
+.self-video:hover {
+  transform: translateY(-5px);
+  border-color: var(--primary-blue);
+}
+
+.self-video-stream {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+
+.self-video-off {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #0f172a;
+}
+
+.self-video-off i {
+  color: #334155;
+  font-size: 3rem;
+  margin-bottom: 0.75rem;
+}
+
+.self-video-off p {
+  margin: 0;
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.self-label {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  background: #2563eb;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.45);
+}
+
+.controls-bar {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 16px;
+  padding: 16px 32px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(24px);
+  border-radius: 100px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  z-index: 30;
+}
+
+.btn-control {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  font-size: 1.4rem;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.btn-control:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.1);
+}
+
+.btn-control.active {
+  background: var(--primary-blue);
+  color: white;
+  box-shadow: 0 10px 20px rgba(0, 102, 255, 0.3);
+}
+
+.btn-hangup {
+  background: #ff3b3b;
+  color: white;
+  box-shadow: 0 10px 25px rgba(255, 59, 59, 0.4);
+}
+
+.btn-hangup:hover {
+  background: #e63535;
+  transform: scale(1.1);
+}
+
+.bg-blur {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  background: var(--primary-blue);
+  filter: blur(160px);
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.bg-blur-top {
+  top: -200px;
+  left: -100px;
+}
+
+.bg-blur-bottom {
+  bottom: -200px;
+  right: -100px;
+}
+
+.ambient-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.remote-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+  z-index: 2;
+}
+
+.status-badge.is-ended,
+.status-badge.is-error {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+.status-badge.is-ended .dot-blink,
+.status-badge.is-error .dot-blink {
+  background: #ef4444;
+  animation: none;
+}
+
+.status-badge.is-success {
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.status-badge.is-success .dot-blink {
+  background: #16a34a;
+  animation: none;
+}
+
+@keyframes pulseBlue {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(1.2);
+    opacity: 0.5;
+  }
+}
+
+@media (max-width: 768px) {
+  .self-video {
+    width: 160px;
+    bottom: 120px;
+    right: 20px;
+  }
+
+  .controls-bar {
+    padding: 12px 20px;
+    gap: 10px;
+    width: 90%;
+    justify-content: center;
+  }
+
+  .btn-control {
+    width: 48px;
+    height: 48px;
+    font-size: 1.1rem;
+  }
+}

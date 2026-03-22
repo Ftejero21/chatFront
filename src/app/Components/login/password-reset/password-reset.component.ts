@@ -13,7 +13,7 @@ import {
 export class PasswordResetComponent {
   @Output() close = new EventEmitter<void>();
 
-  step = 1; // 1: Email, 2: CÃ³digo + Nueva ContraseÃ±a
+  step = 1; // 1: Email, 2: Código + Nueva Contraseña
   email = '';
   code = '';
   newPassword = '';
@@ -67,7 +67,7 @@ export class PasswordResetComponent {
     }
 
     if (!this.email) {
-      this.errorMsg = 'Por favor, ingrese un correo vÃ¡lido.';
+      this.errorMsg = 'Por favor, ingrese un correo válido.';
       return;
     }
     
@@ -78,7 +78,7 @@ export class PasswordResetComponent {
     this.authService.solicitarPasswordReset(this.email).subscribe({
       next: (res) => {
         this.isLoading = false;
-        this.successMsg = res.mensaje || 'CÃ³digo enviado. Revise su bandeja.';
+        this.successMsg = res.mensaje || 'Código enviado. Revise su bandeja.';
         this.step = 2; // Avanza al siguiente paso
         this.startTimer();
       },
@@ -124,12 +124,12 @@ export class PasswordResetComponent {
     }
 
     if (this.newPassword !== this.repeatPassword) {
-      this.errorMsg = 'Las contraseÃ±as no coinciden.';
+      this.errorMsg = 'Las contraseñas no coinciden.';
       return;
     }
 
     if (this.timeLeft === 0) {
-      this.errorMsg = 'El cÃ³digo ha caducado. Solicite uno nuevo.';
+      this.errorMsg = 'El código ha caducado. Solicite uno nuevo.';
       return;
     }
 
@@ -139,8 +139,8 @@ export class PasswordResetComponent {
       next: (res) => {
         this.isLoading = false;
         this.stopTimer();
-        this.successMsg = res.mensaje || 'ContraseÃ±a actualizada. Ya puede iniciar sesiÃ³n.';
-        // DespuÃ©s de 2s, cierra el modal automÃ¡ticamente
+        this.successMsg = res.mensaje || 'Contraseña actualizada. Ya puede iniciar sesión.';
+        // Después de 2s, cierra el modal automáticamente
         setTimeout(() => this.closeModal(), 2000);
       },
       error: (err) => {
@@ -161,7 +161,7 @@ export class PasswordResetComponent {
           this.errorMsg = `Demasiados intentos. Reintenta en ${this.verifyCooldownSec}s.`;
           return;
         }
-        this.errorMsg = err.error?.mensaje || 'CÃ³digo invÃ¡lido o error de servidor.';
+        this.errorMsg = err.error?.mensaje || 'Código inválido o error de servidor.';
       }
     });
   }

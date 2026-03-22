@@ -599,6 +599,70 @@
   font-size: 11px;
 }
 
+.group-file-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.group-file-meta-wrap {
+  min-width: 0;
+  flex: 1;
+}
+
+.group-file-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.group-file-meta-line {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.group-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.group-file-btn {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 7px 9px;
+  cursor: pointer;
+}
+
+.group-file-btn:hover {
+  background: #dbeafe;
+}
+
+.group-file-btn--secondary {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+}
+
+.group-file-btn--secondary:hover {
+  background: #e2e8f0;
+}
+
 .audio-bubble {
   display: flex;
   align-items: center;
