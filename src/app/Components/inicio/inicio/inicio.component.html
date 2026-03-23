@@ -1,4 +1,4 @@
-﻿<div class="imagenPrincipal">
+<div class="imagenPrincipal">
   <div class="contenedorChat">
 
     <header class="topbar">
@@ -117,13 +117,27 @@
       </div>
     </div>
 
-    <div class="cuerpoChat" [class.modo-chat-movil]="chatSeleccionadoId !== null">
+    <div class="cuerpoChat" [class.modo-chat-movil]="!isStarredView && chatSeleccionadoId !== null">
 
       <div class="barraLateral">
         <div class="iconos-superiores">
           <i class="fas fa-home icono-barra"></i>
-          <i class="fas fa-comment icono-barra active"></i>
-          <i class="fas fa-star icono-barra"></i>
+          <i
+            class="fas fa-comment icono-barra"
+            [class.icono-barra--active]="!isStarredView"
+            title="Chats"
+            role="button"
+            tabindex="0"
+            (click)="openChatsSidebarView($event)"
+          ></i>
+          <i
+            class="fas fa-star icono-barra"
+            [class.icono-barra--active-star]="isStarredView"
+            title="Mensajes destacados"
+            role="button"
+            tabindex="0"
+            (click)="openStarredSidebarView($event)"
+          ></i>
         </div>
         <div class="usuario-config">
           <img *ngIf="usuarioFotoUrl; else sideAvatarFallback" [src]="usuarioFotoUrl" alt="Perfil" class="topbar__avatar" />
@@ -134,7 +148,7 @@
         </div>
       </div>
 
-      <div class="listadoChats">
+      <div class="listadoChats" *ngIf="!isStarredView">
         <div class="encabezado-chats">
           <div class="titulo-chat">TejeChat</div>
           <div class="acciones-chat">
@@ -167,7 +181,7 @@
         </div>
 
         <div class="buscador">
-          <input type="text" placeholder="Buscar personas..." class="input-busqueda" [value]="busquedaChat"
+          <input #chatSearchInput type="text" placeholder="Buscar personas..." class="input-busqueda" [value]="busquedaChat"
             (input)="onSearchChange($event)" />
         </div>
         <div class="chat-filters">
@@ -200,7 +214,8 @@
             Grupos
           </button>
         </div>
-        <div class="chat-scroll">
+        <div class="chat-scroll" [class.chat-scroll--empty]="chatsFiltrados.length === 0">
+          <ng-container *ngIf="chatsFiltrados.length > 0; else emptyChatsState">
           <div *ngFor="let chat of chatsFiltrados" class="chat-item" [class.chat-item--unread]="chat.unreadCount > 0"
             [class.chat-item--group]="chat.esGrupo"
             [class.chat-item--selected]="chat.id === chatSeleccionadoId"
@@ -351,12 +366,84 @@
               </div>
             </div>
           </div>
-        </div>
+        </ng-container>
+
+        <ng-template #emptyChatsState>
+          <div class="chat-empty-state">
+            <div class="chat-empty-state__illustration">
+              <div class="chat-empty-state__pulse"></div>
+              <svg
+                class="chat-empty-state__floating"
+                viewBox="0 0 200 200"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <path
+                  d="M140 60H60C48.9543 60 40 68.9543 40 80V120C40 131.046 48.9543 140 60 140H115L145 165V140C153.284 140 160 133.284 160 125V80C160 68.9543 151.046 60 140 60Z"
+                  fill="#3B82F6"
+                  fill-opacity="0.1"
+                  stroke="#3B82F6"
+                  stroke-width="3"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <circle cx="80" cy="100" r="4" fill="#3B82F6" />
+                <circle cx="100" cy="100" r="4" fill="#3B82F6" />
+                <circle cx="120" cy="100" r="4" fill="#3B82F6" />
+                <path
+                  d="M170 40H140V60H170C175.523 60 180 64.4772 180 70V100L190 110V70C190 53.4315 181.046 40 170 40Z"
+                  fill="#93C5FD"
+                  fill-opacity="0.2"
+                />
+              </svg>
+            </div>
+
+            <h3 class="chat-empty-state__title">&iexcl;Todo en silencio por aqu&iacute;!</h3>
+            <p class="chat-empty-state__description">
+              Parece que a&uacute;n no tienes conversaciones activas. &iquest;Por qu&eacute; no rompes el hielo?
+            </p>
+
+            <button
+              type="button"
+              class="chat-empty-state__cta"
+              (click)="chatSearchInput.focus()"
+            >
+              <i class="fas fa-plus"></i>
+              Iniciar un chat nuevo
+            </button>
+
+            <button
+              type="button"
+              class="chat-empty-state__link"
+              (click)="setChatListFilter('GRUPOS')"
+            >
+              Explorar grupos públicos
+            </button>
+          </div>
+        </ng-template>
       </div>
+
+            </div>
+
+      <app-starred-messages-panel
+        *ngIf="isStarredView"
+        [items]="mensajesDestacadosOrdenados"
+        [page]="starredPage"
+        [totalPages]="starredTotalPages"
+        [totalElements]="starredTotalElements"
+        [hasNext]="starredHasNext"
+        [hasPrevious]="starredHasPrevious"
+        [loading]="isStarredLoading"
+        (toggleStar)="toggleDestacadoDesdeLista($event)"
+        (openMessage)="abrirMensajeDestacado($event)"
+        (nextPage)="nextStarredPage()"
+        (prevPage)="prevStarredPage()"
+      ></app-starred-messages-panel>
 
       <div
         class="zonaMensajes"
-        *ngIf="activeMainView === 'chat'; else perfilView"
+        *ngIf="!isStarredView && activeMainView === 'chat'; else perfilView"
         [class.zonaMensajes--drag-active]="messageAreaDragActive"
         (dragenter)="onMessageAreaDragEnter($event)"
         (dragover)="onMessageAreaDragOver($event)"
@@ -664,6 +751,11 @@
                           <div class="poll-msg-footer">
                             <span class="msg-time">{{ formatMensajeHora(mensaje) }}</span>
                             <i
+                              *ngIf="mensaje.emisorId !== usuarioActualId && isMensajeDestacado(mensaje)"
+                              class="bi bi-star-fill msg-star-indicator"
+                              title="Mensaje destacado"
+                            ></i>
+                            <i
                               *ngIf="mensaje.emisorId === usuarioActualId"
                               class="bi bi-check2-all double-check"
                               [ngClass]="mensaje.leido ? 'leido' : 'no-leido'"
@@ -718,6 +810,11 @@
                             <span class="msg-meta-inline msg-meta-inline--image">
                               <span class="msg-time">{{ formatMensajeHora(mensaje) }}</span>
                               <i
+                                *ngIf="mensaje.emisorId !== usuarioActualId && isMensajeDestacado(mensaje)"
+                                class="bi bi-star-fill msg-star-indicator"
+                                title="Mensaje destacado"
+                              ></i>
+                              <i
                                 *ngIf="mensaje.emisorId === usuarioActualId"
                                 class="bi bi-check2-all double-check"
                                 [ngClass]="mensaje.leido ? 'leido' : 'no-leido'"
@@ -765,6 +862,11 @@
                               <span class="msg-meta-inline msg-meta-inline--file">
                                 <span class="msg-time">{{ formatMensajeHora(mensaje) }}</span>
                                 <i
+                                  *ngIf="mensaje.emisorId !== usuarioActualId && isMensajeDestacado(mensaje)"
+                                  class="bi bi-star-fill msg-star-indicator"
+                                  title="Mensaje destacado"
+                                ></i>
+                                <i
                                   *ngIf="mensaje.emisorId === usuarioActualId"
                                   class="bi bi-check2-all double-check"
                                   [ngClass]="mensaje.leido ? 'leido' : 'no-leido'"
@@ -782,6 +884,11 @@
                             <span class="msg-meta-inline msg-meta-inline--end">
                               <span class="msg-time">{{ formatMensajeHora(mensaje) }}</span>
                               <i
+                                *ngIf="mensaje.emisorId !== usuarioActualId && isMensajeDestacado(mensaje)"
+                                class="bi bi-star-fill msg-star-indicator"
+                                title="Mensaje destacado"
+                              ></i>
+                              <i
                                 *ngIf="mensaje.emisorId === usuarioActualId"
                                 class="bi bi-check2-all double-check"
                                 [ngClass]="mensaje.leido ? 'leido' : 'no-leido'"
@@ -797,6 +904,11 @@
                         *ngIf="(mensaje.tipo || 'TEXT') !== 'TEXT' && (mensaje.tipo || 'TEXT') !== 'IMAGE' && (mensaje.tipo || 'TEXT') !== 'FILE' && !isPollMessage(mensaje)"
                       >
                         <span class="msg-time">{{ formatMensajeHora(mensaje) }}</span>
+                        <i
+                          *ngIf="mensaje.emisorId !== usuarioActualId && isMensajeDestacado(mensaje)"
+                          class="bi bi-star-fill msg-star-indicator"
+                          title="Mensaje destacado"
+                        ></i>
                         <i
                           *ngIf="mensaje.emisorId === usuarioActualId"
                           class="bi bi-check2-all double-check"
@@ -824,6 +936,15 @@
                     <div class="opciones-collapse" *ngIf="openMensajeMenuId === mensaje.id" (click)="$event.stopPropagation()">
                       <button type="button" class="btn-opcion-responder" (click)="responderMensaje(mensaje, $event)">
                         <i class="bi bi-reply"></i> Responder
+                      </button>
+                      <button
+                        *ngIf="canDestacarMensaje(mensaje)"
+                        type="button"
+                        class="btn-opcion-destacar"
+                        (click)="toggleDestacarMensaje(mensaje, $event)"
+                      >
+                        <i class="bi bi-star-fill"></i>
+                        {{ isMensajeDestacado(mensaje) ? 'Quitar destacado' : 'Destacar mensaje' }}
                       </button>
                       <button
                         *ngIf="canEditMensaje(mensaje)"
@@ -1220,7 +1341,7 @@
         </div>
       </div>
       <ng-template #perfilView>
-        <div class="zonaMensajes zonaMensajes--perfil">
+        <div *ngIf="!isStarredView" class="zonaMensajes zonaMensajes--perfil">
           <app-perfil-usuario
             [usuario]="perfilUsuario"
             [fotoUrl]="usuarioFotoUrl || ''"
@@ -1235,7 +1356,7 @@
       </ng-template>
 
       <app-group-info-panel
-        *ngIf="activeMainView === 'chat' && chatActual?.esGrupo && showGroupInfoPanelMounted"
+        *ngIf="!isStarredView && activeMainView === 'chat' && chatActual?.esGrupo && showGroupInfoPanelMounted"
         class="group-info-col"
         [class.is-open]="showGroupInfoPanel"
         [group]="chatActual"
@@ -1245,7 +1366,7 @@
       </app-group-info-panel>
 
       <app-message-search-panel
-        *ngIf="activeMainView === 'chat' && chatActual && showMessageSearchPanelMounted"
+        *ngIf="!isStarredView && activeMainView === 'chat' && chatActual && showMessageSearchPanelMounted"
         class="message-search-col"
         [class.is-open]="showMessageSearchPanel"
         [chat]="chatActual"
@@ -1256,7 +1377,7 @@
       </app-message-search-panel>
 
       <app-poll-votes-panel
-        *ngIf="activeMainView === 'chat' && showPollVotesPanelMounted"
+        *ngIf="!isStarredView && activeMainView === 'chat' && showPollVotesPanelMounted"
         class="group-info-col poll-votes-col"
         [class.is-open]="showPollVotesPanel"
         [data]="pollVotesPanelData"
@@ -1264,7 +1385,7 @@
       </app-poll-votes-panel>
 
       <app-file-preview-viewer
-        [open]="showFilePreview"
+        [open]="!isStarredView && showFilePreview"
         [fileUrl]="filePreviewSrc"
         [fileName]="filePreviewName"
         [fileSize]="filePreviewSize"

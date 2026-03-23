@@ -157,7 +157,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   private reportUserNamesById = new Map<number, string>();
   private reportesWsSub: StompSubscription | null = null;
 
-  // SuscripciÛn a b˙squeda por input en tiempo real (debounce)
+  // Suscripci√≥n a b√∫squeda por input en tiempo real (debounce)
   private searchSubject = new Subject<string>();
   private searchSubscription!: Subscription;
   private auditPrivateKeyImportCache:
@@ -187,7 +187,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.usuarioActualId = parseInt(id, 10);
     this.cargarAdminPerfil(this.usuarioActualId);
     this.inicializarWsReportesAdmin();
-    // Configurar b˙squeda con un poco de retraso (300ms) para no saturar al teclear
+    // Configurar b√∫squeda con un poco de retraso (300ms) para no saturar al teclear
     this.searchSubscription = this.searchSubject.pipe(
       debounceTime(300),
       distinctUntilChanged()
@@ -246,7 +246,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           this.reportesHoyCount = Math.max(0, reportesDiariosHoy);
         }
       },
-      error: (err) => console.error("Error cargando estadÌsticas", err)
+      error: (err) => console.error("Error cargando estad√≠sticas", err)
     });
   }
 
@@ -434,7 +434,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.selectedChat = null;
     this.selectedChatMensajes = [];
     this.selectedChatMessagesSource = 'admin';
-    this.headerSubtitle = 'RevisiÛn de reportes de desbaneo en tiempo real.';
+    this.headerSubtitle = 'Revisi√≥n de reportes de desbaneo en tiempo real.';
     this.appealViewFilter = 'ABIERTOS';
     this.cargarSolicitudesDesbaneo(0);
   }
@@ -461,7 +461,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     if (this.appealViewFilter === 'RECHAZADA') {
       return 'No hay reportes rechazados por mostrar.';
     }
-    return 'No hay reportes pendientes o en revisiÛn por mostrar.';
+    return 'No hay reportes pendientes o en revisi√≥n por mostrar.';
   }
 
   public get reportesBadgeText(): string {
@@ -567,11 +567,11 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           </div>
           <div class="swal-unban-body">
             <label class="swal-unban-label">Motivo de desbaneo (opcional)</label>
-            <p class="swal-unban-helper">Si lo dejas vacÌo, backend completar· un motivo autom·tico.</p>
+            <p class="swal-unban-helper">Si lo dejas vac√≠o, backend completar√° un motivo autom√°tico.</p>
           </div>
         `,
         input: 'textarea',
-        inputPlaceholder: 'Ej: Se verificÛ el caso y procede reactivar la cuenta.',
+        inputPlaceholder: 'Ej: Se verific√≥ el caso y procede reactivar la cuenta.',
         showCancelButton: true,
         confirmButtonText: 'Desbanear',
         cancelButtonText: 'No desbanear',
@@ -596,7 +596,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
             await Swal.fire({
               title: 'Solicitud rechazada',
               text:
-                'La solicitud quedÛ en estado RECHAZADA. El backend notificar· al usuario por email.',
+                'La solicitud qued√≥ en estado RECHAZADA. El backend notificar√° al usuario por email.',
               icon: 'success',
               confirmButtonColor: '#ef4444',
             });
@@ -615,7 +615,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       await Swal.fire({
         title: 'Solicitud aprobada',
         text:
-          'La solicitud quedÛ en estado APROBADA. El backend aplicar· el desbaneo y enviar· el email al usuario.',
+          'La solicitud qued√≥ en estado APROBADA. El backend aplicar√° el desbaneo y enviar√° el email al usuario.',
         icon: 'success',
         confirmButtonColor: '#10b981',
       });
@@ -670,7 +670,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           RATE_LIMIT_SCOPES.ADMIN_GLOBAL
         );
         Swal.fire({
-          title: 'LÌmite temporal',
+          title: 'L√≠mite temporal',
           text: `Demasiadas acciones administrativas. Reintenta en ${remaining || 30}s.`,
           icon: 'warning',
           confirmButtonColor: '#2563eb',
@@ -751,7 +751,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
   realizarBusqueda(term: string): void {
     if (!term || term.trim() === '') {
-      // Si se borra la b˙squeda, mostrar la tabla de recientes inicial
+      // Si se borra la b√∫squeda, mostrar la tabla de recientes inicial
       this.usuariosMostrados = this.usuariosLocales;
       return;
     }
@@ -3212,12 +3212,12 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
   public getAdminPollStatusText(msg: any): string {
     const payload = this.parseAdminPollPayloadForMessage(msg);
-    if (!payload) return 'Selecciona una opciÛn.';
+    if (!payload) return 'Selecciona una opci√≥n.';
     const text = String(payload?.statusText || '').trim();
     if (text) return text;
     return payload.allowMultiple
       ? 'Selecciona una o varias opciones.'
-      : 'Selecciona una opciÛn.';
+      : 'Selecciona una opci√≥n.';
   }
 
   public getAdminPollOptionsForRender(msg: any): AdminPollOptionView[] {
@@ -3235,7 +3235,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       );
       return {
         id: String(option?.id || ''),
-        text: String(option?.text || '').trim() || 'OpciÛn',
+        text: String(option?.text || '').trim() || 'Opci√≥n',
         count,
         selected: viewerId > 0 ? voterIds.includes(viewerId) : option?.votedByMe === true,
       };
@@ -3292,7 +3292,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       title: this.getAdminPollQuestion(msg),
       html:
         html ||
-        '<div style="font-size:13px;color:#475569;">No hay votos registrados todavÌa.</div>',
+        '<div style="font-size:13px;color:#475569;">No hay votos registrados todav√≠a.</div>',
       width: 560,
       confirmButtonText: 'Cerrar',
       confirmButtonColor: '#0ea5e9',
@@ -3699,12 +3699,12 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           next: () => {
             Swal.fire({
               title: 'Cuenta reactivada!',
-              text: `El usuario ${usuario.nombre} ya puede volver a iniciar sesiÛn.`,
+              text: `El usuario ${usuario.nombre} ya puede volver a iniciar sesi√≥n.`,
               icon: 'success',
               confirmButtonColor: '#10b981'
             });
 
-            // Esto actualiza la interfaz autom·ticamente gracias al *ngIf
+            // Esto actualiza la interfaz autom√°ticamente gracias al *ngIf
             usuario.activo = true;
           },
           error: (err) => {

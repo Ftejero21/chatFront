@@ -37,6 +37,7 @@ export class LoginComponent implements OnInit, OnDestroy {
   lastBannedEmail: string = '';
   showLoginPassword: boolean = false;
   showRegisterPassword: boolean = false;
+  registerEmailError: string = '';
   loginRateLimitSeconds = 0;
   unbanAppealRateLimitSeconds = 0;
   private loginRateLimitTimer: any = null;
@@ -67,14 +68,14 @@ export class LoginComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit(): void {
-    // Si ya existe sesiÛn activa y el usuario quiso ser recordado, redirige autom·tico.
+    // Si ya existe sesi√≥n activa y el usuario quiso ser recordado, redirige autom√°tico.
     const hasToken = !!localStorage.getItem('token');
     const isRemembered = localStorage.getItem('rememberMe') === 'true';
 
     if (hasToken && isRemembered) {
       this.router.navigate(['/inicio']);
     } else if (hasToken && !isRemembered) {
-      // Si no marcÛ recuÈrdame y aterriza en login, limpiamos su sesiÛn temporal.
+      // Si no marc√≥ recu√©rdame y aterriza en login, limpiamos su sesi√≥n temporal.
       this.sessionService.clearSessionArtifacts({
         clearE2EKeys: false,
         clearAuditKeys: false,
@@ -90,13 +91,18 @@ export class LoginComponent implements OnInit, OnDestroy {
   // Cambio de tab con reseteo del uploader al pasar a login
   switchTo(login: boolean): void {
     this.modoLogin = login;
+    this.registerEmailError = '';
     if (login) this.resetAvatar(); // limpia al salir de registro
+  }
+
+  onRegisterEmailInput(): void {
+    if (this.registerEmailError) this.registerEmailError = '';
   }
 
   iniciarSesion(): void {
     if (this.loginRateLimitSeconds > 0) {
       this.showToast(
-        `Has alcanzado el lÌmite de intentos. Reintenta en ${this.loginRateLimitSeconds}s.`,
+        `Has alcanzado el l√≠mite de intentos. Reintenta en ${this.loginRateLimitSeconds}s.`,
         'warning',
         'Rate limit'
       );
@@ -128,7 +134,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           const ready = await this.ensureE2EIdentityReadyForSession(usuario, 'login');
           if (!ready) return;
 
-          this.showToast('SesiÛn iniciada correctamente (Claves E2E listas)', 'success', '…xito', 2000);
+          this.showToast('Sesi√≥n iniciada correctamente (Claves E2E listas)', 'success', '√âxito', 2000);
 
           // Verificamos si tiene el rol ADMIN para mandarlo al dashboard, o usuario normal al chat
           const isAdmin = usuario.roles && usuario.roles.includes('ADMIN');
@@ -138,7 +144,7 @@ export class LoginComponent implements OnInit, OnDestroy {
             this.router.navigate(['/inicio']);
           }
         } catch (e) {
-          console.error('Error criptogr·fico', e);
+          console.error('Error criptogr√°fico', e);
           this.router.navigate(['/inicio']);
         }
       },
@@ -162,7 +168,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           this.showToast('Email incorrecto', 'danger', 'Error');
         } else if (code === 'PASSWORD_INCORRECTA') {
           this.showBanAppealButton = false;
-          this.showToast('ContraseÒa incorrecta', 'danger', 'Error');
+          this.showToast('Contrase√±a incorrecta', 'danger', 'Error');
         } else if (code === 'USUARIO_INACTIVO') {
           this.showBanAppealButton = true;
           this.lastBannedEmail = String(this.login?.email || '').trim();
@@ -174,7 +180,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           });
         } else {
           this.showBanAppealButton = false;
-          this.showToast('No se pudo iniciar sesiÛn', 'warning', 'Aviso');
+          this.showToast('No se pudo iniciar sesi√≥n', 'warning', 'Aviso');
         }
       },
     });
@@ -208,13 +214,13 @@ export class LoginComponent implements OnInit, OnDestroy {
         </div>
 
         <div class="swal-ban-body">
-          <label class="swal-ban-label">CuÈntanos quÈ pasÛ</label>
-          <p class="swal-ban-helper">Incluye contexto breve para que administraciÛn pueda evaluarlo.</p>
+          <label class="swal-ban-label">Cu√©ntanos qu√© pas√≥</label>
+          <p class="swal-ban-helper">Incluye contexto breve para que administraci√≥n pueda evaluarlo.</p>
         </div>
       `,
       input: 'textarea',
       inputPlaceholder:
-        'Ej: Creo que mi cuenta fue baneada por error. Solicito revisiÛn del caso.',
+        'Ej: Creo que mi cuenta fue baneada por error. Solicito revisi√≥n del caso.',
       showCancelButton: true,
       confirmButtonText: 'Enviar reporte',
       cancelButtonText: 'Cancelar',
@@ -244,7 +250,7 @@ export class LoginComponent implements OnInit, OnDestroy {
             title: 'Reporte enviado',
             text:
               res?.mensaje ||
-              'Tu solicitud de revisiÛn fue enviada correctamente.',
+              'Tu solicitud de revisi√≥n fue enviada correctamente.',
             confirmButtonColor: '#2563eb',
           });
         },
@@ -271,7 +277,7 @@ export class LoginComponent implements OnInit, OnDestroy {
               icon: 'info',
               title: 'API pendiente',
               text:
-                'La API para reportes de desbaneo a˙n no est· disponible en backend.',
+                'La API para reportes de desbaneo a√∫n no est√° disponible en backend.',
               confirmButtonColor: '#2563eb',
             });
             return;
@@ -289,6 +295,7 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   registrarse(): void {
+    this.registerEmailError = '';
     const payload: UsuarioDTO = { ...this.registro };
     if (this.avatarBase64) {
       (payload as any).foto = this.avatarBase64; // el back ya sabe manejar dataURL
@@ -321,10 +328,56 @@ export class LoginComponent implements OnInit, OnDestroy {
           this.router.navigate(['/inicio']);
         }
       },
-      error: (err) => console.error('? Error al registrar:', err),
+      error: (err) => {
+        console.error('Error al registrar:', err);
+        if (this.isDuplicateEmailRegistrationError(err)) {
+          this.registerEmailError = 'Ese email ya esta registrado.';
+          this.showToast(this.registerEmailError, 'warning', 'Registro');
+          return;
+        }
+
+        const backendMsg = this.extractBackendErrorMessage(err);
+        if (backendMsg) {
+          this.showToast(backendMsg, 'danger', 'Registro');
+          return;
+        }
+
+        this.showToast(
+          'No se pudo completar el registro. Intentalo de nuevo.',
+          'danger',
+          'Registro'
+        );
+      },
     });
   }
 
+  private isDuplicateEmailRegistrationError(err: any): boolean {
+    const status = Number(err?.status || 0);
+    const code = String(err?.error?.code || '')
+      .trim()
+      .toUpperCase();
+    return status === 409 && code === 'EMAIL_YA_EXISTE';
+  }
+
+  private extractBackendErrorMessage(err: any): string {
+    const asObject =
+      String(err?.error?.mensaje || err?.error?.message || '').trim() ||
+      String(err?.message || '').trim();
+    if (asObject) return asObject;
+
+    const raw = err?.error;
+    if (typeof raw !== 'string') return '';
+    const normalized = raw.trim();
+    if (!normalized) return '';
+
+    // Algunos backends devuelven texto plano; otros JSON serializado.
+    try {
+      const parsed = JSON.parse(normalized);
+      return String(parsed?.mensaje || parsed?.message || normalized).trim();
+    } catch {
+      return normalized;
+    }
+  }
   private normalizePublicKey(raw?: string | null): string {
     return String(raw || '').replace(/\s+/g, '');
   }
@@ -462,7 +515,7 @@ export class LoginComponent implements OnInit, OnDestroy {
       if (Number((err as any)?.status) === 409 || code === 'E2E_REKEY_CONFLICT') {
         await Swal.fire({
           title: 'Conflicto de identidad E2E',
-          text: 'El servidor rechazÛ la actualizaciÛn de clave porque esta cuenta ya tiene otra identidad E2E. Usa el flujo de rekey para rotar la clave de forma controlada.',
+          text: 'El servidor rechaz√≥ la actualizaci√≥n de clave porque esta cuenta ya tiene otra identidad E2E. Usa el flujo de rekey para rotar la clave de forma controlada.',
           icon: 'error',
           confirmButtonColor: '#ef4444',
         });
@@ -479,8 +532,8 @@ export class LoginComponent implements OnInit, OnDestroy {
         title: 'Error E2E',
         text:
           source === 'register'
-            ? 'No se pudo sincronizar tu clave p˙blica tras el registro. Vuelve a iniciar sesiÛn.'
-            : 'No se pudo sincronizar tu clave p˙blica. No se abrir· el chat para evitar mensajes cifrados no descifrables.',
+            ? 'No se pudo sincronizar tu clave p√∫blica tras el registro. Vuelve a iniciar sesi√≥n.'
+            : 'No se pudo sincronizar tu clave p√∫blica. No se abrir√° el chat para evitar mensajes cifrados no descifrables.',
         icon: 'error',
         confirmButtonColor: '#ef4444',
       });
@@ -503,12 +556,12 @@ export class LoginComponent implements OnInit, OnDestroy {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Selecciona una imagen v·lida.');
+      alert('Selecciona una imagen v√°lida.');
       input.value = '';
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      alert('La imagen es demasiado grande (m·x 5MB).');
+      alert('La imagen es demasiado grande (m√°x 5MB).');
       input.value = '';
       return;
     }
@@ -516,8 +569,8 @@ export class LoginComponent implements OnInit, OnDestroy {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
-      this.avatarPreviewUrl = dataUrl; // previsualizaciÛn inmediata
-      this.avatarBase64 = dataUrl; // se enviar· en el DTO
+      this.avatarPreviewUrl = dataUrl; // previsualizaci√≥n inmediata
+      this.avatarBase64 = dataUrl; // se enviar√° en el DTO
       input.value = ''; // permite re-seleccionar el MISMO archivo
     };
     reader.readAsDataURL(file);

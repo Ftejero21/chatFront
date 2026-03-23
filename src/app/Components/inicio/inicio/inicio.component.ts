@@ -89,6 +89,11 @@ import { SessionService } from '../../../Service/session/session.service';
 import { ChatListItemDTO } from '../../../Interface/ChatListItemDTO';
 import { MensajeReaccionDTO } from '../../../Interface/MensajeReaccionDTO';
 import {
+  StarredMessageDTO,
+  StarredMessagesPageDTO,
+  StarredMessageItem,
+} from '../../../Interface/StarredMessageDTO';
+import {
   PollVotesPanelData,
   PollVotesPanelOption,
   PollVotesPanelVoter,
@@ -307,6 +312,7 @@ interface PollVoteEntryView {
  */
 export type EstadoUsuario = 'Conectado' | 'Desconectado' | 'Ausente';
 type ChatListFilter = 'TODOS' | 'LEIDOS' | 'NO_LEIDOS' | 'GRUPOS';
+type SidebarSection = 'CHATS' | 'STARRED';
 
 /**
  * Extensión del DTO de usuario que incluye su estado actual.
@@ -419,6 +425,14 @@ export class InicioComponent {
   public perfilUsuario: UsuarioDTO | null = null;
   public showTopbarProfileMenu = false;
   public activeMainView: 'chat' | 'profile' = 'chat';
+  public sidebarSection: SidebarSection = 'CHATS';
+  public mensajesDestacados: StarredMessageItem[] = [];
+  public starredPage = 0;
+  public starredPageSize = 10;
+  public starredTotalPages = 1;
+  public starredTotalElements = 0;
+  public starredHasNext = false;
+  public starredHasPrevious = false;
   public profilePasswordCodeRequested = false;
   public profileSaving = false;
   public profileCodeTimeLeftSec = 0;
@@ -468,6 +482,120 @@ export class InicioComponent {
     const handled = this.getHandledInviteIds();
     return this.notifInvites.filter((n) => !handled.has(Number(n.inviteId)))
       .length;
+  }
+
+  public get isStarredView(): boolean {
+    return this.sidebarSection === 'STARRED';
+  }
+
+  public get isStarredLoading(): boolean {
+    return this.loadingStarredMessages;
+  }
+
+  public get mensajesDestacadosOrdenados(): StarredMessageItem[] {
+    const loadedById = this.buildLoadedMessageIndexForStarred();
+    return [...(this.mensajesDestacados || [])]
+      .map((item) =>
+        this.enrichStarredItemWithLoadedMessage(item, loadedById)
+      )
+      .sort((a, b) => {
+      const left = Date.parse(String(a?.starredAt || a?.fechaEnvio || '')) || 0;
+      const right = Date.parse(String(b?.starredAt || b?.fechaEnvio || '')) || 0;
+      return right - left;
+      });
+  }
+
+  private buildLoadedMessageIndexForStarred(): Map<number, MensajeDTO> {
+    const byId = new Map<number, MensajeDTO>();
+    const append = (list: MensajeDTO[] | null | undefined): void => {
+      if (!Array.isArray(list) || list.length === 0) return;
+      for (const message of list) {
+        const messageId = Number(message?.id);
+        if (!Number.isFinite(messageId) || messageId <= 0) continue;
+        if (byId.has(messageId)) continue;
+        byId.set(messageId, message);
+      }
+    };
+
+    append(this.mensajesSeleccionados);
+    for (const state of this.historyStateByConversation.values()) {
+      append(state?.messages);
+    }
+    append(Array.from(this.starredHydratedMessagesById.values()));
+    return byId;
+  }
+
+  private enrichStarredItemWithLoadedMessage(
+    item: StarredMessageItem,
+    loadedById: Map<number, MensajeDTO>
+  ): StarredMessageItem {
+    const messageId = Number(item?.messageId);
+    if (!Number.isFinite(messageId) || messageId <= 0) return item;
+
+    const loaded = loadedById.get(messageId);
+    if (!loaded) return item;
+
+    const loadedTipo =
+      String(loaded?.tipo || item?.tipo || 'TEXT').trim().toUpperCase() || 'TEXT';
+    const loadedPreview = this.buildStarredMessagePreview(loaded);
+    const loadedFecha =
+      String(loaded?.fechaEnvio || item?.fechaEnvio || '').trim() || null;
+    const loadedChatIdRaw = Number(loaded?.chatId ?? item?.chatId);
+    const loadedChatId =
+      Number.isFinite(loadedChatIdRaw) && loadedChatIdRaw > 0
+        ? Math.round(loadedChatIdRaw)
+        : item.chatId;
+    const loadedEmisorIdRaw = Number(loaded?.emisorId ?? item?.emisorId);
+    const loadedEmisorId =
+      Number.isFinite(loadedEmisorIdRaw) && loadedEmisorIdRaw > 0
+        ? Math.round(loadedEmisorIdRaw)
+        : item.emisorId;
+    const loadedEmisorNombre =
+      `${loaded?.emisorNombre || ''} ${loaded?.emisorApellido || ''}`.trim() ||
+      this.resolveGroupMemberDisplayName(Number(loadedChatId || 0), loadedEmisorId) ||
+      item.emisorNombre;
+
+    if (
+      loadedTipo === item.tipo &&
+      loadedPreview === item.preview &&
+      loadedFecha === item.fechaEnvio &&
+      loadedChatId === item.chatId &&
+      loadedEmisorId === item.emisorId &&
+      loadedEmisorNombre === item.emisorNombre
+    ) {
+      const mediaPatch = this.buildStarredMediaPatchFromMessage(loaded);
+      if (
+        (mediaPatch.audioSrc ?? null) === (item.audioSrc ?? null) &&
+        (mediaPatch.audioDurationLabel ?? null) === (item.audioDurationLabel ?? null) &&
+        (mediaPatch.imageSrc ?? null) === (item.imageSrc ?? null) &&
+        (mediaPatch.imageAlt ?? null) === (item.imageAlt ?? null) &&
+        (mediaPatch.imageCaption ?? null) === (item.imageCaption ?? null) &&
+        (mediaPatch.fileSrc ?? null) === (item.fileSrc ?? null) &&
+        (mediaPatch.fileName ?? null) === (item.fileName ?? null) &&
+        (mediaPatch.fileSizeLabel ?? null) === (item.fileSizeLabel ?? null) &&
+        (mediaPatch.fileTypeLabel ?? null) === (item.fileTypeLabel ?? null) &&
+        (mediaPatch.fileIconClass ?? null) === (item.fileIconClass ?? null) &&
+        (mediaPatch.fileCaption ?? null) === (item.fileCaption ?? null)
+      ) {
+        return item;
+      }
+
+      return {
+        ...item,
+        ...mediaPatch,
+      };
+    }
+
+    return {
+      ...item,
+      tipo: loadedTipo,
+      preview: loadedPreview,
+      fechaEnvio: loadedFecha,
+      chatId: loadedChatId,
+      emisorId: loadedEmisorId,
+      emisorNombre: loadedEmisorNombre,
+      ...this.buildStarredMediaPatchFromMessage(loaded),
+    };
   }
 
   public get blockedMeIdsArray(): number[] {
@@ -593,6 +721,11 @@ export class InicioComponent {
   private readonly TEMPORARY_CHAT_SETTINGS_KEY = 'chatTemporarySecondsByChat';
   private draftByChatId = new Map<number, string>();
   private temporarySecondsByChatId = new Map<number, number>();
+  private readonly starredMessageIds = new Set<number>();
+  private readonly starredHydratedMessagesById = new Map<number, MensajeDTO>();
+  private starredHydrationRequestSeq = 0;
+  private readonly starringMessageIds = new Set<number>();
+  private loadingStarredMessages = false;
   private composerDraftPrefixVisible = false;
   private mediaRecorder?: MediaRecorder;
   private micStream?: MediaStream;
@@ -688,6 +821,7 @@ export class InicioComponent {
     this.usuarioActualId = parseInt(id, 10);
     this.loadChatDraftsFromStorage();
     this.loadTemporarySettingsFromStorage();
+    this.loadStarredMessagesFromBackend();
     void this.ensureLocalE2EKeysAndSyncPublicKey(this.usuarioActualId);
     void this.ensureAuditPublicKeyForE2E();
 
@@ -1529,6 +1663,8 @@ export class InicioComponent {
           };
         });
         this.applyDraftsToChatList();
+        this.syncStarredMessagesWithChatSnapshots();
+        this.prefetchHydratedStarredMessages();
 
         for (const chat of this.chats) {
           void this.syncChatItemLastPreviewMedia(chat, null, 'chat-list-initial');
@@ -4023,6 +4159,533 @@ private async decryptPreviewString(
     return Number.isFinite(userId) && userId > 0
       ? `${this.CHAT_DRAFTS_KEY}:${userId}`
       : this.CHAT_DRAFTS_KEY;
+  }
+
+  private normalizeStarredMessageItems(raw: unknown): StarredMessageItem[] {
+    const list = Array.isArray(raw) ? raw : [];
+    const dedup = new Map<number, StarredMessageItem>();
+
+    for (const row of list) {
+      const item = (row || {}) as StarredMessageDTO;
+      const messageId = Number(item?.messageId ?? item?.mensajeId);
+      if (!Number.isFinite(messageId) || messageId <= 0) continue;
+
+      const chatIdRaw = Number(item?.chatId);
+      const chatId =
+        Number.isFinite(chatIdRaw) && chatIdRaw > 0 ? Math.round(chatIdRaw) : null;
+      const emisorId = Number(item?.emisorId ?? item?.senderId ?? 0) || 0;
+      const fallbackSenderName =
+        emisorId > 0
+          ? this.resolveGroupMemberDisplayName(Number(chatId || 0), emisorId)
+          : '';
+      const normalizedTipo =
+        String(item?.tipo ?? item?.tipoMensaje ?? 'TEXT').trim().toUpperCase() ||
+        'TEXT';
+      const rawPreview = String(item?.preview ?? item?.contenido ?? '').trim();
+
+      const normalized: StarredMessageItem = {
+        messageId: Math.round(messageId),
+        chatId,
+        chatNombre:
+          String(item?.chatNombre ?? item?.nombreChat ?? '').trim() ||
+          fallbackSenderName ||
+          'Chat',
+        emisorId,
+        emisorNombre:
+          String(
+            item?.nombreEmisorCompleto ??
+              item?.emisorNombre ??
+              item?.nombreEmisor ??
+              item?.senderName ??
+              ''
+          ).trim() ||
+          fallbackSenderName ||
+          'Usuario',
+        tipo: normalizedTipo,
+        preview: this.normalizeStarredPreviewByTipo(normalizedTipo, rawPreview),
+        fechaEnvio:
+          String(item?.fechaEnvio ?? item?.fechaMensaje ?? '').trim() || null,
+        starredAt:
+          String(item?.destacadoEn ?? item?.starredAt ?? item?.createdAt ?? '').trim() ||
+          String(item?.fechaEnvio ?? item?.fechaMensaje ?? '').trim() ||
+          new Date().toISOString(),
+        audioSrc: null,
+        audioDurationLabel: null,
+        imageSrc: null,
+        imageAlt: null,
+        imageCaption: null,
+        fileSrc: null,
+        fileName: null,
+        fileSizeLabel: null,
+        fileTypeLabel: null,
+        fileIconClass: null,
+        fileCaption: null,
+      };
+      dedup.set(normalized.messageId, normalized);
+    }
+
+    return Array.from(dedup.values());
+  }
+
+  private normalizeStarredPreviewByTipo(tipo: string, previewRaw: string): string {
+    const normalizedTipo =
+      String(tipo || 'TEXT').trim().toUpperCase() || 'TEXT';
+    const rawPreview = String(previewRaw || '').trim();
+    const encryptedLike = this.looksLikeEncryptedPreview(rawPreview);
+
+    if (normalizedTipo === 'AUDIO') {
+      return encryptedLike || !rawPreview ? 'Mensaje de voz' : rawPreview;
+    }
+    if (normalizedTipo === 'IMAGE') {
+      if (encryptedLike || !rawPreview) return 'Imagen';
+      return `Imagen: ${rawPreview}`;
+    }
+    if (normalizedTipo === 'VIDEO') {
+      if (encryptedLike || !rawPreview) return 'Video';
+      return `Video: ${rawPreview}`;
+    }
+    if (normalizedTipo === 'FILE') {
+      if (encryptedLike || !rawPreview) return 'Archivo';
+      return rawPreview.toLowerCase().startsWith('archivo')
+        ? rawPreview
+        : `Archivo: ${rawPreview}`;
+    }
+    if (normalizedTipo === 'POLL') {
+      return encryptedLike || !rawPreview ? 'Encuesta' : rawPreview;
+    }
+    if (encryptedLike) return '[Mensaje cifrado]';
+    return rawPreview || '[Sin contenido]';
+  }
+
+  private looksLikeEncryptedPreview(raw: string): boolean {
+    const text = String(raw || '').trim();
+    if (!text) return false;
+    const normalized = text.toLowerCase();
+    if (text.startsWith('{') && text.endsWith('}')) return true;
+    if (text.startsWith('{"') || text.startsWith('{\"')) return true;
+    return (
+      normalized.includes('forreceptor') ||
+      normalized.includes('forreceptores') ||
+      normalized.includes('foremisor') ||
+      normalized.includes('ivfile') ||
+      normalized.includes('ciphertext') ||
+      normalized.includes('captionciphertext')
+    );
+  }
+
+  private applyStarredMessages(
+    items: StarredMessageItem[],
+    resetKnownIds = false
+  ): void {
+    if (resetKnownIds) {
+      this.starredMessageIds.clear();
+    }
+    const normalized = this.normalizeStarredMessageItems(items);
+    this.mensajesDestacados = normalized;
+    for (const item of normalized) {
+      const id = Number(item?.messageId);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      this.starredMessageIds.add(id);
+    }
+    this.syncStarredMessagesWithChatSnapshots();
+    this.cleanupHydratedStarredMessages();
+    this.prefetchHydratedStarredMessages();
+  }
+
+  private upsertStarredMessage(item: StarredMessageItem): void {
+    const messageId = Number(item?.messageId);
+    if (!Number.isFinite(messageId) || messageId <= 0) return;
+    const normalized = this.normalizeStarredMessageItems([item])[0];
+    if (!normalized) return;
+
+    this.starredMessageIds.add(messageId);
+    this.mensajesDestacados = [
+      normalized,
+      ...this.mensajesDestacados.filter((x) => Number(x?.messageId) !== messageId),
+    ];
+    this.syncStarredMessagesWithChatSnapshots();
+    this.prefetchHydratedStarredMessages([messageId]);
+  }
+
+  private removeStarredMessageById(messageId: number): void {
+    if (!Number.isFinite(messageId) || messageId <= 0) return;
+    this.mensajesDestacados = this.mensajesDestacados.filter(
+      (item) => Number(item?.messageId) !== messageId
+    );
+    this.starredMessageIds.delete(messageId);
+    this.starredHydratedMessagesById.delete(messageId);
+  }
+
+  private loadStarredMessagesFromBackend(
+    showErrorToast = false,
+    requestedPage?: number
+  ): void {
+    if (this.loadingStarredMessages) return;
+    this.loadingStarredMessages = true;
+    const page =
+      Number.isFinite(Number(requestedPage)) && Number(requestedPage) >= 0
+        ? Math.floor(Number(requestedPage))
+        : Math.max(0, Number(this.starredPage || 0));
+
+    this.chatService
+      .listarDestacados(page, this.starredPageSize, 'fechaMensaje,desc')
+      .pipe(
+        finalize(() => {
+          this.loadingStarredMessages = false;
+        })
+      )
+      .subscribe({
+        next: (response) => {
+          const parsed = this.parseStarredMessagesPageResponse(response, page);
+          this.starredPage = parsed.page;
+          this.starredPageSize = parsed.size;
+          this.starredTotalPages = parsed.totalPages;
+          this.starredTotalElements = parsed.totalElements;
+          this.starredHasNext = parsed.hasNext;
+          this.starredHasPrevious = parsed.hasPrevious;
+          this.applyStarredMessages(
+            this.normalizeStarredMessageItems(parsed.content),
+            parsed.totalElements === 0
+          );
+          this.cdr.markForCheck();
+        },
+        error: (error) => {
+          console.warn('[destacados] no se pudieron cargar desde backend', error);
+          if (showErrorToast) {
+            this.showToast(
+              this.getDestacadoListErrorMessage(error),
+              'warning',
+              'Destacados'
+            );
+          }
+          this.cdr.markForCheck();
+        },
+      });
+  }
+
+  private parseStarredMessagesPageResponse(
+    response: StarredMessagesPageDTO | StarredMessageDTO[] | unknown,
+    fallbackPage: number
+  ): {
+    content: StarredMessageDTO[];
+    page: number;
+    size: number;
+    totalElements: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrevious: boolean;
+  } {
+    if (Array.isArray(response)) {
+      const content = response as StarredMessageDTO[];
+      return {
+        content,
+        page: Math.max(0, Number(fallbackPage || 0)),
+        size: this.starredPageSize,
+        totalElements: content.length,
+        totalPages: content.length > 0 ? 1 : 1,
+        hasNext: false,
+        hasPrevious: false,
+      };
+    }
+
+    const pageResponse = (response || {}) as StarredMessagesPageDTO;
+    const content = Array.isArray(pageResponse?.content)
+      ? (pageResponse.content as StarredMessageDTO[])
+      : [];
+    const page = Math.max(
+      0,
+      Number(
+        pageResponse?.page ??
+          pageResponse?.number ??
+          fallbackPage ??
+          this.starredPage
+      ) || 0
+    );
+    const size = Math.max(
+      1,
+      Number(pageResponse?.size ?? this.starredPageSize) || this.starredPageSize
+    );
+    const totalElements = Math.max(
+      0,
+      Number(pageResponse?.totalElements ?? content.length) || 0
+    );
+    const totalPages = Math.max(
+      1,
+      Number(pageResponse?.totalPages ?? 1) || 1
+    );
+    const fallbackLast = page >= totalPages - 1;
+    const fallbackFirst = page <= 0;
+    const hasNext = Boolean(
+      pageResponse?.hasNext ?? !(pageResponse?.last ?? fallbackLast)
+    );
+    const hasPrevious = Boolean(
+      pageResponse?.hasPrevious ?? !(pageResponse?.first ?? fallbackFirst)
+    );
+
+    return {
+      content,
+      page,
+      size,
+      totalElements,
+      totalPages,
+      hasNext,
+      hasPrevious,
+    };
+  }
+
+  private cleanupHydratedStarredMessages(): void {
+    const allowedIds = new Set<number>();
+    for (const item of this.mensajesDestacados || []) {
+      const messageId = Number(item?.messageId);
+      if (!Number.isFinite(messageId) || messageId <= 0) continue;
+      allowedIds.add(messageId);
+    }
+
+    for (const key of Array.from(this.starredHydratedMessagesById.keys())) {
+      if (!allowedIds.has(key)) {
+        this.starredHydratedMessagesById.delete(key);
+      }
+    }
+  }
+
+  private prefetchHydratedStarredMessages(limitToMessageIds?: number[]): void {
+    const targetByChat = new Map<number, Set<number>>();
+    const only = new Set<number>(
+      (limitToMessageIds || [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    );
+
+    for (const item of this.mensajesDestacados || []) {
+      const messageId = Number(item?.messageId);
+      const chatId = Number(item?.chatId);
+      if (!Number.isFinite(messageId) || messageId <= 0) continue;
+      if (!Number.isFinite(chatId) || chatId <= 0) continue;
+      if (this.starredHydratedMessagesById.has(messageId)) continue;
+      if (only.size > 0 && !only.has(messageId)) continue;
+
+      if (!targetByChat.has(chatId)) {
+        targetByChat.set(chatId, new Set<number>());
+      }
+      targetByChat.get(chatId)?.add(messageId);
+    }
+
+    if (targetByChat.size === 0) return;
+    const requestSeq = ++this.starredHydrationRequestSeq;
+
+    void (async () => {
+      for (const [chatId, targetIds] of targetByChat.entries()) {
+        if (requestSeq !== this.starredHydrationRequestSeq) return;
+        const chat = (this.chats || []).find((c: any) => Number(c?.id) === chatId);
+        if (!chat) continue;
+
+        const esGrupo = !!chat?.esGrupo;
+        let rawMessages: any[] = [];
+        try {
+          rawMessages = await firstValueFrom(
+            this.getHistorySource$(chatId, esGrupo, 0, this.HISTORY_PAGE_SIZE)
+          );
+        } catch {
+          continue;
+        }
+
+        let decrypted: MensajeDTO[] = [];
+        try {
+          decrypted = await this.decryptHistoryPageMessages(
+            rawMessages || [],
+            chatId,
+            esGrupo,
+            esGrupo ? 'starred-prefetch-group' : 'starred-prefetch-individual'
+          );
+        } catch {
+          continue;
+        }
+
+        let changed = false;
+        for (const message of decrypted || []) {
+          const messageId = Number(message?.id);
+          if (!Number.isFinite(messageId) || messageId <= 0) continue;
+          if (!targetIds.has(messageId)) continue;
+          this.starredHydratedMessagesById.set(messageId, message);
+          changed = true;
+        }
+
+        if (changed) {
+          this.cdr.markForCheck();
+        }
+      }
+    })();
+  }
+
+  private syncStarredMessagesWithChatSnapshots(): void {
+    if (!Array.isArray(this.mensajesDestacados) || this.mensajesDestacados.length === 0) {
+      return;
+    }
+    const byChatId = new Map<number, any>();
+    for (const chat of this.chats || []) {
+      const id = Number(chat?.id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      byChatId.set(id, chat);
+    }
+
+    let changed = false;
+    this.mensajesDestacados = this.mensajesDestacados.map((item) => {
+      const chatId = Number(item?.chatId);
+      const chat = byChatId.get(chatId);
+      if (!chat) return item;
+
+      const nextChatNombre = String(chat?.nombre || item.chatNombre || '').trim() || 'Chat';
+      const senderName =
+        this.resolveGroupMemberDisplayName(chatId, Number(item?.emisorId || 0)) ||
+        item.emisorNombre;
+      if (nextChatNombre === item.chatNombre && senderName === item.emisorNombre) {
+        return item;
+      }
+      changed = true;
+      return {
+        ...item,
+        chatNombre: nextChatNombre,
+        emisorNombre: senderName || item.emisorNombre,
+      };
+    });
+    if (!changed) return;
+  }
+
+  private buildStarredMessagePreview(mensaje: MensajeDTO): string {
+    const tipo = String(mensaje?.tipo || 'TEXT').trim().toUpperCase();
+    if (tipo === 'AUDIO') {
+      const dur = this.formatDur(mensaje?.audioDuracionMs || 0);
+      return dur ? `Mensaje de voz (${dur})` : 'Mensaje de voz';
+    }
+    if (tipo === 'IMAGE') {
+      const caption = String(mensaje?.contenido || '').trim();
+      return caption ? `Imagen: ${caption}` : 'Imagen';
+    }
+    if (tipo === 'VIDEO') {
+      const caption = String(mensaje?.contenido || '').trim();
+      return caption ? `Video: ${caption}` : 'Video';
+    }
+    if (tipo === 'FILE') {
+      return `Archivo: ${this.getFileName(mensaje)}`;
+    }
+    if (tipo === 'POLL') {
+      const question = this.getPollQuestion(mensaje);
+      return question ? `Encuesta: ${question}` : 'Encuesta';
+    }
+    const text = String(mensaje?.contenido || '').trim();
+    if (!text) return '[Sin contenido]';
+    return text.length > 180 ? `${text.slice(0, 180)}...` : text;
+  }
+
+  private buildStarredMessageItem(mensaje: MensajeDTO): StarredMessageItem {
+    const messageId = Number(mensaje?.id);
+    const chatIdRaw = Number(mensaje?.chatId ?? this.chatActual?.id);
+    const chatId =
+      Number.isFinite(chatIdRaw) && chatIdRaw > 0 ? Math.round(chatIdRaw) : null;
+    const chatItem = (this.chats || []).find(
+      (chat: any) => Number(chat?.id) === chatId
+    );
+    const chatNombre =
+      String(chatItem?.nombre || this.chatActual?.nombre || '').trim() || 'Chat';
+    const emisorId = Number(mensaje?.emisorId || 0);
+    const emisorNombre =
+      `${mensaje?.emisorNombre || ''} ${mensaje?.emisorApellido || ''}`.trim() ||
+      this.resolveGroupMemberDisplayName(Number(chatId || 0), emisorId) ||
+      this.obtenerNombrePorId(emisorId) ||
+      `Usuario ${emisorId || ''}`.trim() ||
+      'Usuario';
+
+    return {
+      messageId: Number.isFinite(messageId) ? Math.round(messageId) : 0,
+      chatId,
+      chatNombre,
+      emisorId,
+      emisorNombre,
+      tipo: String(mensaje?.tipo || 'TEXT').trim().toUpperCase(),
+      preview: this.buildStarredMessagePreview(mensaje),
+      fechaEnvio: String(mensaje?.fechaEnvio || '').trim() || null,
+      starredAt: new Date().toISOString(),
+      ...this.buildStarredMediaPatchFromMessage(mensaje),
+    };
+  }
+
+  private buildStarredMediaPatchFromMessage(
+    mensaje: MensajeDTO
+  ): Partial<StarredMessageItem> {
+    const tipo = String(mensaje?.tipo || 'TEXT').trim().toUpperCase();
+
+    const clearPatch: Partial<StarredMessageItem> = {
+      audioSrc: null,
+      audioDurationLabel: null,
+      imageSrc: null,
+      imageAlt: null,
+      imageCaption: null,
+      fileSrc: null,
+      fileName: null,
+      fileSizeLabel: null,
+      fileTypeLabel: null,
+      fileIconClass: null,
+      fileCaption: null,
+    };
+
+    if (tipo === 'AUDIO') {
+      const audioSrc = String(this.getAudioSrc(mensaje) || '').trim();
+      return {
+        ...clearPatch,
+        audioSrc: audioSrc || null,
+        audioDurationLabel: this.formatDur(mensaje?.audioDuracionMs || 0) || null,
+      };
+    }
+
+    if (tipo === 'IMAGE') {
+      const imageSrc = String(this.getImageSrc(mensaje) || '').trim();
+      const rawCaption = String(mensaje?.contenido || '').trim();
+      return {
+        ...clearPatch,
+        imageSrc: imageSrc || null,
+        imageAlt: this.getImageAlt(mensaje),
+        imageCaption: rawCaption && !rawCaption.startsWith('{') ? rawCaption : null,
+      };
+    }
+
+    if (tipo === 'FILE') {
+      const fileSrc = String(this.getFileSrc(mensaje) || '').trim();
+      const fileMime = String(mensaje?.fileMime || '').trim();
+      return {
+        ...clearPatch,
+        fileSrc: fileSrc || null,
+        fileName: this.getFileName(mensaje),
+        fileSizeLabel: this.getFileSizeLabel(mensaje) || null,
+        fileTypeLabel: this.getFileTypeLabel(mensaje) || null,
+        fileIconClass: this.getFileIconClass(fileMime) || 'bi-file-earmark',
+        fileCaption: this.getFileCaption(mensaje) || null,
+      };
+    }
+
+    return clearPatch;
+  }
+
+  private resolveStarredMessageFromApiResponse(
+    raw: unknown,
+    fallbackMessage: MensajeDTO
+  ): StarredMessageItem {
+    const candidates: unknown[] = [];
+    if (Array.isArray(raw)) {
+      candidates.push(...raw);
+    } else {
+      candidates.push(raw);
+    }
+
+    const payload = (raw || {}) as any;
+    if (payload && typeof payload === 'object') {
+      candidates.push(payload?.item, payload?.data, payload?.mensaje);
+      if (Array.isArray(payload?.items)) {
+        candidates.push(...payload.items);
+      }
+    }
+
+    const normalized = this.normalizeStarredMessageItems(candidates)[0];
+    return normalized || this.buildStarredMessageItem(fallbackMessage);
   }
 
   private normalizeChatDraftText(raw: unknown): string {
@@ -6763,6 +7426,220 @@ private async decryptPreviewString(
     this.openMensajeMenuId = this.openMensajeMenuId === id ? null : id;
   }
 
+  public canDestacarMensaje(mensaje: MensajeDTO): boolean {
+    if (!mensaje || mensaje.activo === false) return false;
+    if (this.isSystemMessage(mensaje)) return false;
+    if (Number(mensaje.emisorId) === Number(this.usuarioActualId)) return false;
+    const id = Number(mensaje.id);
+    return Number.isFinite(id) && id > 0;
+  }
+
+  public isMensajeDestacado(mensaje: MensajeDTO | null | undefined): boolean {
+    const messageId = Number(mensaje?.id);
+    return (
+      Number.isFinite(messageId) &&
+      messageId > 0 &&
+      this.starredMessageIds.has(messageId)
+    );
+  }
+
+  public toggleDestacarMensaje(mensaje: MensajeDTO, event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (!this.canDestacarMensaje(mensaje)) return;
+
+    const messageId = Number(mensaje.id);
+    if (!Number.isFinite(messageId) || messageId <= 0) return;
+    if (this.starringMessageIds.has(messageId)) return;
+    this.starringMessageIds.add(messageId);
+
+    if (this.starredMessageIds.has(messageId)) {
+      this.chatService
+        .quitarDestacado(messageId)
+        .pipe(
+          finalize(() => {
+            this.starringMessageIds.delete(messageId);
+            this.cdr.markForCheck();
+          })
+        )
+        .subscribe({
+          next: () => {
+            this.removeStarredMessageById(messageId);
+            this.openMensajeMenuId = null;
+            this.showToast(
+              'Mensaje quitado de destacados.',
+              'info',
+              'Destacados',
+              1800
+            );
+            if (this.isStarredView) {
+              this.loadStarredMessagesFromBackend(false, this.starredPage);
+            }
+          },
+          error: (error) => {
+            console.warn('[destacados] no se pudo quitar destacado', error);
+            if (Number(error?.status || 0) === 404) {
+              this.removeStarredMessageById(messageId);
+            }
+            this.showToast(
+              this.getDestacadoActionErrorMessage(error, 'quitar'),
+              'warning',
+              'Destacados'
+            );
+          },
+        });
+      return;
+    }
+
+    this.chatService
+      .destacarMensaje(messageId)
+      .pipe(
+        finalize(() => {
+          this.starringMessageIds.delete(messageId);
+          this.cdr.markForCheck();
+        })
+      )
+      .subscribe({
+        next: (response) => {
+          const nextItem = this.resolveStarredMessageFromApiResponse(
+            response,
+            mensaje
+          );
+          this.upsertStarredMessage(nextItem);
+          this.openMensajeMenuId = null;
+          this.showToast('Mensaje destacado.', 'success', 'Destacados', 1800);
+          if (this.isStarredView) {
+            this.loadStarredMessagesFromBackend(false, 0);
+          }
+        },
+        error: (error) => {
+          console.warn('[destacados] no se pudo destacar mensaje', error);
+          this.showToast(
+            this.getDestacadoActionErrorMessage(error, 'destacar'),
+            'warning',
+            'Destacados'
+          );
+        },
+      });
+  }
+
+  public toggleDestacadoDesdeLista(
+    item: StarredMessageItem,
+    event?: MouseEvent
+  ): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const messageId = Number(item?.messageId);
+    if (!Number.isFinite(messageId) || messageId <= 0) return;
+    if (this.starringMessageIds.has(messageId)) return;
+    this.starringMessageIds.add(messageId);
+
+    this.chatService
+      .quitarDestacado(messageId)
+      .pipe(
+        finalize(() => {
+          this.starringMessageIds.delete(messageId);
+          this.cdr.markForCheck();
+        })
+      )
+      .subscribe({
+        next: () => {
+          this.removeStarredMessageById(messageId);
+          this.showToast(
+            'Mensaje quitado de destacados.',
+            'info',
+            'Destacados',
+            1800
+          );
+          if (this.isStarredView) {
+            this.loadStarredMessagesFromBackend(false, this.starredPage);
+          }
+        },
+        error: (error) => {
+          console.warn('[destacados] no se pudo quitar destacado', error);
+          if (Number(error?.status || 0) === 404) {
+            this.removeStarredMessageById(messageId);
+          }
+          this.showToast(
+            this.getDestacadoActionErrorMessage(error, 'quitar'),
+            'warning',
+            'Destacados'
+          );
+        },
+      });
+  }
+
+  private getDestacadoActionErrorMessage(
+    error: any,
+    action: 'destacar' | 'quitar'
+  ): string {
+    const status = Number(error?.status || 0);
+    const backendMsg = String(
+      error?.error?.mensaje || error?.error?.message || ''
+    ).trim();
+    if (backendMsg) return backendMsg;
+
+    if (status === 403) {
+      return action === 'destacar'
+        ? 'No tienes permisos para destacar este mensaje o es un mensaje propio.'
+        : 'No tienes permisos para quitar el destacado de este mensaje.';
+    }
+
+    if (status === 404) {
+      return 'El mensaje no existe o ya no está disponible.';
+    }
+
+    return action === 'destacar'
+      ? 'No se pudo destacar el mensaje. Inténtalo de nuevo.'
+      : 'No se pudo quitar el destacado. Inténtalo de nuevo.';
+  }
+
+  private getDestacadoListErrorMessage(error: any): string {
+    const status = Number(error?.status || 0);
+    const backendMsg = String(
+      error?.error?.mensaje || error?.error?.message || ''
+    ).trim();
+    if (backendMsg) return backendMsg;
+
+    if (status === 403) {
+      return 'No tienes permisos para consultar mensajes destacados.';
+    }
+
+    return 'No se pudieron cargar los mensajes destacados.';
+  }
+
+  public abrirMensajeDestacado(item: StarredMessageItem): void {
+    const chatId = Number(item?.chatId);
+    if (!Number.isFinite(chatId) || chatId <= 0) {
+      this.showToast(
+        'No se pudo abrir el mensaje destacado: chat no disponible.',
+        'warning',
+        'Destacados'
+      );
+      return;
+    }
+
+    const chat = (this.chats || []).find((c: any) => Number(c?.id) === chatId);
+    if (!chat) {
+      this.showToast(
+        'No se encontró el chat del mensaje destacado.',
+        'warning',
+        'Destacados'
+      );
+      return;
+    }
+
+    this.openChatsSidebarView();
+    this.activeMainView = 'chat';
+    this.mostrarMensajes(chat);
+
+    const targetId = Number(item?.messageId);
+    if (!Number.isFinite(targetId) || targetId <= 0) return;
+    setTimeout(() => {
+      void this.onMessageSearchResultSelect(targetId);
+    }, 260);
+  }
+
   public canToggleIncomingQuickReaction(mensaje: MensajeDTO): boolean {
     if (!mensaje || mensaje.activo === false) return false;
     if (Number(mensaje.emisorId) === Number(this.usuarioActualId)) return false;
@@ -7270,8 +8147,45 @@ private async decryptPreviewString(
     this.showTopbarProfileMenu = !this.showTopbarProfileMenu;
   }
 
+  public openChatsSidebarView(event?: MouseEvent): void {
+    event?.stopPropagation();
+    this.sidebarSection = 'CHATS';
+    this.activeMainView = 'chat';
+  }
+
+  public openStarredSidebarView(event?: MouseEvent): void {
+    event?.stopPropagation();
+    this.sidebarSection = 'STARRED';
+    this.activeMainView = 'chat';
+    this.loadStarredMessagesFromBackend(true, this.starredPage);
+    this.showTopbarProfileMenu = false;
+    this.showChatListHeaderMenu = false;
+    this.openMensajeMenuId = null;
+    this.openIncomingReactionPickerMessageId = null;
+    this.openReactionDetailsMessageId = null;
+    this.mostrarMenuOpciones = false;
+    this.closeComposeActionsPopup();
+    this.closeEmojiPicker(true);
+    this.closeTemporaryMessagePopup();
+    this.closeGroupInfoPanel();
+    this.closeMessageSearchPanel();
+    this.closePollVotesPanel();
+    this.closeFilePreview();
+  }
+
+  public nextStarredPage(): void {
+    if (this.loadingStarredMessages || !this.starredHasNext) return;
+    this.loadStarredMessagesFromBackend(true, this.starredPage + 1);
+  }
+
+  public prevStarredPage(): void {
+    if (this.loadingStarredMessages || !this.starredHasPrevious) return;
+    this.loadStarredMessagesFromBackend(true, this.starredPage - 1);
+  }
+
   public openProfileView(event?: MouseEvent): void {
     event?.stopPropagation();
+    this.sidebarSection = 'CHATS';
     this.showTopbarProfileMenu = false;
     this.activeMainView = 'profile';
   }

@@ -15,6 +15,11 @@ import {
 } from '../../Interface/GroupMediaDTO';
 import { MessageSearchResponseDTO } from '../../Interface/MessageSearchDTO';
 import { ChatListItemDTO } from '../../Interface/ChatListItemDTO';
+import {
+  StarredMessageDTO,
+  StarredMessagesPageDTO,
+} from '../../Interface/StarredMessageDTO';
+import { environment } from '../../environments';
 
 export interface PollVoteRestRequestDTO {
   optionId: string;
@@ -75,6 +80,7 @@ export interface MensajeProgramadoDTO {
 })
 export class ChatService {
   private baseUrl = 'http://localhost:8080/api/chat'; // Ajusta si usas un proxy o diferente puerto
+  private starredMessagesBaseUrl = `${environment.backendBaseUrl}/api/mensajes`;
 
   constructor(private http: HttpClient) {}
 
@@ -196,6 +202,53 @@ export class ChatService {
       `${this.baseUrl}/mensajes/${mensajeId}/restaurar`,
       {}
     );
+  }
+
+  listarDestacados(
+    page: number = 0,
+    size: number = 10,
+    sort?: string
+  ): Observable<StarredMessagesPageDTO | StarredMessageDTO[]> {
+    let params = new HttpParams()
+      .set('page', String(Number.isFinite(page) ? Math.max(0, Math.floor(page)) : 0))
+      .set('size', String(Number.isFinite(size) ? Math.max(1, Math.floor(size)) : 10));
+
+    const normalizedSort = String(sort || '').trim();
+    if (normalizedSort) {
+      params = params.set('sort', normalizedSort);
+    }
+
+    return this.http.get<StarredMessagesPageDTO | StarredMessageDTO[]>(
+      `${this.starredMessagesBaseUrl}/destacados`,
+      { params }
+    );
+  }
+
+  destacarMensaje(mensajeId: number): Observable<unknown> {
+    return this.http.post(
+      `${this.starredMessagesBaseUrl}/${mensajeId}/destacar`,
+      {}
+    );
+  }
+
+  quitarDestacado(mensajeId: number): Observable<unknown> {
+    return this.http.delete(
+      `${this.starredMessagesBaseUrl}/${mensajeId}/destacar`
+    );
+  }
+
+  // Alias temporal para no romper llamadas existentes durante la migracion.
+  listarMensajesDestacados(
+    page: number = 0,
+    size: number = 10,
+    sort?: string
+  ): Observable<StarredMessagesPageDTO | StarredMessageDTO[]> {
+    return this.listarDestacados(page, size, sort);
+  }
+
+  // Alias temporal para no romper llamadas existentes durante la migracion.
+  quitarDestacadoMensaje(mensajeId: number): Observable<unknown> {
+    return this.quitarDestacado(mensajeId);
   }
 
   listarMensajesPorChatGrupal(

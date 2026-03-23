@@ -96,7 +96,7 @@
                     type="button"
                     (click)="logoutFromAdmin()"
                     class="flex-1 lg:flex-none px-6 py-2.5 rounded-xl text-sm font-bold text-rose-600 bg-white border border-rose-200 hover:bg-rose-50 transition-colors">
-                    Cerrar sesiÛn
+                    Cerrar sesi√≥n
                 </button>
             </div>
         </header>
@@ -181,7 +181,7 @@
                                         <span class="admin-users-loader-spinner" aria-hidden="true"></span>
                                         <div>
                                             <p class="admin-users-loader-title">Cargando usuarios</p>
-                                            <p class="admin-users-loader-subtitle">Preparando la p·gina actual del listado...</p>
+                                            <p class="admin-users-loader-subtitle">Preparando la p√°gina actual del listado...</p>
                                         </div>
                                     </div>
                                     <div class="admin-users-loader-skeleton">
@@ -238,8 +238,8 @@
 
             <div class="admin-pagination-wrap" *ngIf="!loadingUsuarios && totalElements > 0 && (!busquedaTerm || !busquedaTerm.trim())">
                 <div class="admin-pagination-meta">
-                    P·gina {{ currentPage + 1 }} de {{ totalPages }}
-                    <span class="admin-pagination-dot">ï</span>
+                    P√°gina {{ currentPage + 1 }} de {{ totalPages }}
+                    <span class="admin-pagination-dot">‚Ä¢</span>
                     {{ totalElements }} usuarios
                 </div>
                 <div class="admin-pagination-actions">
@@ -284,7 +284,7 @@
             <div class="glass-card overflow-hidden w-full p-4 md:p-5">
                 <div class="reports-meta-line">
                     <span class="reports-meta-title">Total en vista: {{ appealTotalElements }}</span>
-                    <span class="reports-meta-hint">ActualizaciÛn en tiempo real</span>
+                    <span class="reports-meta-hint">Actualizaci√≥n en tiempo real</span>
                 </div>
 
                 <div class="reports-filter-tabs" role="tablist" aria-label="Filtrar reportes">
@@ -294,7 +294,7 @@
                         [class.is-active]="isAppealFilterActive('ABIERTOS')"
                         (click)="setAppealViewFilter('ABIERTOS')"
                     >
-                        Pendientes + En revisiÛn
+                        Pendientes + En revisi√≥n
                     </button>
                     <button
                         type="button"
@@ -348,8 +348,8 @@
 
                 <div class="admin-pagination-wrap" *ngIf="!loadingAppeals && appealTotalElements > 0">
                     <div class="admin-pagination-meta">
-                        P·gina {{ appealPage + 1 }} de {{ appealTotalPages }}
-                        <span class="admin-pagination-dot">ï</span>
+                        P√°gina {{ appealPage + 1 }} de {{ appealTotalPages }}
+                        <span class="admin-pagination-dot">‚Ä¢</span>
                         {{ appealTotalElements }} reportes
                     </div>
                     <div class="admin-pagination-actions">
@@ -467,8 +467,8 @@
                   <!-- Info secundaria -->
                   <p class="text-xs text-slate-400 uppercase tracking-widest mt-1">
                     <span *ngIf="chat.id">ID: #CH-{{ chat.id }}</span>
-                    <span *ngIf="chat.fechaCreacion"> ï {{ chat.fechaCreacion }}</span>
-                    <span *ngIf="chat.tipo"> ï {{ chat.tipo }}</span>
+                    <span *ngIf="chat.fechaCreacion"> ‚Ä¢ {{ chat.fechaCreacion }}</span>
+                    <span *ngIf="chat.tipo"> ‚Ä¢ {{ chat.tipo }}</span>
                   </p>
                 </div>
               </div>
@@ -491,10 +491,10 @@
               </span>
             </div>
 
-            <!-- ⁄ltimo mensaje (si viene en el DTO) -->
+            <!-- √öltimo mensaje (si viene en el DTO) -->
             <div class="mt-4 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
               <div class="flex items-center justify-between gap-2 mb-1">
-                <p class="text-xs text-slate-500">⁄ltimo mensaje</p>
+                <p class="text-xs text-slate-500">√öltimo mensaje</p>
                 <div class="flex items-center gap-2 text-[10px] text-slate-400">
                   <span *ngIf="chat.ultimoMensajeTipo" class="px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-500 font-semibold">
                     {{ chat.ultimoMensajeTipo }}
@@ -523,7 +523,7 @@
                 <span class="preview-audio compact">
                   <span *ngIf="adminAudioPreviewLabel(chat)" class="me-label">{{ adminAudioPreviewLabel(chat) }}:</span>
                   <i class="fas fa-microphone" aria-hidden="true"></i>
-                  <span class="sep">ï</span>
+                  <span class="sep">‚Ä¢</span>
                   <span class="time">{{ adminAudioPreviewTime(chat) }}</span>
                 </span>
               </ng-container>
@@ -543,7 +543,7 @@
                       </span>
                     </ng-template>
                     <span *ngIf="adminImagePreviewCaption(chat) as caption" class="preview-text">
-                      <span class="preview-caption-chip">ì{{ caption }}î</span>
+                      <span class="preview-caption-chip">‚Äú{{ caption }}‚Äù</span>
                     </span>
                   </span>
                 </ng-container>
@@ -612,7 +612,7 @@
                       class="mb-2 rounded-lg border-l-4 border-sky-300 bg-sky-50/70 px-3 py-2"
                     >
                       <p class="text-[10px] font-bold uppercase tracking-wide text-sky-700">
-                        Respuesta a {{ (msg.replyAuthorName === 'T˙') ? 'ti' : (msg.replyAuthorName || ('mensaje #' + msg.replyToMessageId)) }}
+                        Respuesta a {{ (msg.replyAuthorName === 'T√∫') ? 'ti' : (msg.replyAuthorName || ('mensaje #' + msg.replyToMessageId)) }}
                       </p>
                       <p class="text-[12px] text-slate-700 mt-1 break-words">
                         {{ msg.replySnippet || ('Mensaje #' + msg.replyToMessageId) }}
@@ -784,8 +784,8 @@
                                   <ng-container *ngIf="getAdminFileSizeLabel(msg) as fileSize; else adminUnknownFileSize">
                                     {{ fileSize }}
                                   </ng-container>
-                                  <ng-template #adminUnknownFileSize>Sin tamaÒo</ng-template>
-                                  &nbsp;ï&nbsp;{{ getAdminFileTypeLabel(msg) }}
+                                  <ng-template #adminUnknownFileSize>Sin tama√±o</ng-template>
+                                  &nbsp;‚Ä¢&nbsp;{{ getAdminFileTypeLabel(msg) }}
                                 </span>
                               </span>
                             </a>

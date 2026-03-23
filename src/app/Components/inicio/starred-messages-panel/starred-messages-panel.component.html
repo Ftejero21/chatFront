@@ -1,0 +1,175 @@
+<section class="starred-panel">
+  <header class="starred-panel__header">
+    <div>
+      <h2>
+        <i class="fas fa-star"></i>
+        Mensajes destacados
+      </h2>
+      <p>Accesos rápidos a mensajes marcados con estrella.</p>
+    </div>
+    <div class="starred-panel__count-pill">
+      <i class="fas fa-star"></i>
+      {{ items.length }} Mensajes destacados
+    </div>
+  </header>
+
+  <div class="starred-panel__search">
+    <i class="fas fa-search"></i>
+    <input
+      type="text"
+      placeholder="Buscar en tus mensajes guardados..."
+      [value]="query"
+      (input)="onQueryInput($event)"
+    />
+  </div>
+
+  <div *ngIf="filteredItems.length === 0" class="starred-panel__empty">
+    <i class="fas fa-star"></i>
+    <h3>Sin resultados</h3>
+    <p>No hay mensajes destacados que coincidan con tu búsqueda.</p>
+  </div>
+
+  <div *ngIf="filteredItems.length > 0" class="starred-panel__list">
+    <article
+      *ngFor="let item of filteredItems; trackBy: trackByMessageId"
+      #cardRef
+      class="starred-card"
+      [ngClass]="[
+        'starred-card--' + cardTone(item),
+        (item.tipo || '').toUpperCase() === 'IMAGE' ? 'starred-card--image' : '',
+        isExploding(item) ? 'pixel-pluf-out' : ''
+      ]"
+    >
+      <div class="starred-card__content">
+        <div class="starred-card__identity">
+          <div class="starred-card__avatar">{{ senderInitial(item) }}</div>
+          <div>
+            <h4>{{ item.emisorNombre }}</h4>
+            <span>{{ item.chatNombre }}</span>
+          </div>
+        </div>
+
+        <ng-container [ngSwitch]="(item.tipo || '').toUpperCase()">
+          <ng-container *ngSwitchCase="'IMAGE'">
+            <div *ngIf="item.imageSrc; else imageFallback" class="starred-media-image-wrap">
+              <img
+                class="starred-media-image"
+                [src]="item.imageSrc || ''"
+                [alt]="item.imageAlt || 'Imagen'"
+              />
+              <p *ngIf="item.imageCaption" class="starred-media-caption">{{ item.imageCaption }}</p>
+            </div>
+            <ng-template #imageFallback>
+              <p>{{ item.preview }}</p>
+            </ng-template>
+          </ng-container>
+
+          <ng-container *ngSwitchCase="'AUDIO'">
+            <div *ngIf="item.audioSrc; else audioFallback" class="starred-media-audio-wrap">
+              <audio class="starred-media-audio" controls [src]="item.audioSrc || ''"></audio>
+              <p *ngIf="item.audioDurationLabel" class="starred-media-caption">
+                Duración: {{ item.audioDurationLabel }}
+              </p>
+            </div>
+            <ng-template #audioFallback>
+              <p>{{ item.preview }}</p>
+            </ng-template>
+          </ng-container>
+
+          <ng-container *ngSwitchCase="'FILE'">
+            <div *ngIf="item.fileName; else fileFallback" class="starred-media-file-wrap">
+              <a
+                *ngIf="item.fileSrc; else fileNoLink"
+                class="starred-media-file"
+                [href]="item.fileSrc || ''"
+                [attr.download]="item.fileName || 'archivo'"
+                target="_blank"
+                rel="noopener"
+              >
+                <i class="bi" [ngClass]="item.fileIconClass || 'bi-file-earmark'"></i>
+                <span class="starred-media-file__meta">
+                  <span class="starred-media-file__name">{{ item.fileName }}</span>
+                  <span class="starred-media-file__line">
+                    {{ item.fileSizeLabel || 'Sin tamaño' }} - {{ item.fileTypeLabel || 'Archivo' }}
+                  </span>
+                </span>
+              </a>
+              <ng-template #fileNoLink>
+                <div class="starred-media-file starred-media-file--disabled">
+                  <i class="bi" [ngClass]="item.fileIconClass || 'bi-file-earmark'"></i>
+                  <span class="starred-media-file__meta">
+                    <span class="starred-media-file__name">{{ item.fileName }}</span>
+                    <span class="starred-media-file__line">
+                      {{ item.fileSizeLabel || 'Sin tamaño' }} - {{ item.fileTypeLabel || 'Archivo' }}
+                    </span>
+                  </span>
+                </div>
+              </ng-template>
+              <p *ngIf="item.fileCaption" class="starred-media-caption">{{ item.fileCaption }}</p>
+            </div>
+            <ng-template #fileFallback>
+              <p>{{ item.preview }}</p>
+            </ng-template>
+          </ng-container>
+
+          <ng-container *ngSwitchDefault>
+            <p>{{ item.preview }}</p>
+          </ng-container>
+        </ng-container>
+      </div>
+      <div class="starred-card__actions">
+        <div class="starred-card__meta">
+          <span class="starred-card__type">{{ messageTypeLabel(item.tipo) }}</span>
+          <span>{{ formatDate(item.fechaEnvio || item.starredAt) }}</span>
+        </div>
+        <div class="starred-card__buttons">
+          <button
+            type="button"
+            class="starred-card__btn starred-card__btn--star"
+            title="Quitar destacado"
+            aria-label="Quitar destacado"
+            [disabled]="loading || isExploding(item)"
+            (click)="onToggleStarWithExplosion(item, $event, cardRef)"
+          >
+            <i class="fas fa-star"></i>
+          </button>
+          <button
+            type="button"
+            class="starred-card__btn starred-card__btn--go"
+            title="Ir al mensaje"
+            aria-label="Ir al mensaje"
+            (click)="onOpenMessage(item, $event)"
+          >
+            <i class="fas fa-chevron-right"></i>
+          </button>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <div class="admin-pagination-wrap" *ngIf="totalElements > 0">
+    <div class="admin-pagination-meta">
+      Página {{ page + 1 }} de {{ totalPages }}
+      <span class="admin-pagination-dot">•</span>
+      {{ totalElements }} destacados
+    </div>
+    <div class="admin-pagination-actions">
+      <button
+        type="button"
+        class="admin-page-btn"
+        [disabled]="!hasPrevious || loading"
+        (click)="onPrevPage($event)"
+      >
+        Anterior
+      </button>
+      <button
+        type="button"
+        class="admin-page-btn admin-page-btn--primary"
+        [disabled]="!hasNext || loading"
+        (click)="onNextPage($event)"
+      >
+        Siguiente
+      </button>
+    </div>
+  </div>
+</section>

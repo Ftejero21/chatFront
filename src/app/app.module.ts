@@ -21,6 +21,7 @@ import { PollVotesPanelComponent } from './Components/inicio/poll-votes-panel/po
 import { ScheduleMessageComposerComponent } from './Components/inicio/schedule-message-composer/schedule-message-composer.component';
 import { FilePreviewViewerComponent } from './Components/inicio/file-preview-viewer/file-preview-viewer.component';
 import { VideoCallOverlayComponent } from './Components/inicio/video-call-overlay/video-call-overlay.component';
+import { StarredMessagesPanelComponent } from './Components/inicio/starred-messages-panel/starred-messages-panel.component';
 
 @NgModule({
   declarations: [
@@ -39,7 +40,8 @@ import { VideoCallOverlayComponent } from './Components/inicio/video-call-overla
     PollVotesPanelComponent,
     ScheduleMessageComposerComponent,
     FilePreviewViewerComponent,
-    VideoCallOverlayComponent
+    VideoCallOverlayComponent,
+    StarredMessagesPanelComponent
   ],
   imports: [
     BrowserModule,

@@ -190,10 +190,35 @@
 .password-toggle.is-visible {
   color: #2563eb;
 }
+
 .input-group:focus-within {
   border-color: #93c5fd;
   background: #ffffff;
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+}
+
+.input-group-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.input-group.input-group--error {
+  border-color: #f87171;
+  background: #fff7f7;
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.14);
+}
+
+.input-group.input-group--error i {
+  color: #dc2626;
+}
+
+.input-error-text {
+  margin: 0;
+  padding-left: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b91c1c;
 }
 
 /* Fila inferior */

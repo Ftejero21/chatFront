@@ -146,10 +146,21 @@
         </label>
       </div>
 
-      <label class="input-group">
-        <i class="bi bi-envelope"></i>
-        <input type="email" [(ngModel)]="registro.email" name="emailRegistro" placeholder="Email" required />
-      </label>
+      <div class="input-group-wrap">
+        <label class="input-group" [class.input-group--error]="!!registerEmailError">
+          <i class="bi bi-envelope"></i>
+          <input
+            type="email"
+            [(ngModel)]="registro.email"
+            (ngModelChange)="onRegisterEmailInput()"
+            name="emailRegistro"
+            placeholder="Email"
+            required
+            [attr.aria-invalid]="registerEmailError ? 'true' : null"
+          />
+        </label>
+        <p *ngIf="registerEmailError" class="input-error-text">{{ registerEmailError }}</p>
+      </div>
 
       <label class="input-group">
         <i class="bi bi-lock"></i>
