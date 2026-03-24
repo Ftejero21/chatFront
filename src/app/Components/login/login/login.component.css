@@ -270,6 +270,11 @@
   border-color: #93c5fd;
   box-shadow: 0 6px 16px rgba(59, 130, 246, 0.15);
 }
+.btn-outline:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  box-shadow: none;
+}
 
 /* Divider */
 .divider {

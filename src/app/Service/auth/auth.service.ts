@@ -2,7 +2,7 @@ import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { LoginRequestDTO } from '../../Interface/LoginRequestDTO ';
 
-import { Observable } from 'rxjs';
+import { Observable, catchError, throwError } from 'rxjs';
 import { UsuarioDTO } from '../../Interface/UsuarioDTO';
 import { AuthRespuestaDTO } from '../../Interface/AuthRespuestaDTO';
 import { environment } from '../../environments';
@@ -18,12 +18,33 @@ import { PreKeyBundleDTO, UploadBundleDTO } from '../../Interface/UploadBundleDT
   providedIn: 'root',
 })
 export class AuthService {
-  private baseUrl = 'http://localhost:8080/api/usuarios'; // Ajusta si tienes prefijo
+  private baseUrl = `${environment.backendBaseUrl}/api/usuarios`;
 
   constructor(private http: HttpClient) {}
 
   login(dto: LoginRequestDTO): Observable<AuthRespuestaDTO> {
     return this.http.post<AuthRespuestaDTO>(`${this.baseUrl}/login`, dto);
+  }
+
+  loginConGoogle(
+    googleCredential: string,
+    mode: 'login' | 'register' = 'login'
+  ): Observable<AuthRespuestaDTO> {
+    const token = String(googleCredential || '').trim();
+    const payload = {
+      provider: 'GOOGLE',
+      mode,
+      credential: token,
+      idToken: token,
+    };
+
+    const endpoints = [
+      `${this.baseUrl}/google`,
+      `${this.baseUrl}/google/auth`,
+      `${this.baseUrl}/${mode}/google`,
+    ];
+
+    return this.postGoogleAuthToFirstAvailableEndpoint(endpoints, payload);
   }
 
   searchUsuarios(q: string): Observable<UsuarioDTO[]> {
@@ -211,5 +232,27 @@ export class AuthService {
 
   actualizarPerfil(payload: { nombre: string; apellido: string; foto: string }): Observable<UsuarioDTO> {
     return this.http.put<UsuarioDTO>(`${this.baseUrl}/perfil`, payload);
+  }
+
+  private postGoogleAuthToFirstAvailableEndpoint(
+    endpoints: string[],
+    payload: Record<string, unknown>
+  ): Observable<AuthRespuestaDTO> {
+    if (!Array.isArray(endpoints) || endpoints.length === 0) {
+      return throwError(() => new Error('No Google auth endpoint configured.'));
+    }
+
+    const [current, ...rest] = endpoints;
+    return this.http.post<AuthRespuestaDTO>(current, payload).pipe(
+      catchError((err) => {
+        const status = Number(err?.status || 0);
+        const canFallback =
+          (status === 404 || status === 405 || status === 501) &&
+          rest.length > 0;
+        return canFallback
+          ? this.postGoogleAuthToFirstAvailableEndpoint(rest, payload)
+          : throwError(() => err);
+      })
+    );
   }
 }

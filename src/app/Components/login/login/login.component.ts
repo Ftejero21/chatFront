@@ -8,6 +8,7 @@ import { UsuarioDTO } from '../../../Interface/UsuarioDTO';
 import { LoginRequestDTO } from '../../../Interface/LoginRequestDTO ';
 import { SessionService } from '../../../Service/session/session.service';
 import { firstValueFrom } from 'rxjs';
+import { environment } from '../../../environments';
 import {
   RATE_LIMIT_SCOPES,
   RateLimitService,
@@ -15,6 +16,7 @@ import {
 
 
 type ToastVariant = 'danger' | 'success' | 'warning' | 'info';
+type GoogleAuthFlow = 'login' | 'register';
 interface ToastItem {
   id: number;
   message: string;
@@ -38,10 +40,13 @@ export class LoginComponent implements OnInit, OnDestroy {
   showLoginPassword: boolean = false;
   showRegisterPassword: boolean = false;
   registerEmailError: string = '';
+  googleAuthInProgress = false;
   loginRateLimitSeconds = 0;
   unbanAppealRateLimitSeconds = 0;
   private loginRateLimitTimer: any = null;
   private unbanAppealRateLimitTimer: any = null;
+  private googleIdentityScriptPromise: Promise<void> | null = null;
+  private googleIdentityInitializedClientId = '';
 
   // --- Registro (DTO limpio, sin File) ---
   registro: UsuarioDTO = {
@@ -86,6 +91,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.persistAuditPublicKeyIfPresent(window as any, (window as any)?.__env);
     this.persistAuditPrivateKeyIfPresent(window as any, (window as any)?.__env);
     this.syncRateLimitCooldownsFromService();
+    void this.prepareGoogleIdentity(false);
   }
 
   // Cambio de tab con reseteo del uploader al pasar a login
@@ -97,6 +103,247 @@ export class LoginComponent implements OnInit, OnDestroy {
 
   onRegisterEmailInput(): void {
     if (this.registerEmailError) this.registerEmailError = '';
+  }
+
+  continuarConGoogle(): void {
+    if (this.googleAuthInProgress) return;
+    this.googleAuthInProgress = true;
+    this.registerEmailError = '';
+    void this.startGoogleAuthFlow();
+  }
+
+  private async startGoogleAuthFlow(): Promise<void> {
+    const ready = await this.prepareGoogleIdentity(true);
+    if (!ready) {
+      this.googleAuthInProgress = false;
+      return;
+    }
+
+    try {
+      const googleApi = window.google?.accounts?.id;
+      if (!googleApi) {
+        this.googleAuthInProgress = false;
+        this.showToast('Google Identity no está disponible.', 'warning', 'Google');
+        return;
+      }
+
+      googleApi.prompt((notification: GooglePromptMomentNotification) => {
+        const notDisplayed =
+          typeof notification?.isNotDisplayed === 'function' &&
+          notification.isNotDisplayed();
+        const skipped =
+          typeof notification?.isSkippedMoment === 'function' &&
+          notification.isSkippedMoment();
+        const dismissed =
+          typeof notification?.isDismissedMoment === 'function' &&
+          notification.isDismissedMoment();
+        if (notDisplayed || skipped || dismissed) {
+          this.googleAuthInProgress = false;
+        }
+      });
+
+      // Fallback para desbloquear el botón si el prompt no termina en callback.
+      setTimeout(() => {
+        if (this.googleAuthInProgress) {
+          this.googleAuthInProgress = false;
+        }
+      }, 12000);
+    } catch (err) {
+      console.error('Error iniciando Google Auth', err);
+      this.googleAuthInProgress = false;
+      this.showToast('No se pudo abrir Google. Inténtalo de nuevo.', 'warning', 'Google');
+    }
+  }
+
+  private async prepareGoogleIdentity(showErrorToast: boolean): Promise<boolean> {
+    const clientId = this.resolveGoogleClientId();
+    if (!clientId) {
+      if (showErrorToast) {
+        this.showToast(
+          'Falta configurar GOOGLE_CLIENT_ID en el frontend.',
+          'warning',
+          'Google'
+        );
+      }
+      return false;
+    }
+
+    try {
+      await this.ensureGoogleIdentityScriptLoaded();
+    } catch (err) {
+      console.error('No se pudo cargar Google Identity', err);
+      if (showErrorToast) {
+        this.showToast('No se pudo cargar Google Identity.', 'warning', 'Google');
+      }
+      return false;
+    }
+
+    const googleApi = window.google?.accounts?.id;
+    if (!googleApi) {
+      if (showErrorToast) {
+        this.showToast('Google Identity no está disponible.', 'warning', 'Google');
+      }
+      return false;
+    }
+
+    if (this.googleIdentityInitializedClientId !== clientId) {
+      googleApi.initialize({
+        client_id: clientId,
+        callback: (response: GoogleCredentialResponse) =>
+          this.onGoogleCredentialResponse(response),
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      });
+      this.googleIdentityInitializedClientId = clientId;
+    }
+
+    return true;
+  }
+
+  private ensureGoogleIdentityScriptLoaded(): Promise<void> {
+    if (window.google?.accounts?.id) {
+      return Promise.resolve();
+    }
+    if (this.googleIdentityScriptPromise) {
+      return this.googleIdentityScriptPromise;
+    }
+
+    this.googleIdentityScriptPromise = new Promise<void>((resolve, reject) => {
+      const timeoutId = window.setTimeout(() => {
+        reject(new Error('Google Identity script timeout'));
+      }, 10000);
+      const safeResolve = () => {
+        window.clearTimeout(timeoutId);
+        resolve();
+      };
+      const safeReject = (message: string) => {
+        window.clearTimeout(timeoutId);
+        reject(new Error(message));
+      };
+
+      const scriptId = 'google-identity-services';
+      const existing = document.getElementById(scriptId) as HTMLScriptElement | null;
+
+      if (existing) {
+        if (window.google?.accounts?.id) {
+          safeResolve();
+          return;
+        }
+        existing.addEventListener('load', () => safeResolve(), { once: true });
+        existing.addEventListener(
+          'error',
+          () => safeReject('Google Identity script error'),
+          { once: true }
+        );
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.id = scriptId;
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = () => safeResolve();
+      script.onerror = () => safeReject('Google Identity script load failed');
+      document.head.appendChild(script);
+    });
+
+    return this.googleIdentityScriptPromise;
+  }
+
+  private resolveGoogleClientId(): string {
+    const env = (window as any)?.__env || {};
+    const fromWindowEnv = String(
+      env?.GOOGLE_CLIENT_ID || env?.googleClientId || ''
+    ).trim();
+    const fromAngularEnv = String((environment as any)?.googleClientId || '').trim();
+    const fromGlobal = String((globalThis as any)?.GOOGLE_CLIENT_ID || '').trim();
+    return fromWindowEnv || fromAngularEnv || fromGlobal;
+  }
+
+  private onGoogleCredentialResponse(response: GoogleCredentialResponse): void {
+    const loginFlow: GoogleAuthFlow = 'login';
+    const credential = String(response?.credential || '').trim();
+    if (!credential) {
+      this.googleAuthInProgress = false;
+      this.showToast('Google no devolvió credenciales válidas.', 'warning', 'Google');
+      return;
+    }
+
+    this.authService.loginConGoogle(credential, loginFlow).subscribe({
+      next: async (authResponse) => {
+        await this.finalizeAuthSuccess(authResponse, loginFlow);
+        this.googleAuthInProgress = false;
+      },
+      error: (err) => {
+        const loginCode = String(err?.error?.code || '')
+          .trim()
+          .toUpperCase();
+        if (loginCode === 'GOOGLE_USUARIO_NO_REGISTRADO') {
+          const registerFlow: GoogleAuthFlow = 'register';
+          this.authService.loginConGoogle(credential, registerFlow).subscribe({
+            next: async (authResponse) => {
+              await this.finalizeAuthSuccess(authResponse, registerFlow);
+              this.googleAuthInProgress = false;
+            },
+            error: (registerErr) => {
+              this.googleAuthInProgress = false;
+              this.handleGoogleAuthError(registerErr, registerFlow);
+            },
+          });
+          return;
+        }
+        this.googleAuthInProgress = false;
+        this.handleGoogleAuthError(err, loginFlow);
+      },
+    });
+  }
+
+  private handleGoogleAuthError(err: any, flow: GoogleAuthFlow): void {
+    if (this.rateLimitService.isRateLimitHttpError(err)) {
+      const fromScope = this.rateLimitService.getScopeRemainingSeconds(
+        RATE_LIMIT_SCOPES.LOGIN
+      );
+      const fromHeader = this.rateLimitService.parseRetryAfterSecondsFromHttpError(
+        err
+      );
+      const seconds = fromScope || fromHeader || 30;
+      this.rateLimitService.setScopeCooldown(RATE_LIMIT_SCOPES.LOGIN, seconds);
+      this.startLoginRateLimit(seconds > 0 ? seconds : 30);
+      return;
+    }
+
+    const status = Number(err?.status || 0);
+    const code = String(err?.error?.code || '')
+      .trim()
+      .toUpperCase();
+
+    if (flow === 'register' && code === 'EMAIL_YA_EXISTE') {
+      this.registerEmailError = 'Ese email ya está registrado.';
+      this.showToast(this.registerEmailError, 'warning', 'Registro');
+      return;
+    }
+
+    if (status === 404 || status === 405 || status === 501) {
+      this.showToast(
+        'El acceso con Google no está disponible en backend.',
+        'warning',
+        'Google'
+      );
+      return;
+    }
+
+    const backendMsg = this.extractBackendErrorMessage(err);
+    if (backendMsg) {
+      this.showToast(backendMsg, 'danger', 'Google');
+      return;
+    }
+
+    this.showToast(
+      'No se pudo continuar con Google. Inténtalo de nuevo.',
+      'warning',
+      'Google'
+    );
   }
 
   iniciarSesion(): void {
@@ -111,42 +358,7 @@ export class LoginComponent implements OnInit, OnDestroy {
 
     this.authService.login(this.login).subscribe({
       next: async (response) => {
-        this.showBanAppealButton = false;
-        this.lastBannedEmail = '';
-        const usuario = response.usuario;
-        localStorage.setItem('token', response.token);
-        localStorage.setItem('usuarioId', String(usuario.id));
-        localStorage.setItem('rememberMe', String(this.rememberMe));
-        this.persistAuditPublicKeyIfPresent(response, usuario);
-        this.persistAuditPrivateKeyIfPresent(
-          response,
-          usuario,
-          (window as any),
-          (window as any)?.__env
-        );
-
-        if (usuario.foto) localStorage.setItem('usuarioFoto', usuario.foto);
-        if (usuario.bloqueadosIds) localStorage.setItem('bloqueadosIds', JSON.stringify(usuario.bloqueadosIds));
-        if (usuario.meHanBloqueadoIds) localStorage.setItem('meHanBloqueadoIds', JSON.stringify(usuario.meHanBloqueadoIds));
-
-        // E2E identity guard: nunca rotar la clave del usuario en login sin flujo explicito.
-        try {
-          const ready = await this.ensureE2EIdentityReadyForSession(usuario, 'login');
-          if (!ready) return;
-
-          this.showToast('Sesión iniciada correctamente (Claves E2E listas)', 'success', 'Éxito', 2000);
-
-          // Verificamos si tiene el rol ADMIN para mandarlo al dashboard, o usuario normal al chat
-          const isAdmin = usuario.roles && usuario.roles.includes('ADMIN');
-          if (isAdmin) {
-            this.router.navigate(['/administracion']);
-          } else {
-            this.router.navigate(['/inicio']);
-          }
-        } catch (e) {
-          console.error('Error criptográfico', e);
-          this.router.navigate(['/inicio']);
-        }
+        await this.finalizeAuthSuccess(response, 'login');
       },
       error: (err) => {
         if (this.rateLimitService.isRateLimitHttpError(err)) {
@@ -303,30 +515,7 @@ export class LoginComponent implements OnInit, OnDestroy {
 
     this.authService.registro(payload).subscribe({
       next: async (response: any) => {
-        const usuario = response.usuario || response; // Fallback por si acaso
-        if (response.token) {
-           localStorage.setItem('token', response.token);
-        }
-        localStorage.setItem('usuarioId', String(usuario.id));
-        this.persistAuditPublicKeyIfPresent(response, usuario);
-        this.persistAuditPrivateKeyIfPresent(
-          response,
-          usuario,
-          (window as any),
-          (window as any)?.__env
-        );
-        if (usuario.bloqueadosIds) localStorage.setItem('bloqueadosIds', JSON.stringify(usuario.bloqueadosIds));
-        if (usuario.meHanBloqueadoIds) localStorage.setItem('meHanBloqueadoIds', JSON.stringify(usuario.meHanBloqueadoIds));
-
-        // E2E key setup for new account (still with strict mismatch guard).
-        try {
-          const ready = await this.ensureE2EIdentityReadyForSession(usuario, 'register');
-          if (!ready) return;
-          this.router.navigate(['/inicio']);
-        } catch (e) {
-          console.error('Error generacion llaves', e);
-          this.router.navigate(['/inicio']);
-        }
+        await this.finalizeAuthSuccess(response, 'register');
       },
       error: (err) => {
         console.error('Error al registrar:', err);
@@ -378,6 +567,77 @@ export class LoginComponent implements OnInit, OnDestroy {
       return normalized;
     }
   }
+
+  private async finalizeAuthSuccess(
+    response: any,
+    source: GoogleAuthFlow
+  ): Promise<void> {
+    this.showBanAppealButton = false;
+    this.lastBannedEmail = '';
+
+    const usuario = response?.usuario || response;
+    const userId = Number(usuario?.id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      this.showToast('Respuesta de autenticación inválida.', 'danger', 'Error');
+      return;
+    }
+
+    const token = String(response?.token || '').trim();
+    if (token) {
+      localStorage.setItem('token', token);
+    }
+    localStorage.setItem('usuarioId', String(userId));
+    if (source === 'login') {
+      localStorage.setItem('rememberMe', String(this.rememberMe));
+    }
+
+    this.persistAuditPublicKeyIfPresent(response, usuario);
+    this.persistAuditPrivateKeyIfPresent(
+      response,
+      usuario,
+      window as any,
+      (window as any)?.__env
+    );
+
+    if (usuario?.foto) localStorage.setItem('usuarioFoto', String(usuario.foto));
+    if (usuario?.bloqueadosIds) {
+      localStorage.setItem(
+        'bloqueadosIds',
+        JSON.stringify(usuario.bloqueadosIds)
+      );
+    }
+    if (usuario?.meHanBloqueadoIds) {
+      localStorage.setItem(
+        'meHanBloqueadoIds',
+        JSON.stringify(usuario.meHanBloqueadoIds)
+      );
+    }
+
+    try {
+      const ready = await this.ensureE2EIdentityReadyForSession(usuario, source);
+      if (!ready) return;
+
+      if (source === 'login') {
+        this.showToast(
+          'Sesión iniciada correctamente (Claves E2E listas)',
+          'success',
+          'Éxito',
+          2000
+        );
+        const isAdmin = Array.isArray(usuario?.roles)
+          ? usuario.roles.includes('ADMIN')
+          : false;
+        this.router.navigate([isAdmin ? '/administracion' : '/inicio']);
+        return;
+      }
+
+      this.router.navigate(['/inicio']);
+    } catch (e) {
+      console.error('Error criptográfico', e);
+      this.router.navigate(['/inicio']);
+    }
+  }
+
   private normalizePublicKey(raw?: string | null): string {
     return String(raw || '').replace(/\s+/g, '');
   }
@@ -697,6 +957,10 @@ export class LoginComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     if (this.loginRateLimitTimer) clearInterval(this.loginRateLimitTimer);
     if (this.unbanAppealRateLimitTimer) clearInterval(this.unbanAppealRateLimitTimer);
+    const googleApi = window.google?.accounts?.id;
+    if (typeof googleApi?.cancel === 'function') {
+      googleApi.cancel();
+    }
     for (const t of this.toasts) {
       if (t?.timeout) clearTimeout(t.timeout);
     }

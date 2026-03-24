@@ -60,8 +60,14 @@
 
       <div class="divider"><span>o</span></div>
 
-      <button type="button" class="btn-outline">
-        <i class="bi bi-google"></i> Continuar con Google
+      <button
+        type="button"
+        class="btn-outline"
+        [disabled]="googleAuthInProgress"
+        (click)="continuarConGoogle()"
+      >
+        <i class="bi bi-google"></i>
+        {{ googleAuthInProgress ? 'Conectando con Google...' : 'Continuar con Google' }}
       </button>
 
       <p class="switch">
@@ -181,8 +187,14 @@
 
       <div class="divider"><span>o</span></div>
 
-      <button type="button" class="btn-outline">
-        <i class="bi bi-google"></i> Registrarse con Google
+      <button
+        type="button"
+        class="btn-outline"
+        [disabled]="googleAuthInProgress"
+        (click)="continuarConGoogle()"
+      >
+        <i class="bi bi-google"></i>
+        {{ googleAuthInProgress ? 'Conectando con Google...' : 'Continuar con Google' }}
       </button>
 
       <p class="switch">
