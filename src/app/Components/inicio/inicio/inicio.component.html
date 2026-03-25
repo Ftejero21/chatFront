@@ -541,6 +541,46 @@
             </div>
           </div>
         </div>
+        <div
+          *ngIf="chatSeleccionadoId !== null && pinnedMessage as pinned"
+          class="chat-pinned-banner"
+        >
+          <div class="chat-pinned-banner__left">
+            <i class="bi bi-pin-angle-fill chat-pinned-banner__icon" aria-hidden="true"></i>
+            <span class="chat-pinned-banner__author">{{ pinnedMessageAuthorLabel }}</span>
+            <span class="chat-pinned-banner__preview">{{ pinnedMessagePreviewLabel }}</span>
+          </div>
+          <div class="chat-pinned-banner__actions" (click)="$event.stopPropagation()">
+            <button
+              type="button"
+              class="chat-pinned-banner__toggle"
+              [attr.aria-expanded]="showPinnedActionsMenu"
+              aria-label="Opciones del mensaje fijado"
+              (click)="togglePinnedActionsMenu($event)"
+            >
+              <i class="bi bi-chevron-down"></i>
+            </button>
+            <div *ngIf="showPinnedActionsMenu" class="chat-pinned-banner__menu">
+              <button
+                type="button"
+                class="chat-pinned-banner__menu-btn chat-pinned-banner__menu-btn--danger"
+                [disabled]="unpinRequestInFlight"
+                (click)="desfijarMensajeActual($event)"
+              >
+                <i class="bi bi-pin-angle"></i>
+                {{ unpinRequestInFlight ? 'Desfijando...' : 'Desfijar' }}
+              </button>
+              <button
+                type="button"
+                class="chat-pinned-banner__menu-btn"
+                (click)="irAlMensajeFijado($event)"
+              >
+                <i class="bi bi-arrow-down-circle"></i>
+                Ir al mensaje
+              </button>
+            </div>
+          </div>
+        </div>
         <div class="cuerpo-mensajes" #contenedorMensajes (scroll)="onMessagesScroll()">
           <div *ngIf="chatSeleccionadoId === null" class="placeholder-chat">
             <i class="bi bi-chat-dots-fill"></i>
@@ -947,6 +987,14 @@
                         {{ isMensajeDestacado(mensaje) ? 'Quitar destacado' : 'Destacar mensaje' }}
                       </button>
                       <button
+                        *ngIf="canFijarMensaje(mensaje)"
+                        type="button"
+                        class="btn-opcion-fijar"
+                        (click)="abrirSelectorFijado(mensaje, $event)"
+                      >
+                        <i class="bi bi-pin-angle-fill"></i> Fijar mensaje
+                      </button>
+                      <button
                         *ngIf="canEditMensaje(mensaje)"
                         type="button"
                         class="btn-opcion-editar"
@@ -1084,6 +1132,42 @@
               (close)="closeScheduleMessageComposer()"
               (submitSchedule)="onScheduleMessageDraftSubmit($event)"
             ></app-schedule-message-composer>
+          </div>
+        </div>
+
+        <div
+          *ngIf="showPinDurationPicker && pinTargetMessage"
+          class="pin-duration-overlay"
+          (click)="cancelarSelectorFijado($event)"
+        >
+          <div class="pin-duration-card" (click)="$event.stopPropagation()">
+            <div class="pin-duration-card__header">
+              <i class="bi bi-pin-angle-fill"></i>
+              <h3>Fijar mensaje</h3>
+            </div>
+            <p class="pin-duration-card__subtitle">
+              Elige durante cuánto tiempo quieres mantener este mensaje fijado.
+            </p>
+            <div class="pin-duration-card__options">
+              <button
+                type="button"
+                class="pin-duration-card__option"
+                *ngFor="let option of pinDurationOptions"
+                [disabled]="pinRequestInFlight"
+                (click)="confirmarFijadoConDuracion(option, $event)"
+              >
+                <span class="pin-duration-card__option-label">{{ option.label }}</span>
+                <span class="pin-duration-card__option-helper">{{ option.helper }}</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              class="pin-duration-card__cancel"
+              [disabled]="pinRequestInFlight"
+              (click)="cancelarSelectorFijado($event)"
+            >
+              Cancelar
+            </button>
           </div>
         </div>
 

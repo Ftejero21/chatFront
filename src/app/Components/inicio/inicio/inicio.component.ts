@@ -89,6 +89,10 @@ import { SessionService } from '../../../Service/session/session.service';
 import { ChatListItemDTO } from '../../../Interface/ChatListItemDTO';
 import { MensajeReaccionDTO } from '../../../Interface/MensajeReaccionDTO';
 import {
+  ChatPinnedMessageDTO,
+  PinMessageRequestDTO,
+} from '../../../Interface/ChatPinnedMessageDTO';
+import {
   StarredMessageDTO,
   StarredMessagesPageDTO,
   StarredMessageItem,
@@ -275,6 +279,12 @@ interface TemporaryMessageOption {
   label: string;
   seconds: number | null;
   badge: string;
+}
+
+interface PinDurationOption {
+  label: string;
+  seconds: number;
+  helper: string;
 }
 
 type ComposerActionType = 'archivo' | 'encuesta';
@@ -609,6 +619,17 @@ export class InicioComponent {
   public busquedaUsuario = '';
   public mostrarMenuOpciones = false;
   public openMensajeMenuId: number | null = null;
+  public pinnedMessage: ChatPinnedMessageDTO | null = null;
+  public showPinnedActionsMenu = false;
+  public showPinDurationPicker = false;
+  public pinTargetMessage: MensajeDTO | null = null;
+  public pinRequestInFlight = false;
+  public unpinRequestInFlight = false;
+  public readonly pinDurationOptions: PinDurationOption[] = [
+    { label: '24 horas', seconds: 24 * 60 * 60, helper: 'Ideal para avisos rapidos' },
+    { label: '7 dias', seconds: 7 * 24 * 60 * 60, helper: 'Recomendado para temas activos' },
+    { label: '30 dias', seconds: 30 * 24 * 60 * 60, helper: 'Para referencias largas' },
+  ];
   private messageReactionsByMessageId = new Map<number, MessageReactionStateItem[]>();
   private pollLocalSelectionByMessageId = new Map<number, Set<string>>();
   public openIncomingReactionPickerMessageId: number | null = null;
@@ -725,6 +746,7 @@ export class InicioComponent {
   private readonly starredHydratedMessagesById = new Map<number, MensajeDTO>();
   private starredHydrationRequestSeq = 0;
   private readonly starringMessageIds = new Set<number>();
+  private pinnedMessageRequestSeq = 0;
   private loadingStarredMessages = false;
   private composerDraftPrefixVisible = false;
   private mediaRecorder?: MediaRecorder;
@@ -2404,6 +2426,11 @@ export class InicioComponent {
     this.showScheduleMessageComposer = false;
     this.showChatListHeaderMenu = false;
     this.highlightedMessageId = null;
+    this.showPinnedActionsMenu = false;
+    this.showPinDurationPicker = false;
+    this.pinTargetMessage = null;
+    this.pinnedMessage = null;
+    this.pinnedMessageRequestSeq += 1;
     this.openIncomingReactionPickerMessageId = null;
     this.openReactionDetailsMessageId = null;
     if (this.highlightedMessageTimer) {
@@ -2466,6 +2493,8 @@ export class InicioComponent {
       // Individual: sin check de membresía
       loadMessages();
     }
+
+    void this.loadPinnedMessageForActiveChat();
   }
 
   private async decryptContenido(
@@ -7426,6 +7455,201 @@ private async decryptPreviewString(
     this.openMensajeMenuId = this.openMensajeMenuId === id ? null : id;
   }
 
+  public canFijarMensaje(mensaje: MensajeDTO): boolean {
+    if (!mensaje || mensaje.activo === false) return false;
+    if (this.isSystemMessage(mensaje)) return false;
+    const messageId = Number(mensaje.id);
+    const chatId = Number(this.chatSeleccionadoId || this.chatActual?.id);
+    return (
+      Number.isFinite(messageId) &&
+      messageId > 0 &&
+      Number.isFinite(chatId) &&
+      chatId > 0
+    );
+  }
+
+  public abrirSelectorFijado(mensaje: MensajeDTO, event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (!this.canFijarMensaje(mensaje)) return;
+    this.pinTargetMessage = mensaje;
+    this.showPinDurationPicker = true;
+    this.openMensajeMenuId = null;
+  }
+
+  public cancelarSelectorFijado(event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.showPinDurationPicker = false;
+    this.pinTargetMessage = null;
+  }
+
+  public confirmarFijadoConDuracion(
+    option: PinDurationOption,
+    event?: MouseEvent
+  ): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (this.pinRequestInFlight) return;
+    const chatId = Number(this.chatSeleccionadoId || this.chatActual?.id);
+    const messageId = Number(this.pinTargetMessage?.id);
+    const durationSeconds = Number(option?.seconds);
+    if (
+      !Number.isFinite(chatId) ||
+      chatId <= 0 ||
+      !Number.isFinite(messageId) ||
+      messageId <= 0 ||
+      !Number.isFinite(durationSeconds) ||
+      durationSeconds <= 0
+    ) {
+      return;
+    }
+
+    this.pinRequestInFlight = true;
+    const payload: PinMessageRequestDTO = { messageId, durationSeconds };
+    this.chatService
+      .fijarMensaje(chatId, payload)
+      .pipe(
+        finalize(() => {
+          this.pinRequestInFlight = false;
+          this.cdr.markForCheck();
+        })
+      )
+      .subscribe({
+        next: (response) => {
+          const normalized = this.normalizePinnedMessage(response);
+          if (normalized) {
+            this.pinnedMessage = normalized;
+          } else if (this.pinTargetMessage) {
+            this.pinnedMessage = this.buildPinnedFromLocalMessage(
+              chatId,
+              this.pinTargetMessage,
+              durationSeconds
+            );
+          }
+          this.showPinDurationPicker = false;
+          this.pinTargetMessage = null;
+          this.showToast('Mensaje fijado.', 'success', 'Fijados', 1800);
+        },
+        error: (error) => {
+          console.warn('[fijados] no se pudo fijar mensaje', error);
+          this.showToast(
+            this.getFijadoActionErrorMessage(error, 'fijar'),
+            'warning',
+            'Fijados'
+          );
+        },
+      });
+  }
+
+  public togglePinnedActionsMenu(event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (!this.pinnedMessage) return;
+    this.showPinnedActionsMenu = !this.showPinnedActionsMenu;
+  }
+
+  public async irAlMensajeFijado(event?: MouseEvent): Promise<void> {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const messageId = Number(this.pinnedMessage?.messageId);
+    if (!Number.isFinite(messageId) || messageId <= 0) return;
+    this.showPinnedActionsMenu = false;
+    await this.onMessageSearchResultSelect(messageId);
+  }
+
+  public desfijarMensajeActual(event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (this.unpinRequestInFlight) return;
+    const chatId = Number(this.chatSeleccionadoId || this.chatActual?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+
+    this.unpinRequestInFlight = true;
+    this.chatService
+      .desfijarMensaje(chatId)
+      .pipe(
+        finalize(() => {
+          this.unpinRequestInFlight = false;
+          this.cdr.markForCheck();
+        })
+      )
+      .subscribe({
+        next: () => {
+          this.pinnedMessage = null;
+          this.showPinnedActionsMenu = false;
+          this.showToast('Mensaje desfijado.', 'info', 'Fijados', 1800);
+        },
+        error: (error) => {
+          console.warn('[fijados] no se pudo desfijar mensaje', error);
+          if (Number(error?.status || 0) === 404) {
+            this.pinnedMessage = null;
+            this.showPinnedActionsMenu = false;
+            return;
+          }
+          this.showToast(
+            this.getFijadoActionErrorMessage(error, 'desfijar'),
+            'warning',
+            'Fijados'
+          );
+        },
+      });
+  }
+
+  public get pinnedMessageAuthorLabel(): string {
+    const pinned = this.pinnedMessage;
+    if (!pinned) return '';
+    const senderId = Number(pinned.senderId);
+    if (Number.isFinite(senderId) && senderId === Number(this.usuarioActualId)) {
+      return 'Tu:';
+    }
+
+    const loaded = this.findLoadedMessageById(Number(pinned.messageId));
+    const loadedName =
+      `${loaded?.emisorNombre || ''} ${loaded?.emisorApellido || ''}`.trim();
+    const fallbackById =
+      Number.isFinite(senderId) && senderId > 0
+        ? this.obtenerNombrePorId(senderId) || ''
+        : '';
+    const backendName = String(pinned.senderName || '').trim();
+    const resolved = backendName || loadedName || fallbackById || 'Usuario';
+    return `${resolved}:`;
+  }
+
+  public get pinnedMessagePreviewLabel(): string {
+    const pinned = this.pinnedMessage;
+    if (!pinned) return '';
+    const loaded = this.findLoadedMessageById(Number(pinned.messageId));
+    if (loaded) {
+      return this.buildPinnedPreviewFromMessage(loaded);
+    }
+
+    const fromBackend = String(pinned.preview || '').trim();
+    if (this.isUsablePinnedPreview(fromBackend)) return fromBackend;
+    return this.buildPinnedPreviewByTypeFallback(pinned);
+  }
+
+  private isUsablePinnedPreview(raw: string): boolean {
+    const text = String(raw || '').trim();
+    if (!text) return false;
+    const normalized = text.toLowerCase();
+    if (normalized === '[mensaje cifrado]') return false;
+    if (normalized === '[error de descifrado e2e]') return false;
+    if (normalized.startsWith('[mensaje cifrado -')) return false;
+    if (this.looksLikeEncryptedPreview(text)) return false;
+    return true;
+  }
+
+  private buildPinnedPreviewByTypeFallback(pinned: ChatPinnedMessageDTO): string {
+    const tipo = String(pinned?.messageType || '').trim().toUpperCase();
+    if (tipo === 'AUDIO') return 'Mensaje de voz';
+    if (tipo === 'IMAGE') return 'Imagen';
+    if (tipo === 'FILE') return 'Archivo';
+    if (tipo === 'POLL') return 'Encuesta';
+    if (tipo === 'SYSTEM') return 'Mensaje del sistema';
+    return 'Mensaje fijado';
+  }
+
   public canDestacarMensaje(mensaje: MensajeDTO): boolean {
     if (!mensaje || mensaje.activo === false) return false;
     if (this.isSystemMessage(mensaje)) return false;
@@ -7606,6 +7830,136 @@ private async decryptPreviewString(
     }
 
     return 'No se pudieron cargar los mensajes destacados.';
+  }
+
+  private getFijadoActionErrorMessage(
+    error: any,
+    action: 'fijar' | 'desfijar'
+  ): string {
+    const status = Number(error?.status || 0);
+    const backendMsg = String(
+      error?.error?.mensaje || error?.error?.message || ''
+    ).trim();
+    if (backendMsg) return backendMsg;
+    if (status === 403) {
+      return 'No tienes permisos para gestionar el mensaje fijado de este chat.';
+    }
+    if (status === 404) {
+      return action === 'fijar'
+        ? 'No se encontro el mensaje para fijar.'
+        : 'No hay mensaje fijado en este chat.';
+    }
+    return action === 'fijar'
+      ? 'No se pudo fijar el mensaje. Intentalo de nuevo.'
+      : 'No se pudo desfijar el mensaje. Intentalo de nuevo.';
+  }
+
+  private normalizePinnedMessage(raw: any): ChatPinnedMessageDTO | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const chatIdRaw = Number(raw?.chatId ?? this.chatSeleccionadoId ?? this.chatActual?.id);
+    const messageIdRaw = Number(raw?.messageId ?? raw?.mensajeId);
+    const senderIdRaw = Number(raw?.senderId ?? raw?.emisorId);
+    if (
+      !Number.isFinite(chatIdRaw) ||
+      chatIdRaw <= 0 ||
+      !Number.isFinite(messageIdRaw) ||
+      messageIdRaw <= 0
+    ) {
+      return null;
+    }
+
+    return {
+      chatId: Math.round(chatIdRaw),
+      messageId: Math.round(messageIdRaw),
+      senderId:
+        Number.isFinite(senderIdRaw) && senderIdRaw > 0
+          ? Math.round(senderIdRaw)
+          : 0,
+      senderName: String(raw?.senderName ?? raw?.emisorNombre ?? '').trim() || null,
+      messageType: String(raw?.messageType ?? raw?.tipo ?? '').trim() || undefined,
+      preview: String(raw?.preview ?? raw?.mensajePreview ?? '').trim() || null,
+      pinnedAt: String(raw?.pinnedAt ?? raw?.fijadoEn ?? '').trim() || null,
+      pinnedByUserId: Number.isFinite(Number(raw?.pinnedByUserId ?? raw?.fijadoPorId))
+        ? Number(raw?.pinnedByUserId ?? raw?.fijadoPorId)
+        : null,
+      expiresAt: String(raw?.expiresAt ?? raw?.expiraEn ?? '').trim() || null,
+    };
+  }
+
+  private buildPinnedFromLocalMessage(
+    chatId: number,
+    mensaje: MensajeDTO,
+    durationSeconds: number
+  ): ChatPinnedMessageDTO {
+    const now = Date.now();
+    const expiresAt = new Date(now + durationSeconds * 1000).toISOString();
+    const senderName =
+      `${mensaje?.emisorNombre || ''} ${mensaje?.emisorApellido || ''}`.trim() ||
+      (Number(mensaje?.emisorId) === Number(this.usuarioActualId)
+        ? 'Tu'
+        : this.obtenerNombrePorId(Number(mensaje?.emisorId)) || 'Usuario');
+    return {
+      chatId,
+      messageId: Number(mensaje?.id) || 0,
+      senderId: Number(mensaje?.emisorId) || 0,
+      senderName,
+      messageType: String(mensaje?.tipo || 'TEXT'),
+      preview: this.buildPinnedPreviewFromMessage(mensaje),
+      pinnedAt: new Date(now).toISOString(),
+      pinnedByUserId: Number(this.usuarioActualId) || null,
+      expiresAt,
+    };
+  }
+
+  private buildPinnedPreviewFromMessage(message: MensajeDTO | null | undefined): string {
+    if (!message) return 'Mensaje fijado';
+    const tipo = String(message?.tipo || 'TEXT').trim().toUpperCase();
+    if (tipo === 'AUDIO') return 'Mensaje de voz';
+    if (tipo === 'IMAGE') return 'Imagen';
+    if (tipo === 'FILE') return `Archivo: ${this.getFileName(message) || 'Adjunto'}`;
+    if (tipo === 'POLL') return this.getPollQuestion(message) || 'Encuesta';
+    if (tipo === 'SYSTEM') return 'Mensaje del sistema';
+    const raw = String(message?.contenido || '').trim();
+    if (!raw) return 'Mensaje fijado';
+    return raw.length > 90 ? `${raw.slice(0, 90)}...` : raw;
+  }
+
+  private findLoadedMessageById(messageId: number): MensajeDTO | null {
+    if (!Number.isFinite(messageId) || messageId <= 0) return null;
+    const list = Array.isArray(this.mensajesSeleccionados)
+      ? this.mensajesSeleccionados
+      : [];
+    return list.find((item) => Number(item?.id) === messageId) || null;
+  }
+
+  private async loadPinnedMessageForActiveChat(showErrorToast = false): Promise<void> {
+    const chatId = Number(this.chatSeleccionadoId || this.chatActual?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) {
+      this.pinnedMessage = null;
+      return;
+    }
+
+    const requestSeq = ++this.pinnedMessageRequestSeq;
+    try {
+      const response = await firstValueFrom(this.chatService.obtenerMensajeFijado(chatId));
+      if (requestSeq !== this.pinnedMessageRequestSeq) return;
+      this.pinnedMessage = this.normalizePinnedMessage(response);
+    } catch (error) {
+      if (requestSeq !== this.pinnedMessageRequestSeq) return;
+      if (Number((error as any)?.status || 0) === 404) {
+        this.pinnedMessage = null;
+        return;
+      }
+      console.warn('[fijados] no se pudo cargar mensaje fijado', error);
+      this.pinnedMessage = null;
+      if (showErrorToast) {
+        this.showToast(
+          'No se pudo cargar el mensaje fijado del chat.',
+          'warning',
+          'Fijados'
+        );
+      }
+    }
   }
 
   public abrirMensajeDestacado(item: StarredMessageItem): void {
@@ -8086,6 +8440,13 @@ private async decryptPreviewString(
     const target = event?.target as Node | null;
     const targetEl = target instanceof Element ? target : null;
 
+    if (this.showPinnedActionsMenu) {
+      const insidePinnedActions = !!targetEl?.closest('.chat-pinned-banner__actions');
+      if (!insidePinnedActions) {
+        this.showPinnedActionsMenu = false;
+      }
+    }
+
     if (this.showChatListHeaderMenu) {
       const insideChatHeaderMenu = !!targetEl?.closest('.chat-list-menu-anchor');
       if (!insideChatHeaderMenu) {
@@ -8161,6 +8522,9 @@ private async decryptPreviewString(
     this.showTopbarProfileMenu = false;
     this.showChatListHeaderMenu = false;
     this.openMensajeMenuId = null;
+    this.showPinnedActionsMenu = false;
+    this.showPinDurationPicker = false;
+    this.pinTargetMessage = null;
     this.openIncomingReactionPickerMessageId = null;
     this.openReactionDetailsMessageId = null;
     this.mostrarMenuOpciones = false;

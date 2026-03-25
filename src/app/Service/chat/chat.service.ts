@@ -19,6 +19,10 @@ import {
   StarredMessageDTO,
   StarredMessagesPageDTO,
 } from '../../Interface/StarredMessageDTO';
+import {
+  ChatPinnedMessageDTO,
+  PinMessageRequestDTO,
+} from '../../Interface/ChatPinnedMessageDTO';
 import { environment } from '../../environments';
 
 export interface PollVoteRestRequestDTO {
@@ -235,6 +239,26 @@ export class ChatService {
     return this.http.delete(
       `${this.starredMessagesBaseUrl}/${mensajeId}/destacar`
     );
+  }
+
+  obtenerMensajeFijado(chatId: number): Observable<ChatPinnedMessageDTO> {
+    return this.http.get<ChatPinnedMessageDTO>(
+      `${this.baseUrl}/${chatId}/pinned-message`
+    );
+  }
+
+  fijarMensaje(
+    chatId: number,
+    payload: PinMessageRequestDTO
+  ): Observable<ChatPinnedMessageDTO> {
+    return this.http.post<ChatPinnedMessageDTO>(
+      `${this.baseUrl}/${chatId}/pinned-message`,
+      payload
+    );
+  }
+
+  desfijarMensaje(chatId: number): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${chatId}/pinned-message`);
   }
 
   // Alias temporal para no romper llamadas existentes durante la migracion.
