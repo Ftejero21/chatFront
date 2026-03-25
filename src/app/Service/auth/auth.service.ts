@@ -10,6 +10,8 @@ import { DashboardStatsDTO } from '../../Interface/DashboardStatsDTO';
 import { PageResponse } from '../../Interface/PageResponse';
 import { UserE2EStateDTO } from '../../Interface/UserE2EStateDTO';
 import { UserE2ERekeyRequestDTO } from '../../Interface/UserE2ERekeyRequestDTO';
+import { UserE2EPrivateKeyBackupDTO } from '../../Interface/UserE2EPrivateKeyBackupDTO';
+import { UserE2EPrivateKeyBackupUpsertDTO } from '../../Interface/UserE2EPrivateKeyBackupUpsertDTO';
 import { UnbanAppealDTO, UnbanAppealEstado } from '../../Interface/UnbanAppealDTO';
 
 import { PreKeyBundleDTO, UploadBundleDTO } from '../../Interface/UploadBundleDTO';
@@ -83,6 +85,22 @@ export class AuthService {
 
   rekeyE2E(userId: number, dto: UserE2ERekeyRequestDTO): Observable<void> {
     return this.http.post<void>(`${this.baseUrl}/${userId}/e2e/rekey`, dto);
+  }
+
+  upsertE2EPrivateKeyBackup(
+    userId: number,
+    dto: UserE2EPrivateKeyBackupUpsertDTO
+  ): Observable<void> {
+    return this.http.put<void>(
+      `${this.baseUrl}/${userId}/e2e/private-key-backup`,
+      dto
+    );
+  }
+
+  getE2EPrivateKeyBackup(userId: number): Observable<UserE2EPrivateKeyBackupDTO> {
+    return this.http.get<UserE2EPrivateKeyBackupDTO>(
+      `${this.baseUrl}/${userId}/e2e/private-key-backup`
+    );
   }
 
   uploadPreKeyBundle(

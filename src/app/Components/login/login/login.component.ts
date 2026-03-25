@@ -13,6 +13,7 @@ import {
   RATE_LIMIT_SCOPES,
   RateLimitService,
 } from '../../../Service/rate-limit/rate-limit.service';
+import { E2EBackupService } from '../../../Service/e2e-backup/e2e-backup.service';
 
 
 type ToastVariant = 'danger' | 'success' | 'warning' | 'info';
@@ -69,7 +70,8 @@ export class LoginComponent implements OnInit, OnDestroy {
     private cryptoService: CryptoService,
     private router: Router,
     private sessionService: SessionService,
-    private rateLimitService: RateLimitService
+    private rateLimitService: RateLimitService,
+    private e2eBackupService: E2EBackupService
   ) {}
 
   ngOnInit(): void {
@@ -713,15 +715,31 @@ export class LoginComponent implements OnInit, OnDestroy {
     let localPrivateKey = String(
       localStorage.getItem(`privateKey_${userId}`) || ''
     ).trim();
-    const hasLocalPair = !!localPublicKey && !!localPrivateKey;
+    let hasLocalPair = !!localPublicKey && !!localPrivateKey;
 
     const serverState = await this.fetchServerE2EState(user);
-    const localFingerprint = await this.fingerprint12(localPublicKey);
     if (serverState.hasServerKey) {
+      if (!hasLocalPair) {
+        const restored = await this.tryRestoreE2EKeysFromBackup(
+          userId,
+          source,
+          serverState.serverFingerprint
+        );
+        if (restored) {
+          localPublicKey = this.normalizePublicKey(
+            localStorage.getItem(`publicKey_${userId}`)
+          );
+          localPrivateKey = String(
+            localStorage.getItem(`privateKey_${userId}`) || ''
+          ).trim();
+          hasLocalPair = !!localPublicKey && !!localPrivateKey;
+        }
+      }
+
       if (!hasLocalPair) {
         await Swal.fire({
           title: 'Clave privada no disponible',
-          text: 'Este usuario ya tiene identidad E2E en servidor, pero este navegador no conserva su clave privada. No se sobrescribira la clave para no romper mensajes anteriores.',
+          text: 'Este usuario ya tiene identidad E2E en servidor, pero este navegador no conserva su clave privada. Restaura el backup E2E o usa el flujo de rekey para no perder historial cifrado.',
           icon: 'error',
           confirmButtonColor: '#ef4444',
         });
@@ -734,6 +752,7 @@ export class LoginComponent implements OnInit, OnDestroy {
         return false;
       }
 
+      const localFingerprint = await this.fingerprint12(localPublicKey);
       if (
         serverState.serverFingerprint &&
         localFingerprint &&
@@ -754,6 +773,12 @@ export class LoginComponent implements OnInit, OnDestroy {
         return false;
       }
 
+      void this.tryCreateOrUpdateE2EBackup(
+        userId,
+        localPublicKey,
+        localPrivateKey,
+        source
+      );
       return true;
     }
 
@@ -769,6 +794,12 @@ export class LoginComponent implements OnInit, OnDestroy {
 
     try {
       await firstValueFrom(this.authService.updatePublicKey(userId, localPublicKey));
+      void this.tryCreateOrUpdateE2EBackup(
+        userId,
+        localPublicKey,
+        localPrivateKey,
+        source
+      );
       return true;
     } catch (err) {
       const code = String((err as any)?.error?.code || '');
@@ -807,6 +838,137 @@ export class LoginComponent implements OnInit, OnDestroy {
             : 'key-sync-failed-login',
       });
       return false;
+    }
+  }
+
+  private resolvePasswordCandidateForE2EBackup(
+    source: 'login' | 'register'
+  ): string {
+    const loginPassword = String(this.login?.password || '').trim();
+    const registerPassword = String(this.registro?.password || '').trim();
+    if (source === 'register') return registerPassword || loginPassword;
+    return loginPassword || registerPassword;
+  }
+
+  private async promptPasswordForE2EBackupRestore(): Promise<string | null> {
+    const result = await Swal.fire({
+      title: 'Restaurar clave privada E2E',
+      text: 'Ingresa tu password para restaurar tu clave privada cifrada.',
+      input: 'password',
+      inputPlaceholder: 'Password de tu cuenta',
+      inputAttributes: {
+        autocapitalize: 'off',
+        autocorrect: 'off',
+        autocomplete: 'current-password',
+      },
+      showCancelButton: true,
+      confirmButtonText: 'Restaurar',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#2563eb',
+      cancelButtonColor: '#64748b',
+      preConfirm: (value) => {
+        const normalized = String(value || '').trim();
+        if (!normalized) {
+          Swal.showValidationMessage('Debes ingresar tu password.');
+          return;
+        }
+        return normalized;
+      },
+    });
+
+    if (!result.isConfirmed) return null;
+    return String(result.value || '').trim() || null;
+  }
+
+  private isNotFoundHttpError(err: unknown): boolean {
+    return Number((err as any)?.status) === 404;
+  }
+
+  private async tryRestoreE2EKeysFromBackup(
+    userId: number,
+    source: 'login' | 'register',
+    expectedServerFingerprint: string
+  ): Promise<boolean> {
+    try {
+      const backup = await firstValueFrom(
+        this.authService.getE2EPrivateKeyBackup(userId)
+      );
+      if (!backup) return false;
+      const publicKey = this.normalizePublicKey((backup as any)?.publicKey);
+      if (!publicKey) return false;
+
+      const triedPasswords = new Set<string>();
+      let password = this.resolvePasswordCandidateForE2EBackup(source);
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (!password || triedPasswords.has(password)) {
+          const prompted = await this.promptPasswordForE2EBackupRestore();
+          if (!prompted) return false;
+          password = prompted;
+        }
+
+        triedPasswords.add(password);
+        try {
+          const privateKey = await this.e2eBackupService.decryptPrivateKeyFromBackup(
+            backup,
+            password
+          );
+          const restoredFingerprint = await this.fingerprint12(publicKey);
+          const expected =
+            String(expectedServerFingerprint || backup.publicKeyFingerprint || '').trim();
+          if (expected && restoredFingerprint && restoredFingerprint !== expected) {
+            console.warn('[E2E][backup-restore-fingerprint-mismatch]', {
+              userId: Number(userId),
+              restoredFingerprint,
+              expected,
+            });
+            return false;
+          }
+
+          localStorage.setItem(`privateKey_${userId}`, privateKey);
+          localStorage.setItem(`publicKey_${userId}`, publicKey);
+          return true;
+        } catch (decryptErr) {
+          console.warn('[E2E][backup-restore-decrypt-failed]', {
+            userId: Number(userId),
+            attempt: attempt + 1,
+            error: String((decryptErr as any)?.message || decryptErr),
+          });
+          password = '';
+        }
+      }
+
+      return false;
+    } catch (err) {
+      if (this.isNotFoundHttpError(err)) return false;
+      console.warn('[E2E][backup-restore-fetch-failed]', {
+        userId: Number(userId),
+        status: Number((err as any)?.status || 0),
+      });
+      return false;
+    }
+  }
+
+  private async tryCreateOrUpdateE2EBackup(
+    userId: number,
+    publicKey: string,
+    privateKey: string,
+    source: 'login' | 'register'
+  ): Promise<void> {
+    const password = this.resolvePasswordCandidateForE2EBackup(source);
+    if (!password) return;
+    try {
+      const payload = await this.e2eBackupService.buildEncryptedBackup(
+        privateKey,
+        publicKey,
+        password
+      );
+      await firstValueFrom(this.authService.upsertE2EPrivateKeyBackup(userId, payload));
+    } catch (err) {
+      console.warn('[E2E][backup-upsert-failed]', {
+        userId: Number(userId),
+        status: Number((err as any)?.status || 0),
+      });
     }
   }
 
