@@ -11,12 +11,16 @@ interface GoogleIdConfiguration {
   cancel_on_tap_outside?: boolean;
   context?: 'signin' | 'signup' | 'use';
   ux_mode?: 'popup' | 'redirect';
+  itp_support?: boolean;
 }
 
 interface GooglePromptMomentNotification {
   isNotDisplayed?: () => boolean;
   isSkippedMoment?: () => boolean;
   isDismissedMoment?: () => boolean;
+  getNotDisplayedReason?: () => string;
+  getSkippedReason?: () => string;
+  getDismissedReason?: () => string;
 }
 
 interface GoogleAccountsId {

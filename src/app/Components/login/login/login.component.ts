@@ -141,6 +141,22 @@ export class LoginComponent implements OnInit, OnDestroy {
           notification.isDismissedMoment();
         if (notDisplayed || skipped || dismissed) {
           this.googleAuthInProgress = false;
+          const reason = String(
+            (typeof notification?.getNotDisplayedReason === 'function' &&
+              notification.getNotDisplayedReason()) ||
+              (typeof notification?.getSkippedReason === 'function' &&
+                notification.getSkippedReason()) ||
+              (typeof notification?.getDismissedReason === 'function' &&
+                notification.getDismissedReason()) ||
+              ''
+          ).trim();
+
+          if (notDisplayed || skipped) {
+            const hint = reason
+              ? `Google bloqueó el prompt (${reason}). En Brave desactiva Shields para este sitio y permite cookies de terceros para accounts.google.com.`
+              : 'Google no pudo mostrar el prompt. En Brave desactiva Shields para este sitio y permite cookies de terceros para accounts.google.com.';
+            this.showToast(hint, 'warning', 'Google');
+          }
         }
       });
 
@@ -195,6 +211,8 @@ export class LoginComponent implements OnInit, OnDestroy {
           this.onGoogleCredentialResponse(response),
         auto_select: false,
         cancel_on_tap_outside: true,
+        ux_mode: 'popup',
+        itp_support: true,
       });
       this.googleIdentityInitializedClientId = clientId;
     }
