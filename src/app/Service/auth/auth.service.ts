@@ -240,8 +240,14 @@ export class AuthService {
     );
   }
 
-  solicitarCodigoCambioPasswordPerfil(): Observable<{ mensaje: string }> {
-    return this.http.post<{ mensaje: string }>(`${this.baseUrl}/perfil/password/solicitar-codigo`, {});
+  solicitarCodigoCambioPasswordPerfil(
+    currentPassword: string,
+    newPassword: string
+  ): Observable<{ mensaje: string }> {
+    return this.http.post<{ mensaje: string }>(
+      `${this.baseUrl}/perfil/password/solicitar-codigo`,
+      { currentPassword, newPassword }
+    );
   }
 
   cambiarPasswordPerfil(code: string, newPassword: string): Observable<{ mensaje: string }> {

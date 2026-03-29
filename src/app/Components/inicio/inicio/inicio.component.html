@@ -219,6 +219,7 @@
           <div *ngFor="let chat of chatsFiltrados" class="chat-item" [class.chat-item--unread]="chat.unreadCount > 0"
             [class.chat-item--group]="chat.esGrupo"
             [class.chat-item--selected]="chat.id === chatSeleccionadoId"
+            [class.chat-item--pinned]="isChatPinned(chat)"
             [class.chat-item--forward-mode]="forwardModalOpen"
             [class.chat-item--forward-blocked]="forwardModalOpen && isForwardTargetBlocked(chat)"
             (click)="onChatItemClick(chat)">
@@ -263,6 +264,7 @@
 
             <div class="info-chat">
               <div class="nombre-linea">
+                <i *ngIf="isChatPinned(chat)" class="bi bi-pin-angle-fill chat-pinned-dot" title="Chat fijado"></i>
                 <span class="nombre">{{ chat.nombre }}</span>
                 <span *ngIf="chat.esGrupo" class="pill pill--group">Grupo</span>
               </div>
@@ -363,6 +365,55 @@
                     </ng-template>
                   </ng-template>
                 </ng-template>
+              </div>
+            </div>
+
+            <span
+              *ngIf="!forwardModalOpen && isChatMuted(chat)"
+              class="chat-muted-indicator"
+              [attr.title]="chatMutedIndicatorTitle(chat)"
+              [attr.aria-label]="chatMutedIndicatorTitle(chat)"
+            >
+              <i class="bi bi-bell-slash-fill"></i>
+            </span>
+
+            <div *ngIf="!forwardModalOpen" class="chat-pin-anchor" (click)="$event.stopPropagation()">
+              <button
+                type="button"
+                class="chat-pin-toggle"
+                [class.is-pinned]="isChatPinned(chat)"
+                [class.is-open]="openChatPinMenuChatId === chat.id"
+                [attr.aria-label]="isChatPinned(chat) ? 'Opciones de chat fijado' : 'Opciones del chat'"
+                (click)="toggleChatPinMenu(chat, $event)"
+              >
+                <i class="bi" [ngClass]="openChatPinMenuChatId === chat.id ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+              </button>
+              <div *ngIf="openChatPinMenuChatId === chat.id" class="chat-pin-menu">
+                <button
+                  type="button"
+                  class="chat-pin-menu-btn"
+                  (click)="togglePinnedChat(chat, $event)"
+                >
+                  <i class="bi" [ngClass]="isChatPinned(chat) ? 'bi-pin-angle' : 'bi-pin-angle-fill'"></i>
+                  {{ isChatPinned(chat) ? 'Desfijar chat' : 'Fijar chat' }}
+                </button>
+                <button
+                  type="button"
+                  class="chat-pin-menu-btn"
+                  [disabled]="muteRequestInFlight"
+                  (click)="toggleChatMuted(chat, $event)"
+                >
+                  <i class="bi" [ngClass]="isChatMuted(chat) ? 'bi-bell-fill' : 'bi-bell-slash-fill'"></i>
+                  {{ isChatMuted(chat) ? 'Activar notificaciones' : 'Silenciar notificaciones' }}
+                </button>
+                <button
+                  type="button"
+                  class="chat-pin-menu-btn chat-pin-menu-btn--danger"
+                  (click)="vaciarChat(chat, $event)"
+                >
+                  <i class="bi bi-trash3-fill"></i>
+                  Vaciar chat
+                </button>
               </div>
             </div>
           </div>
@@ -537,6 +588,12 @@
                   <span class="icono-bloquear" aria-hidden="true"><i class="bi bi-slash-circle"></i></span>
                   {{ yoLoBloquee ? 'Desbloquear usuario' : 'Bloquear usuario' }}
                 </button>
+                <button class="dropdown-item dropdown-item--vaciar"
+                  *ngIf="chatActual"
+                  (mousedown)="vaciarChat(chatActual, $event); $event.stopPropagation()">
+                  <span class="icono-vaciar" aria-hidden="true"><i class="bi bi-trash3-fill"></i></span>
+                  Vaciar chat
+                </button>
               </div>
             </div>
           </div>
@@ -646,6 +703,7 @@
                 class="mensaje-row"
                 [class.es-propio]="mensaje.emisorId === usuarioActualId"
                 [class.es-otro]="mensaje.emisorId !== usuarioActualId"
+                [class.mensaje-row--group-other]="chatActual?.esGrupo && mensaje.emisorId !== usuarioActualId"
                 [class.has-reaction]="!!incomingQuickReaction(mensaje)"
                 [class.mensaje-row--search-target]="mensaje.id === highlightedMessageId"
                 [attr.data-message-id]="mensaje.id ?? null">
@@ -658,12 +716,12 @@
                   [ngClass]="{
                     'mensaje-propio': mensaje.emisorId === usuarioActualId,
                     'mensaje-otro': mensaje.emisorId !== usuarioActualId,
+                    'mensaje-otro--group': chatActual?.esGrupo && mensaje.emisorId !== usuarioActualId,
                     'mensaje--edited': isMensajeEditado(mensaje)
                   }"
                 >
 
-                  <div *ngIf="chatActual?.esGrupo && mensaje.emisorId !== usuarioActualId" class="msg-name-inline"
-                    [style.color]="getNameColor(mensaje.emisorId)">
+                  <div *ngIf="chatActual?.esGrupo && mensaje.emisorId !== usuarioActualId" class="msg-name-inline">
                     {{ mensaje.emisorNombre || obtenerNombrePorId(mensaje.emisorId) }}
                     {{ mensaje.emisorApellido || '' }}
                   </div>
@@ -921,6 +979,11 @@
                             <span (mouseup)="onMessageMouseUp(mensaje, textHost)" #textHost>
                               {{ mensaje.contenido }}
                             </span>
+                            <span
+                              *ngIf="chatActual?.esGrupo && mensaje.emisorId !== usuarioActualId"
+                              class="group-message-spacer"
+                              aria-hidden="true"
+                            ></span>
                             <span class="msg-meta-inline msg-meta-inline--end">
                               <span class="msg-time">{{ formatMensajeHora(mensaje) }}</span>
                               <i
@@ -1165,6 +1228,42 @@
               class="pin-duration-card__cancel"
               [disabled]="pinRequestInFlight"
               (click)="cancelarSelectorFijado($event)"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+
+        <div
+          *ngIf="showMuteDurationPicker && muteDurationTargetChat"
+          class="pin-duration-overlay mute-duration-overlay"
+          (click)="cancelarSelectorSilencio($event)"
+        >
+          <div class="pin-duration-card mute-duration-card" (click)="$event.stopPropagation()">
+            <div class="pin-duration-card__header mute-duration-card__header">
+              <i class="bi bi-bell-slash-fill"></i>
+              <h3>Silenciar notificaciones</h3>
+            </div>
+            <p class="pin-duration-card__subtitle">
+              Elige durante cuánto tiempo quieres silenciar este chat.
+            </p>
+            <div class="pin-duration-card__options">
+              <button
+                type="button"
+                class="pin-duration-card__option mute-duration-card__option"
+                *ngFor="let option of muteDurationOptions"
+                [disabled]="muteRequestInFlight"
+                (click)="confirmarSilencioConDuracion(option, $event)"
+              >
+                <span class="pin-duration-card__option-label">{{ option.label }}</span>
+                <span class="pin-duration-card__option-helper">{{ option.helper }}</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              class="pin-duration-card__cancel"
+              [disabled]="muteRequestInFlight"
+              (click)="cancelarSelectorSilencio($event)"
             >
               Cancelar
             </button>

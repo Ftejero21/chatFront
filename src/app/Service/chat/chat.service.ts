@@ -79,6 +79,28 @@ export interface MensajeProgramadoDTO {
   sentAt?: string | null;
 }
 
+export interface ChatClearResponseDTO {
+  ok: boolean;
+  chatId: number;
+  userId: number;
+  clearedBeforeMessageId?: number | null;
+  clearedAt?: string | null;
+}
+
+export interface ChatMuteRequestDTO {
+  durationSeconds?: number | null;
+  mutedForever?: boolean;
+}
+
+export interface ChatMuteStateDTO {
+  ok?: boolean;
+  chatId: number;
+  userId: number;
+  muted: boolean;
+  mutedForever?: boolean;
+  mutedUntil?: string | null;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -259,6 +281,33 @@ export class ChatService {
 
   desfijarMensaje(chatId: number): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${chatId}/pinned-message`);
+  }
+
+  clearChat(chatId: number): Observable<ChatClearResponseDTO> {
+    return this.http.post<ChatClearResponseDTO>(
+      `${this.baseUrl}/${chatId}/clear`,
+      null
+    );
+  }
+
+  // Preparado para backend de "silenciar notificaciones por chat".
+  muteChat(
+    chatId: number,
+    payload: ChatMuteRequestDTO
+  ): Observable<ChatMuteStateDTO> {
+    return this.http.post<ChatMuteStateDTO>(
+      `${this.baseUrl}/${chatId}/mute`,
+      payload
+    );
+  }
+
+  // Preparado para backend de "activar notificaciones".
+  unmuteChat(chatId: number): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${chatId}/mute`);
+  }
+
+  listMutedChats(): Observable<ChatMuteStateDTO[]> {
+    return this.http.get<ChatMuteStateDTO[]>(`${this.baseUrl}/muted`);
   }
 
   // Alias temporal para no romper llamadas existentes durante la migracion.

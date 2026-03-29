@@ -287,6 +287,12 @@ interface PinDurationOption {
   helper: string;
 }
 
+interface MuteDurationOption {
+  label: string;
+  durationMs: number | null;
+  helper: string;
+}
+
 type ComposerActionType = 'archivo' | 'encuesta';
 
 interface ChatPollVoterView {
@@ -389,11 +395,32 @@ export class InicioComponent {
   public showGroupPollComposer = false;
   public showScheduleMessageComposer = false;
   public showChatListHeaderMenu = false;
+  public showMuteDurationPicker = false;
+  public muteDurationTargetChat: any | null = null;
+  public muteRequestInFlight = false;
+  public openChatPinMenuChatId: number | null = null;
   public readonly temporaryMessageOptions: TemporaryMessageOption[] = [
     { label: 'Desactivar', seconds: null, badge: '' },
     { label: '24 horas', seconds: 24 * 60 * 60, badge: '24h' },
     { label: '7 horas', seconds: 7 * 60 * 60, badge: '7h' },
     { label: '2 minutos', seconds: 2 * 60, badge: '2m' },
+  ];
+  public readonly muteDurationOptions: MuteDurationOption[] = [
+    {
+      label: '8 horas',
+      durationMs: 8 * 60 * 60 * 1000,
+      helper: 'Silencia por el resto del día',
+    },
+    {
+      label: '1 semana',
+      durationMs: 7 * 24 * 60 * 60 * 1000,
+      helper: 'Ideal para pausas largas',
+    },
+    {
+      label: 'Siempre',
+      durationMs: null,
+      helper: 'Hasta que vuelvas a activarlo',
+    },
   ];
   public attachmentUploading = false;
   public pendingAttachmentFile: File | null = null;
@@ -715,6 +742,8 @@ export class InicioComponent {
   private incomingRingtoneGain?: GainNode;
   private incomingRingtoneTimer?: any;
   private incomingRingtoneActive = false;
+  private readonly MESSAGE_NOTIFICATION_TONE_COOLDOWN_MS = 1200;
+  private lastMessageNotificationToneAt = 0;
   private outgoingCallPendingAcceptance = false;
   private notifsLoadedOnce = false;
   private aiWaitTicker?: any;
@@ -740,8 +769,10 @@ export class InicioComponent {
   private readonly LEFT_GROUP_NOTICE_KEY = 'leftGroupNoticeByChat';
   private readonly CHAT_DRAFTS_KEY = 'chatDraftsByChat';
   private readonly TEMPORARY_CHAT_SETTINGS_KEY = 'chatTemporarySecondsByChat';
+  private readonly PINNED_CHAT_ID_KEY = 'pinnedChatId';
   private draftByChatId = new Map<number, string>();
   private temporarySecondsByChatId = new Map<number, number>();
+  private mutedChatUntilByChatId = new Map<number, number | null>();
   private readonly starredMessageIds = new Set<number>();
   private readonly starredHydratedMessagesById = new Map<number, MensajeDTO>();
   private starredHydrationRequestSeq = 0;
@@ -790,6 +821,7 @@ export class InicioComponent {
 
   public busquedaChat: string = '';
   public chatListFilter: ChatListFilter = 'TODOS';
+  public pinnedChatId: number | null = null;
 
   public bloqueadosIds = new Set<number>();
   public meHanBloqueadoIds = new Set<number>();
@@ -843,6 +875,8 @@ export class InicioComponent {
     this.usuarioActualId = parseInt(id, 10);
     this.loadChatDraftsFromStorage();
     this.loadTemporarySettingsFromStorage();
+    this.loadPinnedChatFromStorage();
+    this.loadMutedChatsFromBackend();
     this.loadStarredMessagesFromBackend();
     void this.ensureLocalE2EKeysAndSyncPublicKey(this.usuarioActualId);
     void this.ensureAuditPublicKeyForE2E();
@@ -1235,6 +1269,7 @@ export class InicioComponent {
                   if (item) {
                     if (!this.isMensajeEditado(mensaje) && !isSystemIncoming) {
                       item.unreadCount = (item.unreadCount || 0) + 1;
+                      this.playUnreadMessageTone(item);
                     }
                     if (this.shouldRefreshPreviewWithIncomingMessage(item, mensaje)) {
                       const { preview, fecha, lastId } = computePreviewPatch(
@@ -1358,6 +1393,7 @@ export class InicioComponent {
                       // Actualiza preview y contador de no leidos
                       if (!this.isMensajeEditado(mensaje) && !isSystemIncoming) {
                         item.unreadCount = (item.unreadCount || 0) + 1;
+                        this.playUnreadMessageTone(item);
                       }
 
                       if (this.shouldRefreshPreviewWithIncomingMessage(item, mensaje)) {
@@ -2428,6 +2464,8 @@ export class InicioComponent {
     this.highlightedMessageId = null;
     this.showPinnedActionsMenu = false;
     this.showPinDurationPicker = false;
+    this.showMuteDurationPicker = false;
+    this.muteDurationTargetChat = null;
     this.pinTargetMessage = null;
     this.pinnedMessage = null;
     this.pinnedMessageRequestSeq += 1;
@@ -4188,6 +4226,378 @@ private async decryptPreviewString(
     return Number.isFinite(userId) && userId > 0
       ? `${this.CHAT_DRAFTS_KEY}:${userId}`
       : this.CHAT_DRAFTS_KEY;
+  }
+
+  private getPinnedChatStorageKey(): string {
+    const userId = Number(this.usuarioActualId);
+    return Number.isFinite(userId) && userId > 0
+      ? `${this.PINNED_CHAT_ID_KEY}:${userId}`
+      : this.PINNED_CHAT_ID_KEY;
+  }
+
+  private loadPinnedChatFromStorage(): void {
+    this.pinnedChatId = null;
+    try {
+      const raw = localStorage.getItem(this.getPinnedChatStorageKey());
+      const chatId = Number(raw);
+      if (!Number.isFinite(chatId) || chatId <= 0) return;
+      this.pinnedChatId = Math.round(chatId);
+    } catch {}
+  }
+
+  private persistPinnedChatToStorage(): void {
+    const key = this.getPinnedChatStorageKey();
+    const chatId = Number(this.pinnedChatId);
+    if (!Number.isFinite(chatId) || chatId <= 0) {
+      localStorage.removeItem(key);
+      return;
+    }
+    localStorage.setItem(key, String(Math.round(chatId)));
+  }
+
+  private loadMutedChatsFromBackend(): void {
+    this.chatService.listMutedChats().subscribe({
+      next: (items) => {
+        this.mutedChatUntilByChatId.clear();
+        for (const item of items || []) {
+          const chatId = Number(item?.chatId);
+          if (!Number.isFinite(chatId) || chatId <= 0) continue;
+          const normalizedChatId = Math.round(chatId);
+          const muted = item?.muted !== false;
+          if (!muted) continue;
+          const mutedForever = item?.mutedForever === true;
+          if (mutedForever) {
+            this.mutedChatUntilByChatId.set(normalizedChatId, null);
+            continue;
+          }
+          const untilMs = this.toMuteUntilMs(item?.mutedUntil);
+          if (untilMs && untilMs > Date.now()) {
+            this.mutedChatUntilByChatId.set(normalizedChatId, untilMs);
+          }
+        }
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        console.warn('[mute] no se pudo cargar estado de chats silenciados', err);
+      },
+    });
+  }
+
+  private toMuteUntilMs(raw: unknown): number | null {
+    if (raw == null) return null;
+    if (raw instanceof Date) {
+      const time = raw.getTime();
+      return Number.isFinite(time) && time > 0 ? Math.round(time) : null;
+    }
+    const asNumber = Number(raw);
+    if (Number.isFinite(asNumber) && asNumber > 0) return Math.round(asNumber);
+    const text = String(raw || '').trim();
+    if (!text) return null;
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
+  }
+
+  private setMutedChatState(chatIdRaw: unknown, untilMs: number | null | undefined): void {
+    const chatId = Number(chatIdRaw);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+    const normalizedChatId = Math.round(chatId);
+    if (untilMs === undefined) {
+      this.mutedChatUntilByChatId.delete(normalizedChatId);
+      return;
+    }
+    if (untilMs === null) {
+      this.mutedChatUntilByChatId.set(normalizedChatId, null);
+      return;
+    }
+    const normalizedUntil = Number(untilMs);
+    if (!Number.isFinite(normalizedUntil) || normalizedUntil <= Date.now()) {
+      this.mutedChatUntilByChatId.delete(normalizedChatId);
+      return;
+    }
+    this.mutedChatUntilByChatId.set(normalizedChatId, Math.round(normalizedUntil));
+  }
+
+  private getChatMuteUntilMs(chat: any): number | null | undefined {
+    const chatId = Number(chat?.id ?? chat);
+    if (!Number.isFinite(chatId) || chatId <= 0) return undefined;
+    const value = this.mutedChatUntilByChatId.get(Math.round(chatId));
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    const untilMs = Number(value);
+    if (!Number.isFinite(untilMs) || untilMs <= 0) return undefined;
+    return Math.round(untilMs);
+  }
+
+  public isChatMuted(chat: any): boolean {
+    const untilMs = this.getChatMuteUntilMs(chat);
+    if (untilMs === undefined) return false;
+    if (untilMs === null) return true;
+    return untilMs > Date.now();
+  }
+
+  public chatMutedIndicatorTitle(chat: any): string {
+    const untilMs = this.getChatMuteUntilMs(chat);
+    if (untilMs === null) return 'Notificaciones silenciadas (siempre)';
+    if (typeof untilMs === 'number' && untilMs > Date.now()) {
+      const formatted = new Date(untilMs).toLocaleString('es-ES', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      return `Notificaciones silenciadas hasta ${formatted}`;
+    }
+    return 'Notificaciones silenciadas';
+  }
+
+  private applyMuteStateFromBackend(state: any, fallbackChatId?: number): void {
+    const chatIdRaw = Number(state?.chatId ?? fallbackChatId ?? 0);
+    if (!Number.isFinite(chatIdRaw) || chatIdRaw <= 0) return;
+    const chatId = Math.round(chatIdRaw);
+
+    const muted = state?.muted !== false;
+    if (!muted) {
+      this.setMutedChatState(chatId, undefined);
+      return;
+    }
+
+    if (state?.mutedForever === true) {
+      this.setMutedChatState(chatId, null);
+      return;
+    }
+
+    const untilMs = this.toMuteUntilMs(state?.mutedUntil);
+    this.setMutedChatState(chatId, untilMs ?? undefined);
+  }
+
+  public isChatPinned(chat: any): boolean {
+    const pinnedId = Number(this.pinnedChatId);
+    const chatId = Number(chat?.id);
+    if (!Number.isFinite(pinnedId) || pinnedId <= 0) return false;
+    if (!Number.isFinite(chatId) || chatId <= 0) return false;
+    return pinnedId === chatId;
+  }
+
+  private comparePinnedChatOrder(left: any, right: any): number {
+    const leftPinned = this.isChatPinned(left) ? 1 : 0;
+    const rightPinned = this.isChatPinned(right) ? 1 : 0;
+    return rightPinned - leftPinned;
+  }
+
+  public toggleChatPinMenu(chat: any, event?: MouseEvent): void {
+    event?.stopPropagation();
+    const chatId = Number(chat?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) {
+      this.openChatPinMenuChatId = null;
+      return;
+    }
+    this.openChatPinMenuChatId =
+      this.openChatPinMenuChatId === chatId ? null : chatId;
+  }
+
+  public togglePinnedChat(chat: any, event?: MouseEvent): void {
+    event?.stopPropagation();
+    const chatId = Number(chat?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+
+    if (this.isChatPinned(chat)) {
+      this.pinnedChatId = null;
+      this.showToast('Chat desfijado.', 'info', 'Chats', 1600);
+    } else {
+      this.pinnedChatId = Math.round(chatId);
+      this.showToast('Chat fijado en la parte superior.', 'success', 'Chats', 1800);
+    }
+    this.persistPinnedChatToStorage();
+    this.openChatPinMenuChatId = null;
+    this.cdr.markForCheck();
+  }
+
+  public toggleChatMuted(chat: any, event?: MouseEvent): void {
+    event?.stopPropagation();
+    if (this.muteRequestInFlight) return;
+    const chatId = Number(chat?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+
+    if (this.isChatMuted(chat)) {
+      this.muteRequestInFlight = true;
+      this.chatService.unmuteChat(chatId).subscribe({
+        next: () => {
+          this.setMutedChatState(chatId, undefined);
+          this.showToast('Notificaciones activadas para este chat.', 'info', 'Chats', 1800);
+          this.openChatPinMenuChatId = null;
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          const status = Number(err?.status || 0);
+          const backendMsg = String(
+            err?.error?.mensaje || err?.error?.message || err?.message || ''
+          ).trim();
+          const msg =
+            status === 403
+              ? 'No tienes permiso para cambiar el silencio de este chat.'
+              : status === 404
+              ? 'El chat ya no está disponible.'
+              : backendMsg || 'No se pudo activar las notificaciones.';
+          this.showToast(msg, 'warning', 'Chats', 2200);
+        },
+        complete: () => {
+          this.muteRequestInFlight = false;
+          this.cdr.markForCheck();
+        },
+      });
+    } else {
+      this.muteDurationTargetChat = chat;
+      this.showMuteDurationPicker = true;
+      this.openChatPinMenuChatId = null;
+      this.cdr.markForCheck();
+    }
+  }
+
+  public cancelarSelectorSilencio(event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.showMuteDurationPicker = false;
+    this.muteDurationTargetChat = null;
+  }
+
+  public confirmarSilencioConDuracion(
+    option: MuteDurationOption,
+    event?: MouseEvent
+  ): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (this.muteRequestInFlight) return;
+    const chatId = Number(this.muteDurationTargetChat?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+
+    this.muteRequestInFlight = true;
+    const durationMs = option?.durationMs ?? null;
+    const payload =
+      durationMs === null
+        ? { mutedForever: true }
+        : { durationSeconds: Math.max(1, Math.floor(durationMs / 1000)) };
+
+    this.chatService.muteChat(chatId, payload).subscribe({
+      next: (response) => {
+        this.applyMuteStateFromBackend(response, chatId);
+        if (!this.isChatMuted(chatId)) {
+          // Fallback defensivo si backend no devuelve mutedUntil en respuesta.
+          if (durationMs === null) this.setMutedChatState(chatId, null);
+          else this.setMutedChatState(chatId, Date.now() + durationMs);
+        }
+        this.showMuteDurationPicker = false;
+        this.muteDurationTargetChat = null;
+        this.showToast(
+          durationMs === null
+            ? 'Chat silenciado indefinidamente.'
+            : `Chat silenciado por ${option.label.toLowerCase()}.`,
+          'success',
+          'Chats',
+          1900
+        );
+      },
+      error: (err) => {
+        const status = Number(err?.status || 0);
+        const backendMsg = String(
+          err?.error?.mensaje || err?.error?.message || err?.message || ''
+        ).trim();
+        const msg =
+          status === 403
+            ? 'No tienes permiso para silenciar este chat.'
+            : status === 404
+            ? 'El chat ya no está disponible.'
+            : backendMsg || 'No se pudo silenciar este chat.';
+        this.showToast(msg, 'warning', 'Chats', 2200);
+      },
+      complete: () => {
+        this.muteRequestInFlight = false;
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  public vaciarChat(chat: any, event?: MouseEvent): void {
+    event?.stopPropagation();
+    const targetChat = chat || this.chatActual;
+    const chatId = Number(targetChat?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+
+    const chatName = String(targetChat?.nombre || 'este chat').trim();
+
+    Swal.fire({
+      title: 'Vaciar chat',
+      text: `Se ocultarán los mensajes anteriores en "${chatName}" solo para tu cuenta.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Vaciar',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#dc2626',
+    }).then((res) => {
+      if (!res.isConfirmed) return;
+
+      this.chatService.clearChat(chatId).subscribe({
+        next: () => {
+          const activeChatId = Number(this.chatActual?.id);
+          if (activeChatId === chatId) {
+            this.mensajesSeleccionados = [];
+            this.syncActiveHistoryStateMessages();
+            this.loadInitialMessagesPage(this.chatActual, this.getLeftGroupIdsSet());
+          }
+
+          if (
+            this.pinnedMessage &&
+            Number(this.pinnedMessage?.chatId ?? chatId) === chatId
+          ) {
+            this.pinnedMessage = null;
+          }
+
+          this.chats = updateChatPreview(this.chats, chatId, 'Sin mensajes aún', null);
+          const updatedChat = this.chats.find((c) => Number(c?.id) === chatId);
+          if (updatedChat) {
+            updatedChat.unreadCount = 0;
+            updatedChat.ultimaMensajeTipo = null;
+            updatedChat.ultimaMensajeEmisorId = null;
+            updatedChat.ultimaMensajeRaw = null;
+            updatedChat.__ultimaMensajeRaw = '';
+            updatedChat.__ultimaTipo = null;
+            updatedChat.ultimaMensajeAudioUrl = null;
+            updatedChat.ultimaMensajeAudioMime = null;
+            updatedChat.ultimaMensajeAudioDuracionMs = null;
+            updatedChat.ultimaMensajeImageUrl = null;
+            updatedChat.ultimaMensajeImageMime = null;
+            updatedChat.ultimaMensajeImageNombre = null;
+            updatedChat.ultimaMensajeFileUrl = null;
+            updatedChat.ultimaMensajeFileMime = null;
+            updatedChat.ultimaMensajeFileNombre = null;
+            updatedChat.ultimaMensajeFileSizeBytes = null;
+            this.clearChatImagePreview(updatedChat);
+            this.clearChatFilePreview(updatedChat);
+          }
+
+          this.openChatPinMenuChatId = null;
+          this.cerrarMenuOpciones();
+          this.showToast('Chat vaciado para tu cuenta.', 'success', 'Chats', 1800);
+          this.listarTodosLosChats();
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          const status = Number(err?.status || 0);
+          const backendMsg = String(
+            err?.error?.mensaje || err?.error?.message || err?.message || ''
+          ).trim();
+          const msg =
+            status === 403
+              ? 'No tienes permiso para vaciar este chat.'
+              : status === 404
+              ? 'El chat ya no está disponible.'
+              : backendMsg || 'No se pudo vaciar el chat.';
+          this.openChatPinMenuChatId = null;
+          this.cerrarMenuOpciones();
+          this.showToast(msg, 'warning', 'Chats', 2200);
+          this.cdr.markForCheck();
+        },
+      });
+    });
   }
 
   private normalizeStarredMessageItems(raw: unknown): StarredMessageItem[] {
@@ -7146,6 +7556,7 @@ private async decryptPreviewString(
   }
 
   public onChatItemClick(chat: any): void {
+    this.openChatPinMenuChatId = null;
     if (this.forwardModalOpen) {
       if (this.isForwardTargetBlocked(chat)) return;
       this.toggleForwardChat(chat);
@@ -8454,6 +8865,13 @@ private async decryptPreviewString(
       }
     }
 
+    if (this.openChatPinMenuChatId !== null) {
+      const insideChatPinMenu = !!targetEl?.closest('.chat-pin-anchor');
+      if (!insideChatPinMenu) {
+        this.openChatPinMenuChatId = null;
+      }
+    }
+
     if (this.openIncomingReactionPickerMessageId !== null) {
       const insideReactionUi = !!targetEl?.closest('.msg-reaction-box');
       if (!insideReactionUi) {
@@ -8521,9 +8939,12 @@ private async decryptPreviewString(
     this.loadStarredMessagesFromBackend(true, this.starredPage);
     this.showTopbarProfileMenu = false;
     this.showChatListHeaderMenu = false;
+    this.openChatPinMenuChatId = null;
     this.openMensajeMenuId = null;
     this.showPinnedActionsMenu = false;
     this.showPinDurationPicker = false;
+    this.showMuteDurationPicker = false;
+    this.muteDurationTargetChat = null;
     this.pinTargetMessage = null;
     this.openIncomingReactionPickerMessageId = null;
     this.openReactionDetailsMessageId = null;
@@ -8606,7 +9027,12 @@ private async decryptPreviewString(
       }
 
       this.profileSaving = true;
-      this.authService.solicitarCodigoCambioPasswordPerfil().subscribe({
+      this.authService
+        .solicitarCodigoCambioPasswordPerfil(
+          String(payload.passwordActual || ''),
+          String(payload.nuevaPassword || '')
+        )
+        .subscribe({
         next: (res) => {
           this.profileSaving = false;
           this.profilePasswordCodeRequested = true;
@@ -11074,7 +11500,16 @@ private async decryptPreviewString(
       this.matchesChatListFilter(chat)
     );
     const q = normalizeSearchText(this.busquedaChat);
-    if (!q) return base;
+    if (!q) {
+      return base
+        .map((c, idx) => ({ c, idx }))
+        .sort((a, b) => {
+          const pinnedDiff = this.comparePinnedChatOrder(a.c, b.c);
+          if (pinnedDiff !== 0) return pinnedDiff;
+          return a.idx - b.idx;
+        })
+        .map((x) => x.c);
+    }
 
     return base
       .map((c, idx) => {
@@ -11086,6 +11521,10 @@ private async decryptPreviewString(
         return { c, idx, score };
       })
       .sort((a, b) => {
+        // 0) chat fijado arriba de todo
+        const pinnedDiff = this.comparePinnedChatOrder(a.c, b.c);
+        if (pinnedDiff !== 0) return pinnedDiff;
+
         // 1) por score (desc)
         if (b.score !== a.score) return b.score - a.score;
 
@@ -11759,6 +12198,69 @@ private async decryptPreviewString(
     this.incomingRingtoneOsc = undefined;
     this.incomingRingtoneGain = undefined;
     this.incomingRingtoneCtx = undefined;
+  }
+
+  /**
+   * Reproduce un tono corto cuando llega un mensaje no leído en segundo plano.
+   */
+  private playUnreadMessageTone(chatRef?: any): void {
+    if (this.isChatMuted(chatRef)) return;
+
+    const nowMs = Date.now();
+    if (
+      nowMs - this.lastMessageNotificationToneAt <
+      this.MESSAGE_NOTIFICATION_TONE_COOLDOWN_MS
+    ) {
+      return;
+    }
+    this.lastMessageNotificationToneAt = nowMs;
+
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+
+      const ctx: AudioContext = new AudioCtx();
+      const master = ctx.createGain();
+      master.gain.value = 1;
+      master.connect(ctx.destination);
+
+      const startAt = ctx.currentTime + 0.01;
+      const notes = [
+        { freq: 784, start: 0, dur: 0.09, vol: 0.045 }, // G5
+        { freq: 988, start: 0.11, dur: 0.11, vol: 0.04 }, // B5
+      ];
+
+      for (const note of notes) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(note.freq, startAt + note.start);
+        osc.connect(gain);
+        gain.connect(master);
+        gain.gain.setValueAtTime(0.0001, startAt + note.start);
+        gain.gain.linearRampToValueAtTime(
+          note.vol,
+          startAt + note.start + 0.015
+        );
+        gain.gain.exponentialRampToValueAtTime(
+          0.0001,
+          startAt + note.start + note.dur
+        );
+        osc.start(startAt + note.start);
+        osc.stop(startAt + note.start + note.dur + 0.02);
+      }
+
+      const totalMs =
+        Math.ceil(
+          (Math.max(...notes.map((n) => n.start + n.dur)) + 0.08) * 1000
+        ) + 20;
+      setTimeout(() => {
+        void ctx.close().catch(() => {});
+      }, totalMs);
+      void ctx.resume().catch(() => {});
+    } catch (e) {
+      console.warn('No se pudo reproducir el tono de notificacion de mensaje', e);
+    }
   }
 
   /**
@@ -12528,6 +13030,7 @@ private async decryptPreviewString(
           !isExistingMessageUpdate
         ) {
           chatItem.unreadCount = (chatItem.unreadCount || 0) + 1;
+          this.playUnreadMessageTone(chatItem);
         }
         if (this.shouldRefreshPreviewWithIncomingMessage(chatItem, mensaje)) {
           const { preview, fecha, lastId } = computePreviewPatch(
@@ -13239,6 +13742,7 @@ private async decryptPreviewString(
 
   public toggleChatListHeaderMenu(event?: MouseEvent): void {
     event?.stopPropagation();
+    this.openChatPinMenuChatId = null;
     this.closeComposeActionsPopup();
     this.closeEmojiPicker();
     this.closeTemporaryMessagePopup();
@@ -14639,6 +15143,7 @@ private async decryptPreviewString(
     this.composerDraftPrefixVisible = false;
     this.mensajeNuevo = '';
     this.showChatListHeaderMenu = false;
+    this.openChatPinMenuChatId = null;
     this.mensajeEdicionObjetivo = null;
     this.mostrarMenuOpciones = false;
     this.openIncomingReactionPickerMessageId = null;
