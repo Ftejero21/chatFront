@@ -1,0 +1,208 @@
+<div class="auth-page">
+  <div class="auth-card">
+    <!-- Header con gradiente + marca -->
+    <div class="auth-header fancy-header">
+      <div class="auth-brand">
+        <span class="brand-mark">
+          <i class="fas fa-comments brand-icon"></i>
+        </span>
+        <span class="brand-name">TejeChat</span>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="auth-tabs" role="tablist" aria-label="Cambiar formulario">
+      <button class="auth-tab" [class.active]="modoLogin" (click)="switchTo(true)" role="tab"
+        [attr.aria-selected]="modoLogin">
+        Iniciar sesión
+      </button>
+      <button class="auth-tab" [class.active]="!modoLogin" (click)="switchTo(false)" role="tab"
+        [attr.aria-selected]="!modoLogin">
+        Registrarse
+      </button>
+    </div>
+
+    <!-- Login -->
+    <form *ngIf="modoLogin" (ngSubmit)="iniciarSesion()" class="auth-form" aria-label="Formulario de inicio de sesión">
+      <label class="input-group">
+        <i class="bi bi-envelope"></i>
+        <input type="email" [(ngModel)]="login.email" name="email" placeholder="Email" required />
+      </label>
+
+      <label class="input-group">
+        <i class="bi bi-lock"></i>
+        <input [type]="showLoginPassword ? 'text' : 'password'" [(ngModel)]="login.password" name="password" placeholder="Contraseña" required />
+        <button
+          type="button"
+          class="password-toggle"
+          [class.is-visible]="showLoginPassword"
+          (click)="toggleLoginPasswordVisibility()"
+          [attr.aria-label]="showLoginPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+        >
+          <i [class]="showLoginPassword ? 'bi bi-eye' : 'bi bi-eye-slash'"></i>
+        </button>
+      </label>
+
+      <div class="form-row">
+        <label class="checkbox">
+          <input type="checkbox" [(ngModel)]="rememberMe" name="rememberMe" /> Recuérdame
+        </label>
+        <a class="link" href="#" (click)="$event.preventDefault(); showResetPasswordModal = true;">¿Olvidaste tu
+          contraseña?</a>
+      </div>
+
+      <button type="submit" class="btn-primary" [disabled]="loginRateLimitSeconds > 0">
+        <ng-container *ngIf="loginRateLimitSeconds > 0; else loginReady">
+          Reintentar en {{ loginRateLimitSeconds }}s
+        </ng-container>
+        <ng-template #loginReady>Entrar</ng-template>
+      </button>
+
+      <div class="divider"><span>o</span></div>
+
+      <button
+        type="button"
+        class="btn-outline"
+        [disabled]="googleAuthInProgress"
+        (click)="continuarConGoogle()"
+      >
+        <i class="bi bi-google"></i>
+        {{ googleAuthInProgress ? 'Conectando con Google...' : 'Continuar con Google' }}
+      </button>
+
+      <p class="switch">
+        ¿No tienes cuenta? <a class="link" (click)="switchTo(false)">Regístrate</a>
+      </p>
+
+      <button
+        *ngIf="showBanAppealButton"
+        type="button"
+        class="btn-ban-appeal"
+        (click)="abrirReporteDesbaneo()"
+        [disabled]="unbanAppealRateLimitSeconds > 0"
+      >
+        <ng-container *ngIf="unbanAppealRateLimitSeconds > 0; else appealReady">
+          Reintentar reporte en {{ unbanAppealRateLimitSeconds }}s
+        </ng-container>
+        <ng-template #appealReady>Reportar baneo y solicitar desbaneo</ng-template>
+      </button>
+    </form>
+
+    <!-- Toasts -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1080;">
+      <div *ngFor="let t of toasts" class="toast show align-items-center text-white border-0 mb-2" role="alert"
+        aria-live="assertive" aria-atomic="true" [ngClass]="{
+          'bg-danger': t.variant === 'danger',
+          'bg-success': t.variant === 'success',
+          'bg-warning text-dark': t.variant === 'warning',
+          'bg-info': t.variant === 'info'
+        }">
+        <div class="d-flex">
+          <div class="toast-body">
+            <strong *ngIf="t.title">{{ t.title }}:</strong> {{ t.message }}
+          </div>
+          <button type="button" class="btn-close btn-close-white me-2 m-auto" aria-label="Close"
+            (click)="dismissToast(t.id)"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Registro -->
+    <form *ngIf="!modoLogin" (ngSubmit)="registrarse()" class="auth-form" aria-label="Formulario de registro">
+      <!-- Uploader con acciones (botones FUERA del círculo) -->
+      <div class="avatar-wrap">
+        <label class="avatar-uploader" for="regAvatarInput" tabindex="0" role="button"
+          aria-label="Subir foto de perfil">
+          <img *ngIf="avatarPreviewUrl; else avatarPlaceholder" [src]="avatarPreviewUrl"
+            alt="Previsualización de avatar" class="avatar-img" />
+          <ng-template #avatarPlaceholder>
+            <div class="avatar-placeholder">
+              <i class="bi bi-camera"></i>
+              <span>Agregar foto</span>
+            </div>
+          </ng-template>
+        </label>
+
+        <!-- Botonera sobre el avatar (fuera de la imagen) -->
+        <div class="avatar-actions">
+          <button type="button" class="avatar-btn" title="Cambiar imagen" (click)="avatarInput.click()"
+            aria-label="Cambiar imagen">
+            <i class="fas fa-camera"></i>
+          </button>
+
+          <button *ngIf="avatarPreviewUrl" type="button" class="avatar-btn danger" title="Quitar imagen"
+            (click)="clearAvatar()" aria-label="Quitar imagen">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+
+        <!-- ÚNICO input real -->
+        <input #avatarInput id="regAvatarInput" type="file" accept="image/*" (change)="onAvatarSelected($event)"
+          hidden />
+      </div>
+
+      <div class="grid-2">
+        <label class="input-group">
+          <i class="bi bi-person"></i>
+          <input type="text" [(ngModel)]="registro.nombre" name="nombre" placeholder="Nombre" required />
+        </label>
+        <label class="input-group">
+          <i class="bi bi-person"></i>
+          <input type="text" [(ngModel)]="registro.apellido" name="apellido" placeholder="Apellido" required />
+        </label>
+      </div>
+
+      <div class="input-group-wrap">
+        <label class="input-group" [class.input-group--error]="!!registerEmailError">
+          <i class="bi bi-envelope"></i>
+          <input
+            type="email"
+            [(ngModel)]="registro.email"
+            (ngModelChange)="onRegisterEmailInput()"
+            name="emailRegistro"
+            placeholder="Email"
+            required
+            [attr.aria-invalid]="registerEmailError ? 'true' : null"
+          />
+        </label>
+        <p *ngIf="registerEmailError" class="input-error-text">{{ registerEmailError }}</p>
+      </div>
+
+      <label class="input-group">
+        <i class="bi bi-lock"></i>
+        <input [type]="showRegisterPassword ? 'text' : 'password'" [(ngModel)]="registro.password" name="passwordRegistro" placeholder="Contraseña"
+          required />
+        <button
+          type="button"
+          class="password-toggle"
+          [class.is-visible]="showRegisterPassword"
+          (click)="toggleRegisterPasswordVisibility()"
+          [attr.aria-label]="showRegisterPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+        >
+          <i [class]="showRegisterPassword ? 'bi bi-eye' : 'bi bi-eye-slash'"></i>
+        </button>
+      </label>
+
+      <button type="submit" class="btn-primary">Registrarse</button>
+
+      <div class="divider"><span>o</span></div>
+
+      <button
+        type="button"
+        class="btn-outline"
+        [disabled]="googleAuthInProgress"
+        (click)="continuarConGoogle()"
+      >
+        <i class="bi bi-google"></i>
+        {{ googleAuthInProgress ? 'Conectando con Google...' : 'Continuar con Google' }}
+      </button>
+
+      <p class="switch">
+        ¿Ya tienes cuenta? <a class="link" (click)="switchTo(true)">Inicia sesión</a>
+      </p>
+    </form>
+  </div>
+</div>
+
+<!-- Password Reset Modal -->
+<app-password-reset *ngIf="showResetPasswordModal" (close)="showResetPasswordModal = false"></app-password-reset>

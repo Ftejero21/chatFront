@@ -1,0 +1,211 @@
+﻿<div *ngIf="open" class="file-viewer-overlay" (click)="onBackdropClick()">
+  <section
+    class="file-viewer-shell"
+    [class.file-viewer-shell--expanded]="isExpanded"
+    (click)="preventClose($event)"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Previsualizacion de archivo"
+  >
+    <header class="file-viewer-header">
+      <div class="file-viewer-header__left">
+        <div class="file-viewer-header__icon" aria-hidden="true">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+            <line x1="10" y1="9" x2="8" y2="9" />
+          </svg>
+        </div>
+        <div class="file-viewer-header__meta">
+          <h2 class="file-viewer-header__name">{{ resolvedFileName || 'Archivo' }}</h2>
+          <p class="file-viewer-header__sub">
+            <span *ngIf="fileSize">{{ fileSize }}</span>
+            <span *ngIf="fileSize"> • </span>
+            <span>{{ fileType || 'Archivo' }}</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="file-viewer-header__actions">
+        <button
+          type="button"
+          class="fv-btn fv-btn--download"
+          (click)="download()"
+          title="Descargar"
+          aria-label="Descargar archivo"
+        >
+          <i class="bi bi-download" aria-hidden="true"></i>
+          <span>Descargar</span>
+        </button>
+
+        <button
+          type="button"
+          class="fv-btn fv-btn--icon"
+          (click)="toggleExpand()"
+          [title]="isExpanded ? 'Reducir' : 'Expandir'"
+          [attr.aria-label]="isExpanded ? 'Reducir' : 'Expandir'"
+        >
+          <i class="bi" [ngClass]="isExpanded ? 'bi-fullscreen-exit' : 'bi-fullscreen'" aria-hidden="true"></i>
+        </button>
+
+        <button
+          type="button"
+          class="fv-btn fv-btn--icon fv-btn--danger"
+          (click)="close($event)"
+          title="Cerrar"
+          aria-label="Cerrar previsualizacion"
+        >
+          <i class="bi bi-x-lg" aria-hidden="true"></i>
+        </button>
+      </div>
+    </header>
+
+    <div class="file-viewer-toolbar">
+      <div class="file-viewer-toolbar__left">
+        <div class="zoom-box">
+          <button type="button" class="zoom-btn" (click)="changeZoom(-10)" title="Alejar" aria-label="Alejar">
+            <i class="bi bi-zoom-out" aria-hidden="true"></i>
+          </button>
+          <span class="zoom-value">{{ zoom }}%</span>
+          <button type="button" class="zoom-btn" (click)="changeZoom(10)" title="Acercar" aria-label="Acercar">
+            <i class="bi bi-zoom-in" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="toolbar-divider" aria-hidden="true"></div>
+        <div class="viewer-tag">
+          <i class="bi bi-eye" aria-hidden="true"></i>
+          <span>{{ getViewerTitle() }}</span>
+        </div>
+      </div>
+
+      <div class="file-viewer-toolbar__right">
+        <button type="button" class="pager-btn" title="Pagina anterior" aria-label="Pagina anterior" disabled>
+          <i class="bi bi-chevron-left" aria-hidden="true"></i>
+        </button>
+        <span class="pager-label">{{ getPageIndicator() }}</span>
+        <button type="button" class="pager-btn" title="Pagina siguiente" aria-label="Pagina siguiente" disabled>
+          <i class="bi bi-chevron-right" aria-hidden="true"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="file-viewer-body custom-scrollbar" [class.file-viewer-body--pdf]="previewKind === 'pdf'">
+      <div
+        class="file-viewer-canvas"
+        [class.file-viewer-canvas--pdf]="previewKind === 'pdf'"
+        [style.transform]="zoomScale()"
+      >
+        <ng-container [ngSwitch]="previewKind">
+          <img
+            *ngSwitchCase="'image'"
+            class="file-viewer-media file-viewer-media--image"
+            [src]="previewUrl"
+            [alt]="resolvedFileName || 'Archivo'"
+            (error)="onMediaRenderError('image')"
+          />
+
+          <div *ngSwitchCase="'pdf'" class="pdf-embed-wrap">
+            <div *ngIf="pdfRendering" class="file-viewer-status">Cargando PDF...</div>
+            <div *ngIf="pdfError" class="file-viewer-status file-viewer-status--error">{{ pdfError }}</div>
+            <div #pdfPagesHost class="pdf-pages-host"></div>
+          </div>
+
+          <audio
+            *ngSwitchCase="'audio'"
+            class="file-viewer-audio"
+            [src]="previewUrl"
+            controls
+            preload="metadata"
+            (error)="onMediaRenderError('audio')"
+          ></audio>
+
+          <div *ngSwitchCase="'text'" class="file-viewer-text-wrap">
+            <div *ngIf="loadingText" class="file-viewer-status">Cargando previsualizacion...</div>
+            <div *ngIf="textError" class="file-viewer-status file-viewer-status--error">{{ textError }}</div>
+
+            <ng-container *ngIf="!loadingText && !textError">
+              <div *ngIf="preview.isHtmlText" class="text-preview-note">
+                El archivo HTML se muestra como texto plano por seguridad.
+              </div>
+              <div *ngIf="textTruncated" class="text-preview-note text-preview-note--warning">
+                Contenido truncado para seguridad de memoria (maximo {{ formatBytes(524288) }}).
+              </div>
+              <pre class="file-viewer-text">{{ textPreview || 'Sin contenido para mostrar.' }}</pre>
+            </ng-container>
+          </div>
+
+          <div *ngSwitchCase="'office'" class="file-viewer-status-wrap">
+            <div *ngIf="officeLoading" class="file-viewer-status">Cargando documento Office...</div>
+            <div *ngIf="officeError" class="file-viewer-status file-viewer-status--error">{{ officeError }}</div>
+            <ng-container *ngIf="!officeLoading && !officeError">
+              <div *ngIf="officeParagraphs.length" class="word-preview-wrap">
+                <div class="word-preview-doc">
+                  <p
+                    *ngFor="let paragraph of officeParagraphs; trackBy: trackOfficeParagraph"
+                    class="word-preview-paragraph"
+                  >
+                    {{ paragraph }}
+                  </p>
+                </div>
+              </div>
+              <div *ngIf="!officeParagraphs.length" class="file-viewer-status">{{ preview.message }}</div>
+            </ng-container>
+          </div>
+
+          <div *ngSwitchCase="'archive'" class="file-viewer-status-wrap">
+            <div *ngIf="archiveLoading" class="file-viewer-status">Leyendo archivo ZIP...</div>
+            <div *ngIf="archiveError" class="file-viewer-status file-viewer-status--error">{{ archiveError }}</div>
+            <ng-container *ngIf="!archiveLoading && !archiveError">
+              <div *ngIf="archiveEntries.length" class="archive-preview-wrap">
+                <div class="archive-preview-summary">{{ archiveSummary }}</div>
+                <ul class="archive-entry-list">
+                  <li
+                    class="archive-entry-item"
+                    *ngFor="let entry of archiveEntries; trackBy: trackArchiveEntry"
+                    [class.archive-entry-item--dir]="entry.isDir"
+                    [style.paddingLeft.px]="12 + entry.depth * 16"
+                  >
+                    <i
+                      class="bi archive-entry-icon"
+                      [ngClass]="entry.isDir ? 'bi-folder2-open' : 'bi-file-earmark-zip'"
+                      aria-hidden="true"
+                    ></i>
+                    <span class="archive-entry-label">{{ entry.label }}</span>
+                  </li>
+                </ul>
+              </div>
+              <div *ngIf="!archiveEntries.length" class="file-viewer-status">{{ preview.message }}</div>
+            </ng-container>
+          </div>
+
+          <div *ngSwitchDefault class="file-viewer-status-wrap">
+            <div class="file-viewer-status">{{ preview.message || 'No hay previsualizacion disponible para este tipo de archivo.' }}</div>
+          </div>
+        </ng-container>
+      </div>
+    </div>
+
+    <footer class="file-viewer-footer">
+      <div class="file-viewer-footer__safe">
+        <span class="safe-dot"></span>
+        <span>Escaneado por antivirus y listo para descarga</span>
+      </div>
+      <div class="file-viewer-footer__actions">
+        <button type="button" class="link-btn">Compartir</button>
+      </div>
+    </footer>
+  </section>
+</div>
+

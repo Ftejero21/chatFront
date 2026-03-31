@@ -1,0 +1,106 @@
+<div class="schedule-modal-card">
+  <div class="schedule-modal-head">
+    <div>
+      <h2>Programar envio</h2>
+      <p>Configura los detalles del mensaje</p>
+    </div>
+    <button type="button" class="schedule-close-btn" (click)="onClose()" aria-label="Cerrar programador">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+
+  <div class="schedule-modal-body">
+    <section class="schedule-block">
+      <div class="schedule-block-label">
+        <i class="bi bi-chat-left-text-fill"></i>
+        <span>Contenido del mensaje</span>
+      </div>
+      <textarea
+        [(ngModel)]="draftMessage"
+        placeholder="Escribe lo que quieres decir..."
+        class="schedule-input schedule-input--textarea"
+      ></textarea>
+    </section>
+
+    <section class="schedule-block">
+      <div class="schedule-block-header">
+        <div class="schedule-block-label">
+          <i class="bi bi-people-fill"></i>
+          <span>Enviar a</span>
+        </div>
+        <span class="schedule-selected-pill">{{ selectedCount }} seleccionados</span>
+      </div>
+
+      <div class="schedule-target-list">
+        <label
+          class="schedule-target-row"
+          [class.is-blocked]="target.blockedByTarget || target.unavailableByMembership"
+          [attr.title]="target.blockedByTarget ? 'Este usuario te ha bloqueado' : (target.unavailableByMembership ? 'Ya no eres miembro de este grupo' : null)"
+          *ngFor="let target of targets; trackBy: trackTarget"
+          (click)="toggleTarget(target.chatId, $event)"
+        >
+          <div class="schedule-target-main">
+            <div class="schedule-avatar-wrap">
+              <img *ngIf="target.avatarUrl; else targetInitials" [src]="target.avatarUrl" class="schedule-avatar" alt="Avatar" />
+              <ng-template #targetInitials>
+                <span class="schedule-avatar schedule-avatar--fallback">{{ target.initials }}</span>
+              </ng-template>
+              <span *ngIf="target.isOnline" class="schedule-online-dot"></span>
+            </div>
+            <div class="schedule-target-text">
+              <p class="schedule-target-name">{{ target.name }}</p>
+              <p class="schedule-target-subtitle">{{ target.subtitle }}</p>
+            </div>
+          </div>
+          <ng-container *ngIf="!target.blockedByTarget && !target.unavailableByMembership; else blockedCross">
+            <input
+              type="checkbox"
+              class="schedule-checkbox"
+              [checked]="isTargetSelected(target.chatId)"
+              (click)="$event.stopPropagation()"
+              (change)="toggleTarget(target.chatId, $event)"
+            />
+          </ng-container>
+          <ng-template #blockedCross>
+            <span class="schedule-check-blocked" [attr.aria-label]="target.blockedByTarget ? 'Usuario bloqueante' : 'No miembro del grupo'">
+              <i class="bi bi-x-lg"></i>
+            </span>
+          </ng-template>
+        </label>
+
+        <div *ngIf="targets.length === 0" class="schedule-empty-targets">
+          No hay chats disponibles.
+        </div>
+      </div>
+    </section>
+
+    <section class="schedule-block">
+      <div class="schedule-block-label">
+        <i class="bi bi-calendar2-check-fill"></i>
+        <span>Cuando enviarlo</span>
+      </div>
+      <div class="schedule-datetime-grid">
+        <div class="schedule-field">
+          <span>FECHA</span>
+          <input type="date" class="schedule-input" [min]="minDate" [(ngModel)]="scheduledDate" />
+        </div>
+        <div class="schedule-field">
+          <span>HORA</span>
+          <input type="time" class="schedule-input" [(ngModel)]="scheduledTime" />
+        </div>
+      </div>
+    </section>
+
+    <p *ngIf="errorMessage" class="schedule-error">{{ errorMessage }}</p>
+  </div>
+
+  <div class="schedule-modal-footer">
+    <button type="button" class="schedule-submit-btn" (click)="onSubmit()">
+      <span>Confirmar programacion</span>
+      <i class="bi bi-send-fill"></i>
+    </button>
+    <p class="schedule-footnote">
+      Podras editar o cancelar este envio desde la seccion de <strong>Programados</strong>.
+    </p>
+  </div>
+</div>
