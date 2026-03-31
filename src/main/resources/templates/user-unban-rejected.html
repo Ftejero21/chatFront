@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resolución de Solicitud - TejeChat</title>
+    <style>
+        /* Reset de estilos para clientes de correo */
+        body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+        table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+        img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100% !important;
+            height: 100% !important;
+            background-color: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #334155;
+        }
+
+        .wrapper {
+            width: 100%;
+            table-layout: fixed;
+            background-color: #f8fafc;
+            padding-bottom: 40px;
+        }
+
+        .main-card {
+            max-width: 600px;
+            margin: 40px auto;
+            background-color: #ffffff;
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            padding: 40px 20px;
+            text-align: center;
+        }
+
+        .brand-icon {
+            background: rgba(255, 255, 255, 0.2);
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 16px;
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .content {
+            padding: 40px 50px;
+            text-align: center;
+        }
+
+        h1 {
+            color: #ffffff;
+            font-size: 22px;
+            margin: 0;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+        }
+
+        p {
+            font-size: 16px;
+            line-height: 1.6;
+            color: #64748b;
+            margin-top: 0;
+        }
+
+        .user-greeting {
+            font-size: 20px;
+            color: #1e293b;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            background-color: #fef3c7;
+            color: #92400e;
+            padding: 4px 12px;
+            border-radius: 99px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 20px;
+        }
+
+        .resolution-chat {
+            background-color: #f1f5f9;
+            border-radius: 16px;
+            padding: 20px;
+            margin: 30px 0;
+            text-align: left;
+            border: 1px solid #e2e8f0;
+        }
+
+        .resolution-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #94a3b8;
+            font-weight: 700;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .resolution-text {
+            color: #334155;
+            font-style: italic;
+            border-left: 3px solid #f59e0b;
+            padding-left: 15px;
+            margin: 5px 0;
+            font-size: 15px;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #94a3b8;
+            font-size: 13px;
+        }
+
+        .divider {
+            height: 1px;
+            background-color: #f1f5f9;
+            margin: 30px 0;
+        }
+
+        @media screen and (max-width: 480px) {
+            .content { padding: 30px 20px; }
+            .main-card { margin: 20px; }
+        }
+    </style>
+</head>
+<body>
+<div class="wrapper">
+    <div class="main-card">
+        <div class="header">
+            <div class="brand-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M9 12L11 14L15 10M12 3L4 7V11C4 15.5556 7.41775 19.7435 12 21C16.5822 19.7435 20 15.5556 20 11V7L12 3Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <h1>Revisión de Cuenta</h1>
+        </div>
+
+        <div class="content">
+            <div class="status-badge">Solicitud Revisada</div>
+            <div class="user-greeting">Hola, {{nombre}}</div>
+
+            <p>Te informamos que nuestro equipo de moderación ha terminado de revisar tu solicitud de desbaneo para la cuenta asociada a <strong>TejeChat</strong>.</p>
+
+            <p>Tras analizar los hechos y las políticas de nuestra comunidad, hemos decidido <strong>mantener la restricción</strong> de tu cuenta en este momento.</p>
+
+            <div class="resolution-chat">
+                <span class="resolution-label">Motivo de la resolución</span>
+                <div class="resolution-text">
+                    "{{motivo}}"
+                </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <p style="font-size: 14px;">
+                Aunque esta decisión es firme por ahora, valoramos que quieras formar parte de nuestra comunidad. Podrás intentar una nueva solicitud de apelación si consideras que existen nuevos elementos a evaluar en el futuro.
+            </p>
+        </div>
+    </div>
+
+    <div class="footer">
+        &copy; 2026 TejeChat Team. Todos los derechos reservados.<br>
+        Este es un correo administrativo automático.
+    </div>
+</div>
+</body>
+</html>
