@@ -1,30 +1,15 @@
 # See http://help.github.com/ignore-files/ for more about ignoring files.
 
-# Node / Angular
+# Compiled output
 /dist
 /tmp
 /out-tsc
 /bazel-out
+
+# Node
 /node_modules
 npm-debug.log
 yarn-error.log
-/.angular/cache
-.sass-cache/
-/connect.lock
-/coverage
-/libpeerconnection.log
-testem.log
-/typings
-
-# Java / Maven
-HELP.md
-target/
-.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
 # IDEs and editors
 .idea/
@@ -33,18 +18,7 @@ build/
 .c9/
 *.launch
 .settings/
-.history/*
-.apt_generated
-.factorypath
-.springBeans
-.sts4-cache
-*.iws
-*.iml
-*.ipr
-/nbproject/private/
-/nbbuild/
-/nbdist/
-/.nb-gradle/
+*.sublime-workspace
 
 # Visual Studio Code
 .vscode/*
@@ -52,16 +26,16 @@ build/
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+.history/*
 
-# Local secrets and runtime artifacts
-*.pem
-*.key
-*.p12
-admin_public_key_spki.b64
-backend_start.out.log
-backend_start.err.log
-uploads/
-.m2/
+# Miscellaneous
+/.angular/cache
+.sass-cache/
+/connect.lock
+/coverage
+/libpeerconnection.log
+testem.log
+/typings
 
 # System files
 .DS_Store
