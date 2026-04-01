@@ -47,6 +47,110 @@
       <input type="email" [(ngModel)]="model.email" name="perfilEmail" required />
     </label>
 
+    <section class="perfil-accordion">
+      <button
+        type="button"
+        class="perfil-accordion__trigger"
+        (click)="toggleAdditionalInfo()"
+        [attr.aria-expanded]="additionalInfoOpen"
+        aria-controls="perfilAdditionalInfo"
+      >
+        <span class="perfil-accordion__left">
+          <span class="perfil-accordion__icon">
+            <i class="fa-solid fa-id-card"></i>
+          </span>
+          <span>
+            <span class="perfil-accordion__title">Información detallada</span>
+            <span class="perfil-accordion__subtitle">DNI, dirección, cumpleaños y más</span>
+          </span>
+        </span>
+        <i class="fa-solid fa-chevron-down perfil-accordion__chevron" [class.rotate]="additionalInfoOpen"></i>
+      </button>
+
+      <div
+        id="perfilAdditionalInfo"
+        class="perfil-accordion__content"
+        [class.open]="additionalInfoOpen"
+      >
+        <div class="perfil-additional-grid">
+          <label class="perfil-field perfil-field--with-icon">
+            <span>Documento de identidad</span>
+            <div class="perfil-input-icon-wrap">
+              <i class="fa-solid fa-address-card"></i>
+              <input type="text" [(ngModel)]="model.dni" name="perfilDni" placeholder="12345678X" />
+            </div>
+          </label>
+
+          <label class="perfil-field perfil-field--with-icon">
+            <span>Teléfono móvil</span>
+            <div class="perfil-input-icon-wrap">
+              <i class="fa-solid fa-phone"></i>
+              <input type="text" [(ngModel)]="model.telefono" name="perfilTelefono" placeholder="+34 600 000 000" />
+            </div>
+          </label>
+
+          <label class="perfil-field perfil-field--with-icon">
+            <span>Fecha de nacimiento</span>
+            <div class="perfil-input-icon-wrap">
+              <i class="fa-solid fa-calendar-days"></i>
+              <input type="date" [(ngModel)]="model.fechaNacimiento" name="perfilFechaNacimiento" />
+            </div>
+          </label>
+
+          <label class="perfil-field perfil-field--with-icon">
+            <span>Género</span>
+            <div class="perfil-input-icon-wrap">
+              <i class="fa-solid fa-venus-mars"></i>
+              <select [(ngModel)]="model.genero" name="perfilGenero">
+                <option value="">Selecciona género</option>
+                <option value="Masculino">Masculino</option>
+                <option value="Femenino">Femenino</option>
+                <option value="Otro">Otro</option>
+                <option value="Prefiero no decirlo">Prefiero no decirlo</option>
+              </select>
+            </div>
+          </label>
+
+          <label class="perfil-field perfil-field--with-icon perfil-field--full">
+            <span>Dirección completa</span>
+            <div class="perfil-input-icon-wrap">
+              <i class="fa-solid fa-location-dot"></i>
+              <input
+                type="text"
+                [(ngModel)]="model.direccion"
+                name="perfilDireccion"
+                placeholder="Calle Ficticia 123, Madrid, España"
+              />
+            </div>
+          </label>
+
+          <label class="perfil-field perfil-field--with-icon">
+            <span>Nacionalidad</span>
+            <div class="perfil-input-icon-wrap">
+              <i class="fa-solid fa-earth-americas"></i>
+              <input type="text" [(ngModel)]="model.nacionalidad" name="perfilNacionalidad" placeholder="Española" />
+            </div>
+          </label>
+
+          <label class="perfil-field perfil-field--with-icon">
+            <span>Ocupación / cargo</span>
+            <div class="perfil-input-icon-wrap">
+              <i class="fa-solid fa-briefcase"></i>
+              <input type="text" [(ngModel)]="model.ocupacion" name="perfilOcupacion" placeholder="Desarrollador Fullstack" />
+            </div>
+          </label>
+
+          <label class="perfil-field perfil-field--with-icon perfil-field--full">
+            <span>Instagram</span>
+            <div class="perfil-input-icon-wrap perfil-input-icon-wrap--instagram">
+              <i class="fa-brands fa-instagram"></i>
+              <input type="text" [(ngModel)]="model.instagram" name="perfilInstagram" placeholder="@usuario" />
+            </div>
+          </label>
+        </div>
+      </div>
+    </section>
+
     <div class="perfil-separator"></div>
 
     <h3 class="perfil-section-title">Cambiar contraseña</h3>

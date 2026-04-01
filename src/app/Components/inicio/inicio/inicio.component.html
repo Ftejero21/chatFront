@@ -414,6 +414,16 @@
                   <i class="bi bi-trash3-fill"></i>
                   Vaciar chat
                 </button>
+                <button
+                  *ngIf="!chat.esGrupo"
+                  type="button"
+                  class="chat-pin-menu-btn chat-pin-menu-btn--danger"
+                  [disabled]="deleteChatRequestInFlight"
+                  (click)="eliminarChat(chat, $event)"
+                >
+                  <i class="bi bi-trash-fill"></i>
+                  {{ deleteChatRequestInFlight ? 'Ocultando...' : 'Eliminar chat' }}
+                </button>
               </div>
             </div>
           </div>
@@ -511,7 +521,7 @@
           </button>
 
           <div class="info-usuario-chat">
-            <img [src]="chatActual?.foto || 'assets/placeholder-user.png'" alt="Foto" class="foto-perfil-chat" />
+            <img [src]="resolveAvatarSrc(chatActual?.foto, 'assets/placeholder-user.png')" alt="Foto" class="foto-perfil-chat" />
             <div class="detalle-usuario-chat">
               <span class="nombre-usuario-chat">
                 {{ chatActual?.nombre }}
@@ -709,7 +719,7 @@
                 [attr.data-message-id]="mensaje.id ?? null">
 
                 <img *ngIf="chatActual?.esGrupo && mensaje.emisorId !== usuarioActualId" class="msg-avatar-left"
-                  [src]="mensaje.emisorFoto || getAvatarFallback(mensaje.emisorId)" alt="Avatar emisor" />
+                  [src]="resolveAvatarSrc(mensaje.emisorFoto || null, getAvatarFallback(mensaje.emisorId))" alt="Avatar emisor" />
 
                 <div
                   class="mensaje"
@@ -1582,6 +1592,3 @@
 
 <app-crear-grupo-modal #crearGrupoModal [currentUserId]="usuarioActualId"
   (create)="onCrearGrupo($event)"></app-crear-grupo-modal>
-
-
-

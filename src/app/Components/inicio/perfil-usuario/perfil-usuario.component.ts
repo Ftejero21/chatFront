@@ -5,6 +5,14 @@ export interface PerfilUsuarioSavePayload {
   nombre: string;
   apellido: string;
   email: string;
+  dni: string;
+  telefono: string;
+  fechaNacimiento: string;
+  genero: string;
+  direccion: string;
+  nacionalidad: string;
+  ocupacion: string;
+  instagram: string;
   passwordActual: string;
   nuevaPassword: string;
   repetirNuevaPassword: string;
@@ -33,6 +41,14 @@ export class PerfilUsuarioComponent implements OnChanges {
     nombre: '',
     apellido: '',
     email: '',
+    dni: '',
+    telefono: '',
+    fechaNacimiento: '',
+    genero: '',
+    direccion: '',
+    nacionalidad: '',
+    ocupacion: '',
+    instagram: '',
     passwordActual: '',
     nuevaPassword: '',
     repetirNuevaPassword: '',
@@ -43,6 +59,7 @@ export class PerfilUsuarioComponent implements OnChanges {
   public showPasswordActual = false;
   public showNuevaPassword = false;
   public showRepetirPassword = false;
+  public additionalInfoOpen = false;
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['usuario'] || changes['fotoUrl']) {
@@ -72,6 +89,10 @@ export class PerfilUsuarioComponent implements OnChanges {
 
   public toggleRepetirPassword(): void {
     this.showRepetirPassword = !this.showRepetirPassword;
+  }
+
+  public toggleAdditionalInfo(): void {
+    this.additionalInfoOpen = !this.additionalInfoOpen;
   }
 
   public openAvatarPicker(): void {
@@ -133,15 +154,31 @@ export class PerfilUsuarioComponent implements OnChanges {
   }
 
   private hydrateModel(): void {
+    const profile = (this.usuario || {}) as any;
     this.model = {
-      nombre: this.usuario?.nombre || '',
-      apellido: this.usuario?.apellido || '',
-      email: this.usuario?.email || '',
+      nombre: profile?.nombre || '',
+      apellido: profile?.apellido || '',
+      email: profile?.email || '',
+      dni: String(profile?.dni || profile?.documento || '').trim(),
+      telefono: String(profile?.telefono || profile?.phone || '').trim(),
+      fechaNacimiento: String(
+        profile?.fechaNacimiento ||
+          profile?.fecha_nacimiento ||
+          profile?.birthDate ||
+          ''
+      ).trim(),
+      genero: String(profile?.genero || profile?.gender || '').trim(),
+      direccion: String(profile?.direccion || profile?.address || '').trim(),
+      nacionalidad: String(
+        profile?.nacionalidad || profile?.nationality || ''
+      ).trim(),
+      ocupacion: String(profile?.ocupacion || profile?.profesion || '').trim(),
+      instagram: String(profile?.instagram || profile?.instagramHandle || '').trim(),
       passwordActual: '',
       nuevaPassword: '',
       repetirNuevaPassword: '',
       verificationCode: '',
-      foto: this.fotoUrl || this.usuario?.foto || '',
+      foto: this.fotoUrl || profile?.foto || '',
     };
   }
 }

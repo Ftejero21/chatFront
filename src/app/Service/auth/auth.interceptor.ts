@@ -16,7 +16,9 @@ export class AuthInterceptor implements HttpInterceptor {
   constructor(private rateLimitService: RateLimitService) {}
 
   intercept(request: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
-    const token = localStorage.getItem('token');
+    const token = String(
+      localStorage.getItem('token') || sessionStorage.getItem('token') || ''
+    ).trim();
 
 
     if (token) {

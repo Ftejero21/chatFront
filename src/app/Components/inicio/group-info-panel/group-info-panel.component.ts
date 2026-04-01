@@ -20,6 +20,7 @@ import { WebSocketService } from '../../../Service/WebSocket/web-socket.service'
 import { StompSubscription } from '@stomp/stompjs';
 import { CryptoService } from '../../../Service/crypto/crypto.service';
 import { GroupInviteService } from '../../../Service/GroupInvite/group-invite.service';
+import { MensajeriaService } from '../../../Service/mensajeria/mensajeria.service';
 import {
   GroupMediaItemDTO,
   GroupMediaListResponseDTO,
@@ -131,6 +132,7 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
   constructor(
     private chatService: ChatService,
     private groupInviteService: GroupInviteService,
+    private mensajeriaService: MensajeriaService,
     private authService: AuthService,
     private wsService: WebSocketService,
     private cryptoService: CryptoService,
@@ -461,7 +463,7 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     event?.stopPropagation();
     if (!item) return;
 
-    if (!item.resolvedUrl && item.encrypted) {
+    if (!item.resolvedUrl) {
       this.filesDecryptingMessageId = item.messageId;
       try {
         await this.prepareMedia(item, true);
@@ -484,7 +486,7 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     event?.stopPropagation();
     if (!item) return;
 
-    if (!item.resolvedUrl && item.encrypted) {
+    if (!item.resolvedUrl) {
       this.filesDecryptingMessageId = item.messageId;
       try {
         await this.prepareMedia(item, true);
@@ -513,7 +515,7 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
   public async prepareMedia(item: GroupMediaViewItem, silent: boolean = false): Promise<void> {
     if (!item || item.decrypting) return;
     if (item.resolvedUrl) return;
-    if (!item.encrypted || !item.e2ePayload) {
+    if (!item.mediaUrlRaw && (!item.encrypted || !item.e2ePayload)) {
       item.decryptError = 'No hay URL disponible para este archivo.';
       return;
     }
@@ -523,11 +525,29 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     if (!silent) this.mediaDecryptingMessageId = item.messageId;
 
     try {
-      const objectUrl = await this.decryptMediaPayloadToObjectUrl(item);
+      const objectUrl =
+        item.encrypted && item.e2ePayload
+          ? await this.decryptMediaPayloadToObjectUrl(item)
+          : await this.downloadMediaToObjectUrl(item);
       if (!objectUrl) {
-        item.decryptError = 'No se pudo descifrar en este dispositivo.';
+        item.decryptError =
+          item.encrypted && item.e2ePayload
+            ? 'No se pudo descifrar en este dispositivo.'
+            : 'No se pudo descargar el archivo protegido.';
       } else {
         item.resolvedUrl = objectUrl;
+      }
+    } catch (err: any) {
+      const status = Number(err?.status || 0);
+      if (status === 403) {
+        item.decryptError = 'No tienes permisos para descargar este archivo.';
+      } else if (status === 400) {
+        item.decryptError = 'La descarga fue rechazada por datos inválidos.';
+      } else {
+        item.decryptError =
+          item.encrypted && item.e2ePayload
+            ? 'No se pudo descifrar en este dispositivo.'
+            : 'No se pudo descargar el archivo protegido.';
       }
     } finally {
       item.decrypting = false;
@@ -1233,13 +1253,11 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
   }
 
   private async autoDecryptLoadedItems(items: GroupMediaViewItem[]): Promise<void> {
-    const encryptedItems = (items || []).filter(
-      (i) => !!i?.encrypted && !!i?.e2ePayload && !i?.resolvedUrl
-    );
-    if (encryptedItems.length === 0) return;
+    const pendingItems = (items || []).filter((i) => !!i && !i.resolvedUrl);
+    if (pendingItems.length === 0) return;
 
     await Promise.allSettled(
-      encryptedItems.map((item) => this.prepareMedia(item, true))
+      pendingItems.map((item) => this.prepareMedia(item, true))
     );
     this.cdr.markForCheck();
   }
@@ -1339,11 +1357,6 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     const mediaUrlRaw =
       String(raw?.mediaUrl || raw?.audioUrl || payload?.mediaUrl || '').trim();
 
-    const resolvedPlainUrl =
-      !payload && mediaUrlRaw
-        ? resolveMediaUrl(mediaUrlRaw, environment.backendBaseUrl) || mediaUrlRaw
-        : '';
-
     return {
       messageId: Number(raw?.messageId ?? 0),
       chatId: Number(raw?.chatId ?? fallbackChatId),
@@ -1360,7 +1373,7 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
       encrypted: !!payload,
       e2ePayload: payload,
       mediaUrlRaw,
-      resolvedUrl: resolvedPlainUrl,
+      resolvedUrl: '',
       decrypting: false,
       decryptError: '',
     };
@@ -1473,13 +1486,13 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
 
         const aesRawBase64 = await this.cryptoService.decryptRSA(envelope, myPrivKey);
         const aesKey = await this.cryptoService.importAESKey(aesRawBase64);
-        const encryptedUrl = resolveMediaUrl(payload.mediaUrl, environment.backendBaseUrl);
-        if (!encryptedUrl) return null;
-
-        const response = await fetch(encryptedUrl);
-        if (!response.ok) return null;
-
-        const encryptedBuffer = await response.arrayBuffer();
+        const encryptedBlob = await this.mensajeriaService.downloadChatAttachmentBlob(
+          payload.mediaUrl,
+          item.chatId,
+          item.messageId,
+          1
+        );
+        const encryptedBuffer = await encryptedBlob.arrayBuffer();
         const decryptedBuffer = await this.cryptoService.decryptAESBinary(
           encryptedBuffer,
           payload.ivFile,
@@ -1501,7 +1514,11 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
         );
         this.decryptedMediaUrlByCacheKey.set(cacheKey, objectUrl);
         return objectUrl;
-      } catch {
+      } catch (err: any) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 403) {
+          throw err;
+        }
         return null;
       } finally {
         this.decryptingMediaByCacheKey.delete(cacheKey);
@@ -1510,6 +1527,52 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
 
     this.decryptingMediaByCacheKey.set(cacheKey, promise);
     return promise;
+  }
+
+  private async downloadMediaToObjectUrl(item: GroupMediaViewItem): Promise<string | null> {
+    const url = String(item?.mediaUrlRaw || '').trim();
+    if (!url) return null;
+
+    const cacheKey = `plain|${Number(item?.chatId || 0)}|${Number(
+      item?.messageId || 0
+    )}|${url}`;
+    const cached = this.decryptedMediaUrlByCacheKey.get(cacheKey);
+    if (cached) return cached;
+
+    const inFlight = this.decryptingMediaByCacheKey.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const task = (async (): Promise<string | null> => {
+      try {
+        const downloaded = await this.mensajeriaService.downloadChatAttachmentBlob(
+          url,
+          item.chatId,
+          item.messageId,
+          1
+        );
+        const mime =
+          String(item?.mime || '').trim() ||
+          (item.kind === 'AUDIO'
+            ? 'audio/webm'
+            : item.kind === 'VIDEO'
+            ? 'video/mp4'
+            : item.kind === 'IMAGE'
+            ? 'image/jpeg'
+            : 'application/octet-stream');
+        const blob =
+          downloaded.type && downloaded.type.trim()
+            ? downloaded
+            : downloaded.slice(0, downloaded.size, mime);
+        const objectUrl = URL.createObjectURL(blob);
+        this.decryptedMediaUrlByCacheKey.set(cacheKey, objectUrl);
+        return objectUrl;
+      } finally {
+        this.decryptingMediaByCacheKey.delete(cacheKey);
+      }
+    })();
+
+    this.decryptingMediaByCacheKey.set(cacheKey, task);
+    return task;
   }
 
   private async resolveEnvelopeForCurrentUser(
@@ -1641,5 +1704,3 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     this.memberEstadoSubs.clear();
   }
 }
-
-

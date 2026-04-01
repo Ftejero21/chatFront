@@ -1100,7 +1100,10 @@ export function avatarOrDefault(
   fallback = 'assets/usuario.png'
 ): string {
   const s = (src || '').trim();
-  return s || fallback;
+  if (s) {
+    return resolveMediaUrl(s, environment.backendBaseUrl) || fallback;
+  }
+  return resolveMediaUrl(fallback, environment.backendBaseUrl) || fallback;
 }
 
 export function isPreviewDeleted(text?: string | null): boolean {
@@ -1803,6 +1806,5 @@ export function parseAudioPreviewText(txt?: string): {
       label.toLowerCase() === 'tu',
   };
 }
-
 
 

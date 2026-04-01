@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { ChatIndividualDTO } from '../../Interface/ChatIndividualDTO ';
 import { ChatIndividualCreateDTO } from '../../Interface/ChatIndividualCreateDTO';
 import { ChatGrupalDTO } from '../../Interface/ChatGrupalDTO';
-import { Observable } from 'rxjs';
+import { Observable, firstValueFrom, throwError } from 'rxjs';
 import { MensajeDTO } from '../../Interface/MensajeDTO';
 import { MessagueSalirGrupoDTO } from '../../Interface/MessagueSalirGrupoDTO';
 import { LeaveGroupRequestDTO } from '../../Interface/LeaveGroupRequestDTO';
@@ -110,6 +110,59 @@ export class ChatService {
 
   constructor(private http: HttpClient) {}
 
+  private buildAuthHeaders(): HttpHeaders | undefined {
+    const token = String(
+      localStorage.getItem('token') || sessionStorage.getItem('token') || ''
+    ).trim();
+    if (!token) return undefined;
+    return new HttpHeaders({ Authorization: `Bearer ${token}` });
+  }
+
+  private decodeJwtPayload(token: string): Record<string, any> | null {
+    const raw = String(token || '').trim();
+    if (!raw) return null;
+    const parts = raw.split('.');
+    if (parts.length < 2) return null;
+    const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = payloadBase64 + '='.repeat((4 - (payloadBase64.length % 4)) % 4);
+    try {
+      const json = atob(padded);
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveAuthenticatedUserId(): number | null {
+    const fromSession = Number(
+      localStorage.getItem('usuarioId') || sessionStorage.getItem('usuarioId') || 0
+    );
+    if (Number.isFinite(fromSession) && fromSession > 0) {
+      return Math.round(fromSession);
+    }
+
+    const token = String(
+      localStorage.getItem('token') || sessionStorage.getItem('token') || ''
+    ).trim();
+    if (!token) return null;
+
+    const payload = this.decodeJwtPayload(token);
+    const candidates = [
+      Number(payload?.['userId']),
+      Number(payload?.['id']),
+      Number(payload?.['usuarioId']),
+      Number(payload?.['sub']),
+    ];
+
+    for (const candidate of candidates) {
+      if (Number.isFinite(candidate) && candidate > 0) {
+        return Math.round(candidate);
+      }
+    }
+
+    return null;
+  }
+
   crearChatIndividual(
     dto: ChatIndividualCreateDTO
   ): Observable<ChatIndividualDTO> {
@@ -180,9 +233,13 @@ export class ChatService {
     return this.http.delete(`${this.baseUrl}/grupal/${groupId}/miembros/${userId}`);
   }
 
-  listarGrupalesPorUsuario(usuarioId: number): Observable<ChatGrupalDTO[]> {
+  listarGrupalesPorUsuario(_usuarioId?: number): Observable<ChatGrupalDTO[]> {
+    const usuarioId = this.resolveAuthenticatedUserId();
+    if (!usuarioId) {
+      return throwError(() => new Error('AUTH_USER_ID_UNAVAILABLE'));
+    }
     return this.http.get<ChatGrupalDTO[]>(
-      `${this.baseUrl}/grupales/${usuarioId}`
+      `${this.baseUrl}/grupal/usuario/${usuarioId}`
     );
   }
   esMiembroDeGrupo(groupId: number, userId: number): Observable<EsMiembroDTO> {
@@ -200,7 +257,11 @@ export class ChatService {
     );
   }
 
-  listarTodosLosChats(usuarioId: number): Observable<ChatListItemDTO[]> {
+  listarTodosLosChats(_usuarioId?: number): Observable<ChatListItemDTO[]> {
+    const usuarioId = this.resolveAuthenticatedUserId();
+    if (!usuarioId) {
+      return throwError(() => new Error('AUTH_USER_ID_UNAVAILABLE'));
+    }
     return this.http.get<ChatListItemDTO[]>(
       `${this.baseUrl}/usuario/${usuarioId}/todos`
     );
@@ -244,23 +305,25 @@ export class ChatService {
       params = params.set('sort', normalizedSort);
     }
 
+    const headers = this.buildAuthHeaders();
     return this.http.get<StarredMessagesPageDTO | StarredMessageDTO[]>(
       `${this.starredMessagesBaseUrl}/destacados`,
-      { params }
+      headers ? { params, headers } : { params }
     );
   }
 
   destacarMensaje(mensajeId: number): Observable<unknown> {
+    const headers = this.buildAuthHeaders();
     return this.http.post(
       `${this.starredMessagesBaseUrl}/${mensajeId}/destacar`,
-      {}
+      {},
+      headers ? { headers } : {}
     );
   }
 
   quitarDestacado(mensajeId: number): Observable<unknown> {
-    return this.http.delete(
-      `${this.starredMessagesBaseUrl}/${mensajeId}/destacar`
-    );
+    const headers = this.buildAuthHeaders();
+    return this.http.delete(`${this.starredMessagesBaseUrl}/${mensajeId}/destacar`, headers ? { headers } : {});
   }
 
   obtenerMensajeFijado(chatId: number): Observable<ChatPinnedMessageDTO> {
@@ -287,6 +350,12 @@ export class ChatService {
     return this.http.post<ChatClearResponseDTO>(
       `${this.baseUrl}/${chatId}/clear`,
       null
+    );
+  }
+
+  async hideChatForMe(chatId: number): Promise<void> {
+    await firstValueFrom(
+      this.http.patch<void>(`${this.baseUrl}/${chatId}/hide-for-me`, null)
     );
   }
 
