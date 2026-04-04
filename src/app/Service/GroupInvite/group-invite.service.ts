@@ -1,16 +1,21 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-interface InviteDecisionDTO { userId: number; }
+
+interface InviteDecisionDTO {
+  userId: number;
+}
+
 interface CreateInviteDTO {
   groupId: number;
   inviteeId: number;
 }
+
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class GroupInviteService {
-private baseUrl = 'http://localhost:8080/api/group-invites';
+  private baseUrl = 'http://localhost:8080/api/group-invites';
 
   constructor(private http: HttpClient) {}
 

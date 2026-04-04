@@ -797,6 +797,8 @@ export class InicioComponent {
   private banWsBound = false;
   private profileCodeTimer?: any;
   private chatsRefreshTimer: any = null;
+  private chatListAccessForbidden = false;
+  private chatListForbiddenToastShown = false;
   private auditPublicKeyInitPromise: Promise<void> | null = null;
   private groupRecipientSeedByChatId = new Map<number, number[]>();
   private localSystemMessageSeq = 0;
@@ -1225,6 +1227,7 @@ export class InicioComponent {
                 const i = this.mensajesSeleccionados.findIndex(
                   (m) => Number(m.id) === Number(mensaje.id)
                 );
+                const replacedExisting = i !== -1;
                 if (i !== -1) {
                   this.mensajesSeleccionados = [
                     ...this.mensajesSeleccionados.slice(0, i),
@@ -1253,6 +1256,17 @@ export class InicioComponent {
                 // este chat no acumula no leídos
                 const item = this.chats.find((c) => c.id === mensaje.chatId);
                 if (item) item.unreadCount = 0;
+                if (
+                  item &&
+                  !replacedExisting &&
+                  !isSystemIncoming &&
+                  !this.isMensajeEditado(mensaje) &&
+                  Number(mensaje.emisorId) !== Number(this.usuarioActualId) &&
+                  Number(mensaje.receptorId) === Number(this.usuarioActualId) &&
+                  this.isAppTabInBackground()
+                ) {
+                  this.playUnreadMessageTone(item);
+                }
 
                 // preview in-place
                 const chat = this.chats.find((c) => c.id === mensaje.chatId);
@@ -1599,6 +1613,8 @@ export class InicioComponent {
    * También se suscribe a los estados de conexión de los otros usuarios y a los mensajes de los grupos.
    */
   public listarTodosLosChats(): void {
+    if (this.chatListAccessForbidden) return;
+
     this.chatService.listarTodosLosChats().subscribe({
       next: (chats: ChatListItemDTO[]) => {
         const dedupedChats = dedupeChatListItemsById(chats || []);
@@ -1901,7 +1917,32 @@ export class InicioComponent {
           });
         }
       },
-      error: (err) => console.error('? Error chats:', err),
+      error: (err) => {
+        const status = Number(err?.status || 0);
+        const code = String(err?.code || '')
+          .trim()
+          .toUpperCase();
+        if (status === 403 || code === 'CHAT_LIST_FORBIDDEN') {
+          this.chatListAccessForbidden = true;
+          this.chats = [];
+          this.chatActual = null;
+          this.chatSeleccionadoId = null;
+          if (this.chatsRefreshTimer) {
+            clearTimeout(this.chatsRefreshTimer);
+            this.chatsRefreshTimer = null;
+          }
+          if (!this.chatListForbiddenToastShown) {
+            const message =
+              String(err?.userMessage || err?.error?.mensaje || '').trim() ||
+              'No tienes permisos para consultar tus chats con esta sesion.';
+            this.showToast(message, 'warning', 'Permisos');
+            this.chatListForbiddenToastShown = true;
+          }
+          this.cdr.markForCheck();
+          return;
+        }
+        console.error('? Error chats:', err);
+      },
     });
   }
 
@@ -2996,6 +3037,8 @@ private async decryptPreviewString(
       return;
     }
 
+    // Alineado con texto E2E: si no hay sobre/clave para este usuario, se oculta del timeline.
+    mensaje.contenido = '[Mensaje Cifrado - Llave no disponible para este usuario]';
     mensaje.audioDataUrl = null;
     (mensaje as any).__audioE2EDecryptOk = false;
     (mensaje as any).__attachmentLoadError =
@@ -3419,6 +3462,8 @@ private async decryptPreviewString(
       (mensaje as any).__attachmentLoadError = '';
       return;
     }
+    // Alineado con texto E2E: si no hay sobre/clave para este usuario, se oculta del timeline.
+    mensaje.contenido = '[Mensaje Cifrado - Llave no disponible para este usuario]';
     mensaje.imageDataUrl = null;
     (mensaje as any).__imageE2EDecryptOk = false;
     (mensaje as any).__attachmentLoadError =
@@ -3886,6 +3931,8 @@ private async decryptPreviewString(
       (mensaje as any).__attachmentLoadError = '';
       return;
     }
+    // Alineado con texto E2E: si no hay sobre/clave para este usuario, se oculta del timeline.
+    mensaje.contenido = '[Mensaje Cifrado - Llave no disponible para este usuario]';
     mensaje.fileDataUrl = null;
     (mensaje as any).__fileE2EDecryptOk = false;
     (mensaje as any).__attachmentLoadError =
@@ -9548,7 +9595,18 @@ private async decryptPreviewString(
         next: () => {
           this.unseenCount = 0;
         },
-        error: (e) => console.error('? markAllSeen:', e),
+        error: (e) => {
+          const status = Number(e?.status || 0);
+          const backendMsg = String(e?.error?.mensaje || '').trim();
+          this.showToast(
+            backendMsg ||
+              (status === 403
+                ? 'No tienes permisos para actualizar notificaciones.'
+                : 'No se pudieron marcar las notificaciones como vistas.'),
+            'warning',
+            'Notificaciones'
+          );
+        },
       });
     }
   }
@@ -12551,6 +12609,14 @@ private async decryptPreviewString(
     this.incomingRingtoneCtx = undefined;
   }
 
+  private isAppTabInBackground(): boolean {
+    try {
+      return document.visibilityState !== 'visible' || document.hidden === true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Reproduce un tono corto cuando llega un mensaje no leído en segundo plano.
    */
@@ -13284,11 +13350,13 @@ private async decryptPreviewString(
   }
 
   private scheduleChatsRefresh(delayMs = 250): void {
+    if (this.chatListAccessForbidden) return;
     if (this.chatsRefreshTimer) {
       clearTimeout(this.chatsRefreshTimer);
     }
     this.chatsRefreshTimer = setTimeout(() => {
       this.chatsRefreshTimer = null;
+      if (this.chatListAccessForbidden) return;
       this.listarTodosLosChats();
     }, delayMs);
   }
@@ -13459,6 +13527,16 @@ private async decryptPreviewString(
 
     // Preview y scroll
     const chat = this.chats.find((c) => c.id === mensaje.chatId);
+    if (
+      chat &&
+      !replacedExisting &&
+      !isSystem &&
+      !this.isMensajeEditado(mensaje) &&
+      Number(mensaje?.emisorId) !== Number(this.usuarioActualId) &&
+      this.isAppTabInBackground()
+    ) {
+      this.playUnreadMessageTone(chat);
+    }
     if (chat && this.shouldRefreshPreviewWithIncomingMessage(chat, mensaje)) {
       const { preview, fecha, lastId } = computePreviewPatch(
         mensaje,

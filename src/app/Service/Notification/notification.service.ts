@@ -69,7 +69,7 @@ export class NotificationService {
   markSeen(_userId: number, notificationId: number): Observable<void>;
   markSeen(a: number, b?: number): Observable<void> {
     const notificationId = Number(b ?? a);
-    return this.http.post<void>(`${this.baseUrl}/${notificationId}/seen`, null);
+    return this.http.post<void>(`${this.baseUrl}/${notificationId}/seen`, {});
   }
 
   listPending(_userId?: number): Observable<NotificationDTO[]> {
@@ -85,6 +85,6 @@ export class NotificationService {
   }
 
   markAllSeen(_userId?: number): Observable<void> {
-    return this.http.post<void>(`${this.baseUrl}/seen-all`, null);
+    return this.http.post<void>(`${this.baseUrl}/seen-all`, {});
   }
 }

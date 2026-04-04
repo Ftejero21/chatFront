@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { ChatIndividualDTO } from '../../Interface/ChatIndividualDTO ';
 import { ChatIndividualCreateDTO } from '../../Interface/ChatIndividualCreateDTO';
 import { ChatGrupalDTO } from '../../Interface/ChatGrupalDTO';
-import { Observable, firstValueFrom, throwError } from 'rxjs';
+import { Observable, catchError, firstValueFrom, throwError } from 'rxjs';
 import { MensajeDTO } from '../../Interface/MensajeDTO';
 import { MessagueSalirGrupoDTO } from '../../Interface/MessagueSalirGrupoDTO';
 import { LeaveGroupRequestDTO } from '../../Interface/LeaveGroupRequestDTO';
@@ -101,6 +101,10 @@ export interface ChatMuteStateDTO {
   mutedUntil?: string | null;
 }
 
+export interface AddUsersToGroupRequestDTO {
+  userIds: number[];
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -109,6 +113,19 @@ export class ChatService {
   private starredMessagesBaseUrl = `${environment.backendBaseUrl}/api/mensajes`;
 
   constructor(private http: HttpClient) {}
+
+  private mapUserChatListError(err: any): Observable<never> {
+    const status = Number(err?.status || 0);
+    if (status === 403) {
+      return throwError(() => ({
+        ...err,
+        code: 'CHAT_LIST_FORBIDDEN',
+        userMessage:
+          'No tienes permisos para consultar chats de este usuario.',
+      }));
+    }
+    return throwError(() => err);
+  }
 
   private buildAuthHeaders(): HttpHeaders | undefined {
     const token = String(
@@ -217,8 +234,24 @@ export class ChatService {
     return this.http.patch<GroupDetailDTO>(`${this.baseUrl}/grupal/${groupId}`, payload);
   }
 
+  agregarUsuariosAGrupo(
+    groupId: number,
+    payload: AddUsersToGroupRequestDTO
+  ): Observable<any> {
+    const normalizedUserIds = Array.from(
+      new Set(
+        (payload?.userIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    );
+    return this.http.post(`${this.baseUrl}/${groupId}/usuarios`, {
+      userIds: normalizedUserIds,
+    });
+  }
+
   invitarMiembroAGrupo(groupId: number, userId: number): Observable<any> {
-    return this.http.post(`${this.baseUrl}/grupal/${groupId}/invitar`, { userId });
+    return this.agregarUsuariosAGrupo(groupId, { userIds: [userId] });
   }
 
   asignarAdminGrupo(groupId: number, userId: number): Observable<any> {
@@ -233,14 +266,14 @@ export class ChatService {
     return this.http.delete(`${this.baseUrl}/grupal/${groupId}/miembros/${userId}`);
   }
 
-  listarGrupalesPorUsuario(_usuarioId?: number): Observable<ChatGrupalDTO[]> {
+  listarGrupalesPorUsuario(): Observable<ChatGrupalDTO[]> {
     const usuarioId = this.resolveAuthenticatedUserId();
     if (!usuarioId) {
       return throwError(() => new Error('AUTH_USER_ID_UNAVAILABLE'));
     }
     return this.http.get<ChatGrupalDTO[]>(
       `${this.baseUrl}/grupal/usuario/${usuarioId}`
-    );
+    ).pipe(catchError((err) => this.mapUserChatListError(err)));
   }
   esMiembroDeGrupo(groupId: number, userId: number): Observable<EsMiembroDTO> {
     return this.http.get<EsMiembroDTO>(
@@ -257,14 +290,14 @@ export class ChatService {
     );
   }
 
-  listarTodosLosChats(_usuarioId?: number): Observable<ChatListItemDTO[]> {
+  listarTodosLosChats(): Observable<ChatListItemDTO[]> {
     const usuarioId = this.resolveAuthenticatedUserId();
     if (!usuarioId) {
       return throwError(() => new Error('AUTH_USER_ID_UNAVAILABLE'));
     }
     return this.http.get<ChatListItemDTO[]>(
       `${this.baseUrl}/usuario/${usuarioId}/todos`
-    );
+    ).pipe(catchError((err) => this.mapUserChatListError(err)));
   }
 
   listarMensajesPorChat(

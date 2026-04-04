@@ -20,12 +20,13 @@ describe('GroupInviteService', () => {
     httpMock.verify();
   });
 
-  it('should call create with {groupId, inviteeId}', () => {
+  it('should call create with {groupId, inviteeId} and no inviterId', () => {
     service.create(10, 22).subscribe();
 
     const req = httpMock.expectOne(baseUrl);
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({ groupId: 10, inviteeId: 22 });
+    expect(req.request.body.inviterId).toBeUndefined();
     req.flush({});
   });
 

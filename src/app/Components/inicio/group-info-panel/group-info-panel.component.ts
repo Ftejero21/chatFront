@@ -894,7 +894,7 @@ export class GroupInfoPanelComponent implements OnChanges, OnDestroy {
     this.groupInviteService
       .create(groupId, userId)
       .subscribe({
-        next: (updated) => {
+        next: () => {
           this.inviteBusy = false;
           this.selectedInviteUserId = null;
           this.inviteQuery = '';
