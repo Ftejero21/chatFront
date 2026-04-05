@@ -2,12 +2,13 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable, map, throwError } from 'rxjs';
 import { NotificationDTO } from '../../Interface/NotificationDTO';
+import { environment } from '../../environments';
 
 @Injectable({
   providedIn: 'root',
 })
 export class NotificationService {
-  private baseUrl = 'http://localhost:8080/api/notifications';
+  private baseUrl = `${environment.backendBaseUrl}/api/notifications`;
 
   constructor(private http: HttpClient) {}
 

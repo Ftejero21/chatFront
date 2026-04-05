@@ -1,11 +1,12 @@
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { ChatService } from './chat.service';
+import { environment } from '../../environments';
 
 describe('ChatService', () => {
   let service: ChatService;
   let httpMock: HttpTestingController;
-  const baseUrl = 'http://localhost:8080/api/chat';
+  const baseUrl = `${environment.backendBaseUrl}/api/chat`;
 
   beforeEach(() => {
     TestBed.configureTestingModule({

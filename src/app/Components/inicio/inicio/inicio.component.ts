@@ -688,6 +688,10 @@ export class InicioComponent {
   public highlightedMessageId: number | null = null;
   private highlightedMessageTimer: any = null;
   private messageSearchNavigationInFlight = false;
+  private pendingOpenFromStarredNavigation: {
+    chatId: number;
+    messageId: number;
+  } | null = null;
   private composeCursorStart = 0;
   private composeCursorEnd = 0;
   private messageAreaDragDepth = 0;
@@ -2456,6 +2460,7 @@ export class InicioComponent {
         replyAuthorName: pending.replyAuthorName,
       };
       this.attachTemporaryMetadata(messagePayload);
+      this.attachContenidoBusqueda(messagePayload, pending.plainText);
 
       await this.logGroupWsPayloadBeforeSend(
         `retry-${pending.source}-${triggerCode}`.toLowerCase(),
@@ -6240,7 +6245,11 @@ private async decryptPreviewString(
           });
         }
 
-        this.scrollAlFinal();
+        const skipInitialAutoScroll =
+          Number(this.pendingOpenFromStarredNavigation?.chatId) === chatId;
+        if (!skipInitialAutoScroll) {
+          this.scrollAlFinal();
+        }
         this.cdr.markForCheck();
       },
       error: (err) => {
@@ -6346,6 +6355,23 @@ private async decryptPreviewString(
     messageId: number
   ): Promise<boolean> {
     if (this.hasLoadedMessageById(messageId)) return true;
+    const activeChatId = Number(this.chatActual?.id);
+    const activeIsGroup = !!this.chatActual?.esGrupo;
+    if (!Number.isFinite(activeChatId) || activeChatId <= 0) return false;
+
+    const historyReady = await this.waitForCondition(() => {
+      if (!this.chatActual) return false;
+      if (Number(this.chatActual?.id) !== activeChatId) return false;
+      if (!!this.chatActual?.esGrupo !== activeIsGroup) return false;
+      const state = this.getHistoryStateForConversation(
+        activeChatId,
+        activeIsGroup
+      );
+      return !!state && state.initialized && !state.loadingMore;
+    }, 12000);
+
+    if (!historyReady) return this.hasLoadedMessageById(messageId);
+    if (this.hasLoadedMessageById(messageId)) return true;
 
     const maxFetches = 60;
     for (let attempt = 0; attempt < maxFetches; attempt++) {
@@ -6438,6 +6464,24 @@ private async decryptPreviewString(
 
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private normalizeContenidoBusqueda(raw: string): string {
+    const base = String(raw || '')
+      .trim()
+      .toLowerCase();
+    if (!base) return '';
+    return base.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+
+  private attachContenidoBusqueda(
+    payload: MensajeDTO | Record<string, any>,
+    plainText: string
+  ): void {
+    const normalized = this.normalizeContenidoBusqueda(plainText);
+    if (!normalized) return;
+    (payload as any).contenidoBusqueda = normalized;
+    (payload as any).contenido_busqueda = normalized;
   }
 
   private extractAuditPublicKeyFromSource(source: any): string | null {
@@ -7055,6 +7099,7 @@ private async decryptPreviewString(
         replyAuthorName,
       };
       this.attachTemporaryMetadata(mensaje);
+      this.attachContenidoBusqueda(mensaje, contenido);
 
       const strictValidation = this.validateOutgoingGroupPayloadStrict(
         mensaje.contenido,
@@ -7159,6 +7204,7 @@ private async decryptPreviewString(
         replyAuthorName,
       };
       this.attachTemporaryMetadata(mensaje);
+      this.attachContenidoBusqueda(mensaje, contenido);
 
       const chatItem =
         (this.chats || []).find((c: any) => Number(c.id) === chatId) ||
@@ -7755,6 +7801,7 @@ private async decryptPreviewString(
         fechaEdicion: editedAt,
         editedAt,
       };
+      this.attachContenidoBusqueda(payload, contenidoPlano);
 
       const strictValidation = this.validateOutgoingGroupPayloadStrict(
         payload.contenido,
@@ -7795,6 +7842,7 @@ private async decryptPreviewString(
         fechaEdicion: editedAt,
         editedAt,
       };
+      this.attachContenidoBusqueda(payload, contenidoPlano);
       this.wsService.enviarEditarMensaje(payload);
     }
 
@@ -8142,6 +8190,9 @@ private async decryptPreviewString(
       };
       this.attachTemporaryMetadata(payloadGrupal);
       if (tipo === 'TEXT') {
+        this.attachContenidoBusqueda(payloadGrupal, contenidoPlano);
+      }
+      if (tipo === 'TEXT') {
         const strictValidation = this.validateOutgoingGroupPayloadStrict(
           payloadGrupal.contenido,
           encryptedGroupExpectedRecipientIds
@@ -8199,6 +8250,9 @@ private async decryptPreviewString(
       audioDuracionMs: original?.audioDuracionMs ?? null,
     };
     this.attachTemporaryMetadata(payloadIndividual);
+    if (tipo === 'TEXT') {
+      this.attachContenidoBusqueda(payloadIndividual, contenidoPlano);
+    }
     this.wsService.enviarMensajeIndividual(payloadIndividual);
   }
 
@@ -8737,7 +8791,7 @@ private async decryptPreviewString(
     }
   }
 
-  public abrirMensajeDestacado(item: StarredMessageItem): void {
+  public async abrirMensajeDestacado(item: StarredMessageItem): Promise<void> {
     const chatId = Number(item?.chatId);
     if (!Number.isFinite(chatId) || chatId <= 0) {
       this.showToast(
@@ -8760,13 +8814,28 @@ private async decryptPreviewString(
 
     this.openChatsSidebarView();
     this.activeMainView = 'chat';
-    this.mostrarMensajes(chat);
 
     const targetId = Number(item?.messageId);
     if (!Number.isFinite(targetId) || targetId <= 0) return;
-    setTimeout(() => {
-      void this.onMessageSearchResultSelect(targetId);
-    }, 260);
+    this.pendingOpenFromStarredNavigation = {
+      chatId: Math.round(chatId),
+      messageId: Math.round(targetId),
+    };
+
+    this.mostrarMensajes(chat);
+
+    try {
+      await this.onMessageSearchResultSelect(targetId);
+    } finally {
+      const pending = this.pendingOpenFromStarredNavigation;
+      if (
+        pending &&
+        Number(pending.chatId) === Math.round(chatId) &&
+        Number(pending.messageId) === Math.round(targetId)
+      ) {
+        this.pendingOpenFromStarredNavigation = null;
+      }
+    }
   }
 
   public canToggleIncomingQuickReaction(mensaje: MensajeDTO): boolean {
@@ -14261,6 +14330,7 @@ private async decryptPreviewString(
     });
     const skippedByFront = Math.max(0, requestedChatIds.length - normalizedChatIds.length);
     const message = String(payload?.message || '').trim();
+    const contenidoBusqueda = this.normalizeContenidoBusqueda(message);
     if (!message || normalizedChatIds.length === 0 || !scheduledAtIso) {
       this.showToast(
         'No se pudo programar: seleccion invalida o sin permisos en los chats elegidos.',
@@ -14336,6 +14406,8 @@ private async decryptPreviewString(
           ...requestBase,
           chatIds: [chatId],
           contenido: encryptedContenido,
+          contenidoBusqueda: contenidoBusqueda || undefined,
+          contenido_busqueda: contenidoBusqueda || undefined,
         };
         try {
           const response = await firstValueFrom(

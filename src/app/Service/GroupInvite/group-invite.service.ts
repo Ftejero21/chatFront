@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
+import { environment } from '../../environments';
 
 interface InviteDecisionDTO {
   userId: number;
@@ -15,7 +16,7 @@ interface CreateInviteDTO {
   providedIn: 'root',
 })
 export class GroupInviteService {
-  private baseUrl = 'http://localhost:8080/api/group-invites';
+  private baseUrl = `${environment.backendBaseUrl}/api/group-invites`;
 
   constructor(private http: HttpClient) {}
 

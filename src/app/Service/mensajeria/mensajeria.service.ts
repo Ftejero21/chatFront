@@ -8,10 +8,7 @@ import { environment } from '../../environments';
 })
 export class MensajeriaService {
   private readonly backendBaseUrl =
-    String(environment?.backendBaseUrl || 'http://localhost:8080').replace(
-      /\/+$/,
-      ''
-    );
+    String(environment.backendBaseUrl).replace(/\/+$/, '');
 
   constructor(private http: HttpClient) {}
 

@@ -46,6 +46,8 @@ export interface MensajeDTO {
   replySnippet?: string | null;
   replyAuthorName?: string | null;
   contenido: string;
+  contenidoBusqueda?: string | null;
+  contenido_busqueda?: string | null;
   fechaEnvio?: string;
   emisorId: number;
   receptorId: number;

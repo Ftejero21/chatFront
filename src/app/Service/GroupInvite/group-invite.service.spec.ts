@@ -1,11 +1,12 @@
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { GroupInviteService } from './group-invite.service';
+import { environment } from '../../environments';
 
 describe('GroupInviteService', () => {
   let service: GroupInviteService;
   let httpMock: HttpTestingController;
-  const baseUrl = 'http://localhost:8080/api/group-invites';
+  const baseUrl = `${environment.backendBaseUrl}/api/group-invites`;
 
   beforeEach(() => {
     TestBed.configureTestingModule({

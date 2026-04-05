@@ -35,6 +35,8 @@ export interface PollVoteRestRequestDTO {
 export interface ProgramarMensajeRequestDTO {
   message: string;
   contenido?: string;
+  contenidoBusqueda?: string;
+  contenido_busqueda?: string;
   chatIds: number[];
   chatId?: number;
   scheduledAt: string;
@@ -109,7 +111,7 @@ export interface AddUsersToGroupRequestDTO {
   providedIn: 'root',
 })
 export class ChatService {
-  private baseUrl = 'http://localhost:8080/api/chat'; // Ajusta si usas un proxy o diferente puerto
+  private baseUrl = `${environment.backendBaseUrl}/api/chat`;
   private starredMessagesBaseUrl = `${environment.backendBaseUrl}/api/mensajes`;
 
   constructor(private http: HttpClient) {}
@@ -467,7 +469,7 @@ export class ChatService {
     usuarioIds: number[]
   ): Observable<{ [key: number]: boolean }> {
     return this.http.post<{ [key: number]: boolean }>(
-      'http://localhost:8080/api/estado/usuarios',
+      `${environment.backendBaseUrl}/api/estado/usuarios`,
       usuarioIds
     );
   }

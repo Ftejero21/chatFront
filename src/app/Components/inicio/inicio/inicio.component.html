@@ -648,7 +648,12 @@
             </div>
           </div>
         </div>
-        <div class="cuerpo-mensajes" #contenedorMensajes (scroll)="onMessagesScroll()">
+        <div
+          class="cuerpo-mensajes"
+          [class.cuerpo-mensajes--chat-selected]="chatSeleccionadoId !== null"
+          #contenedorMensajes
+          (scroll)="onMessagesScroll()"
+        >
           <div *ngIf="chatSeleccionadoId === null" class="placeholder-chat">
             <i class="bi bi-chat-dots-fill"></i>
             <h3>TejeChat</h3>

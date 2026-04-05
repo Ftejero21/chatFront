@@ -1129,6 +1129,14 @@
   gap: 10px;
 }
 
+.cuerpo-mensajes--chat-selected {
+  background-color: #f3f4f6;
+  background-image: url('/assets/fondoChats.png');
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+}
+
 .mensaje {
   max-width: 100%;
   padding: 10px 14px;

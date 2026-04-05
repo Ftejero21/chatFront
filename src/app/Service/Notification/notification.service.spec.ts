@@ -1,11 +1,12 @@
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { NotificationService } from './notification.service';
+import { environment } from '../../environments';
 
 describe('NotificationService', () => {
   let service: NotificationService;
   let httpMock: HttpTestingController;
-  const baseUrl = 'http://localhost:8080/api/notifications';
+  const baseUrl = `${environment.backendBaseUrl}/api/notifications`;
 
   beforeEach(() => {
     TestBed.configureTestingModule({

@@ -10,6 +10,7 @@ import { MensajeReaccionDTO } from '../../Interface/MensajeReaccionDTO';
 import { UnbanAppealEventDTO } from '../../Interface/UnbanAppealEventDTO';
 import { WsUserErrorDTO } from '../../Interface/WsUserErrorDTO';
 import { RateLimitService } from '../rate-limit/rate-limit.service';
+import { environment } from '../../environments';
 
 type SdpOfferDTO = {
   callId: string;
@@ -45,7 +46,7 @@ export type PollVoteWSRequestDTO = {
 })
 export class WebSocketService {
   public stompClient: Client;
-  private socketUrl = 'http://localhost:8080/ws-chat';
+  private socketUrl = `${environment.backendBaseUrl}/ws-chat`;
   private subsGrupales = new Map<number, StompSubscription>();
   private subsTypingGrupales = new Map<number, StompSubscription>();
   private subsAudioGrupales = new Map<number, StompSubscription>();
