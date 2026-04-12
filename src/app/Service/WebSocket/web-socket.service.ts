@@ -33,6 +33,14 @@ type IceDTO = {
   sdpMLineIndex?: number;
 };
 
+type ActiveCallSession = {
+  callId: string;
+  callerId: number;
+  calleeId: number;
+  ended: boolean;
+  updatedAtMs: number;
+};
+
 export type PollVoteWSRequestDTO = {
   chatId: number;
   mensajeId: number;
@@ -58,6 +66,7 @@ export class WebSocketService {
   private subsIce?: StompSubscription;
   private subsCallEnd?: StompSubscription;
   private userErrorsHandlers = new Set<(payload: WsUserErrorDTO) => void>();
+  private activeCallSession: ActiveCallSession | null = null;
 
   constructor(private rateLimitService: RateLimitService) {
     this.stompClient = new Client({
@@ -295,11 +304,15 @@ export class WebSocketService {
   }
 
   enviarEscribiendoGrupo(
-    emisorId: number,
     chatId: number,
     escribiendo: boolean
   ): void {
     if (!this.stompClient?.connected) return;
+    const emisorId = this.resolveAuthenticatedUserId();
+    if (!emisorId) {
+      console.warn('WS no conectado a un usuario autenticado. Typing grupal no enviado.');
+      return;
+    }
     const dto = { emisorId, chatId, escribiendo };
     this.stompClient.publish({
       destination: '/app/escribiendo.grupo',
@@ -360,6 +373,7 @@ export class WebSocketService {
       return;
     }
     if (!this.canPublishToRateLimitedDestination('/app/call.end')) return;
+    this.markCallEnded(callId);
     const payload = { callId, byUserId };
     this.stompClient.publish({
       destination: '/app/call.end',
@@ -452,6 +466,7 @@ export class WebSocketService {
         console.warn('[WS] error al desconectar', e);
       }
     }
+    this.activeCallSession = null;
   }
 
   enviarVotoEncuesta(
@@ -487,18 +502,25 @@ export class WebSocketService {
     }
   }
 
-  enviarEstadoConectado(): void {
-    const usuarioId = localStorage.getItem('usuarioId');
-    if (usuarioId && this.stompClient.connected) {
-      const dto = {
-        usuarioId: Number(usuarioId),
-        estado: 'Conectado',
-      };
-      this.stompClient.publish({
-        destination: '/app/estado',
-        body: JSON.stringify(dto),
-      });
+  public enviarEstado(
+    estado: 'Conectado' | 'Ausente' | 'Desconectado'
+  ): boolean {
+    if (!this.stompClient?.connected) return false;
+    const authenticatedUserId = this.resolveAuthenticatedUserId();
+    if (!authenticatedUserId) {
+      console.warn('WS no conectado a un usuario autenticado. Estado no enviado.');
+      return false;
     }
+    const dto = { estado };
+    this.stompClient.publish({
+      destination: '/app/estado',
+      body: JSON.stringify(dto),
+    });
+    return true;
+  }
+
+  enviarEstadoConectado(): void {
+    this.enviarEstado('Conectado');
   }
 
   suscribirseAEstado(
@@ -512,32 +534,21 @@ export class WebSocketService {
     });
   }
 
-  enviarEstadoDesconectado(usuarioIdParam?: number): void {
-    const usuarioId = this.resolveUsuarioId(usuarioIdParam);
-    if (this.stompClient?.connected && usuarioId) {
-      const dto = {
-        usuarioId: usuarioId,
-        estado: 'Desconectado',
-      };
-      this.stompClient.publish({
-        destination: '/app/estado',
-        body: JSON.stringify(dto),
-      });
-    }
+  enviarEstadoDesconectado(): void {
+    this.enviarEstado('Desconectado');
   }
 
   async enviarEstadoDesconectadoConFlush(
-    usuarioIdParam?: number,
     timeoutMs = 250
   ): Promise<void> {
-    const usuarioId = this.resolveUsuarioId(usuarioIdParam);
-    if (!this.stompClient?.connected || !usuarioId) return;
+    if (!this.stompClient?.connected) return;
+    const authenticatedUserId = this.resolveAuthenticatedUserId();
+    if (!authenticatedUserId) return;
 
     const dto = {
-      usuarioId,
       estado: 'Desconectado',
     };
-    const receiptId = `estado-disconnect-${usuarioId}-${Date.now()}`;
+    const receiptId = `estado-disconnect-${Date.now()}`;
 
     await new Promise<void>((resolve) => {
       let settled = false;
@@ -562,39 +573,105 @@ export class WebSocketService {
     });
   }
 
-  private resolveUsuarioId(usuarioIdParam?: number): number {
-    const fromParam = Number(usuarioIdParam);
-    if (Number.isFinite(fromParam) && fromParam > 0) return fromParam;
-    const fromStorage = Number(localStorage.getItem('usuarioId'));
-    if (Number.isFinite(fromStorage) && fromStorage > 0) return fromStorage;
-    return 0;
+  private decodeJwtPayload(token: string): Record<string, any> | null {
+    const raw = String(token || '').trim();
+    if (!raw) return null;
+    const parts = raw.split('.');
+    if (parts.length < 2) return null;
+    const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded =
+      payloadBase64 + '='.repeat((4 - (payloadBase64.length % 4)) % 4);
+    try {
+      const json = atob(padded);
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveAuthenticatedUserId(): number | null {
+    const token = String(
+      localStorage.getItem('token') || sessionStorage.getItem('token') || ''
+    ).trim();
+    if (token) {
+      const payload = this.decodeJwtPayload(token);
+      const candidates = [
+        Number(payload?.['usuarioId']),
+        Number(payload?.['userId']),
+        Number(payload?.['id']),
+        Number(payload?.['sub']),
+      ];
+      for (const candidate of candidates) {
+        if (Number.isFinite(candidate) && candidate > 0) {
+          return Math.round(candidate);
+        }
+      }
+    }
+
+    const fromSession = Number(
+      localStorage.getItem('usuarioId') || sessionStorage.getItem('usuarioId') || 0
+    );
+    if (Number.isFinite(fromSession) && fromSession > 0) {
+      return Math.round(fromSession);
+    }
+
+    return null;
   }
 
   /** Enviar OFERTA SDP (caller -> callee) */
-  enviarSdpOffer(payload: SdpOfferDTO): void {
-    if (!this.stompClient?.connected) return;
+  enviarSdpOffer(payload: SdpOfferDTO): boolean {
+    if (!this.stompClient?.connected) return false;
+    const route = this.resolveSecureSignalingRoute(payload?.callId, payload?.toUserId);
+    const sdp = String(payload?.sdp || '').trim();
+    if (!route || !sdp) return false;
     this.stompClient.publish({
       destination: '/app/call.sdp.offer',
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        callId: route.callId,
+        fromUserId: route.fromUserId,
+        toUserId: route.toUserId,
+        sdp,
+      }),
     });
+    return true;
   }
 
   /** Enviar ANSWER SDP (callee -> caller) */
-  enviarSdpAnswer(payload: SdpAnswerDTO): void {
-    if (!this.stompClient?.connected) return;
+  enviarSdpAnswer(payload: SdpAnswerDTO): boolean {
+    if (!this.stompClient?.connected) return false;
+    const route = this.resolveSecureSignalingRoute(payload?.callId, payload?.toUserId);
+    const sdp = String(payload?.sdp || '').trim();
+    if (!route || !sdp) return false;
     this.stompClient.publish({
       destination: '/app/call.sdp.answer',
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        callId: route.callId,
+        fromUserId: route.fromUserId,
+        toUserId: route.toUserId,
+        sdp,
+      }),
     });
+    return true;
   }
 
   /** Enviar ICE candidate (ambos sentidos) */
-  enviarIce(payload: IceDTO): void {
-    if (!this.stompClient?.connected) return;
+  enviarIce(payload: IceDTO): boolean {
+    if (!this.stompClient?.connected) return false;
+    const route = this.resolveSecureSignalingRoute(payload?.callId, payload?.toUserId);
+    const candidate = String(payload?.candidate || '').trim();
+    if (!route || !candidate) return false;
     this.stompClient.publish({
       destination: '/app/call.ice',
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        callId: route.callId,
+        fromUserId: route.fromUserId,
+        toUserId: route.toUserId,
+        candidate,
+        sdpMid: payload?.sdpMid,
+        sdpMLineIndex: payload?.sdpMLineIndex,
+      }),
     });
+    return true;
   }
 
   /** Suscribirse a OFERTAS entrantes (para mí) */
@@ -695,10 +772,14 @@ export class WebSocketService {
   }
 
   public enviarEscribiendo(
-    emisorId: number,
     receptorId: number,
     escribiendo: boolean
   ): void {
+    const emisorId = this.resolveAuthenticatedUserId();
+    if (!emisorId) {
+      console.warn('WS no conectado a un usuario autenticado. Typing individual no enviado.');
+      return;
+    }
     const dto = { emisorId, receptorId, escribiendo };
 
     this.stompClient?.publish({
@@ -831,6 +912,81 @@ export class WebSocketService {
     } else {
       console.warn('⚠️ No suscrito: WebSocket no está conectado.');
     }
+  }
+
+  public setActiveCallSession(
+    callIdRaw: string,
+    callerIdRaw: number,
+    calleeIdRaw: number
+  ): boolean {
+    const callId = String(callIdRaw || '').trim();
+    const callerId = Number(callerIdRaw);
+    const calleeId = Number(calleeIdRaw);
+    if (!callId) return false;
+    if (!Number.isFinite(callerId) || callerId <= 0) return false;
+    if (!Number.isFinite(calleeId) || calleeId <= 0) return false;
+    this.activeCallSession = {
+      callId,
+      callerId,
+      calleeId,
+      ended: false,
+      updatedAtMs: Date.now(),
+    };
+    return true;
+  }
+
+  public markCallEnded(callIdRaw?: string): void {
+    const callId = String(callIdRaw || '').trim();
+    if (!callId) return;
+    if (this.activeCallSession?.callId !== callId) return;
+    this.activeCallSession = {
+      ...this.activeCallSession,
+      ended: true,
+      updatedAtMs: Date.now(),
+    };
+  }
+
+  public clearActiveCallSession(callIdRaw?: string): void {
+    const callId = String(callIdRaw || '').trim();
+    if (!this.activeCallSession) return;
+    if (callId && this.activeCallSession.callId !== callId) return;
+    this.activeCallSession = null;
+  }
+
+  private resolveSecureSignalingRoute(
+    callIdRaw: string,
+    requestedToUserIdRaw?: number
+  ): { callId: string; fromUserId: number; toUserId: number } | null {
+    const callId = String(callIdRaw || '').trim();
+    if (!callId) return null;
+
+    const authenticatedUserId = this.resolveAuthenticatedUserId();
+    if (!authenticatedUserId) return null;
+
+    const session = this.activeCallSession;
+    if (!session) return null;
+    if (session.callId !== callId) return null;
+    if (session.ended) return null;
+
+    const isCaller = Number(session.callerId) === Number(authenticatedUserId);
+    const isCallee = Number(session.calleeId) === Number(authenticatedUserId);
+    if (!isCaller && !isCallee) return null;
+
+    const toUserId = isCaller ? Number(session.calleeId) : Number(session.callerId);
+    const requestedToUserId = Number(requestedToUserIdRaw);
+    if (
+      Number.isFinite(requestedToUserId) &&
+      requestedToUserId > 0 &&
+      requestedToUserId !== toUserId
+    ) {
+      return null;
+    }
+
+    return {
+      callId,
+      fromUserId: Number(authenticatedUserId),
+      toUserId,
+    };
   }
 }
 

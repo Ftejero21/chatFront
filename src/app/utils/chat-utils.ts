@@ -1116,6 +1116,271 @@ export function formatPreviewText(raw?: string | null): string {
   return t.replace(/^mensaje:\s*/i, '');
 }
 
+const GROUP_EXPULSION_SYSTEM_EVENTS = new Set([
+  'GROUP_MEMBER_EXPELLED',
+  'GROUP_MEMBER_KICKED',
+  'GROUP_USER_EXPELLED',
+  'GROUP_USER_KICKED',
+  'GROUP_MEMBER_REMOVED',
+  'GROUP_USER_REMOVED',
+]);
+
+const GROUP_EXPULSION_TARGET_ID_FIELDS = [
+  'targetUserId',
+  'targetId',
+  'usuarioObjetivoId',
+  'miembroId',
+  'memberId',
+  'removedUserId',
+  'removedMemberId',
+  'expulsadoId',
+  'kickedUserId',
+  'affectedUserId',
+  'userIdObjetivo',
+];
+
+function normalizeSystemEventCode(mensaje: any): string {
+  return String(mensaje?.systemEvent || mensaje?.evento || '')
+    .trim()
+    .toUpperCase();
+}
+
+function isGroupExpulsionEventCode(eventCode: string): boolean {
+  const normalized = String(eventCode || '').trim().toUpperCase();
+  if (!normalized) return false;
+  if (GROUP_EXPULSION_SYSTEM_EVENTS.has(normalized)) return true;
+  return /^GROUP_/.test(normalized) && /(EXPELLED|KICKED|REMOVED)/.test(normalized);
+}
+
+function looksLikeExpulsionNoticeText(text: string): boolean {
+  return /^has sido expulsad[oa]\b/i.test(String(text || '').trim());
+}
+
+function buildFullName(firstName: unknown, lastName: unknown): string {
+  const first = String(firstName || '').trim();
+  const last = String(lastName || '').trim();
+  return `${first} ${last}`.trim();
+}
+
+function resolveGroupNameForExpulsion(mensaje: any, chatItem: any | undefined): string {
+  const fromMessage = pickFirstStringValue(mensaje, [
+    'groupName',
+    'nombreGrupo',
+    'chatNombre',
+    'chatNombreGrupo',
+  ]);
+  if (fromMessage) return fromMessage;
+  return String(chatItem?.nombreGrupo || chatItem?.nombre || '').trim();
+}
+
+function resolveGroupMemberDisplayNameFromChat(
+  chatItem: any | undefined,
+  userId: number
+): string {
+  const normalizedId = Number(userId);
+  if (!Number.isFinite(normalizedId) || normalizedId <= 0) return '';
+  const users = Array.isArray(chatItem?.usuarios)
+    ? chatItem.usuarios
+    : Array.isArray(chatItem?.miembros)
+    ? chatItem.miembros
+    : [];
+  const member = users.find((u: any) => Number(u?.id) === normalizedId);
+  if (!member) return '';
+  const fullName = buildFullName(member?.nombre, member?.apellido);
+  if (fullName) return fullName;
+  return String(member?.username || member?.nick || member?.name || '').trim();
+}
+
+function extractGroupExpulsionTargetUserIdLike(mensaje: any): number {
+  for (const field of GROUP_EXPULSION_TARGET_ID_FIELDS) {
+    const candidate = Number(mensaje?.[field]);
+    if (Number.isFinite(candidate) && candidate > 0) return candidate;
+  }
+  const chatId = Number(mensaje?.chatId || 0);
+  const receptorId = Number(mensaje?.receptorId || 0);
+  if (
+    Number.isFinite(receptorId) &&
+    receptorId > 0 &&
+    (!Number.isFinite(chatId) || receptorId !== chatId)
+  ) {
+    return receptorId;
+  }
+  return 0;
+}
+
+function resolveExpulsionActorDisplayName(
+  mensaje: any,
+  chatItem: any | undefined,
+  actorId: number
+): string {
+  const fromMessage = pickFirstStringValue(mensaje, [
+    'expulsorNombreCompleto',
+    'actorNombreCompleto',
+    'adminNombreCompleto',
+    'expulsorNombre',
+    'actorNombre',
+    'adminNombre',
+  ]);
+  if (fromMessage) return fromMessage;
+
+  const senderName = buildFullName(mensaje?.emisorNombre, mensaje?.emisorApellido);
+  if (senderName) return senderName;
+
+  return resolveGroupMemberDisplayNameFromChat(chatItem, actorId);
+}
+
+function resolveExpulsionTargetDisplayName(
+  mensaje: any,
+  chatItem: any | undefined,
+  targetUserId: number
+): string {
+  const fromMessage = pickFirstStringValue(mensaje, [
+    'targetUserName',
+    'targetUserFullName',
+    'targetNombreCompleto',
+    'targetNombre',
+    'usuarioObjetivoNombre',
+    'memberName',
+    'removedUserName',
+    'expulsadoNombre',
+    'affectedUserName',
+  ]);
+  if (fromMessage) return fromMessage;
+
+  const nestedTarget = mensaje?.targetUser ?? mensaje?.usuarioObjetivo ?? mensaje?.miembro;
+  const nestedName = buildFullName(
+    nestedTarget?.nombre || nestedTarget?.firstName,
+    nestedTarget?.apellido || nestedTarget?.lastName
+  );
+  if (nestedName) return nestedName;
+  const nestedFallback = String(
+    nestedTarget?.nombreCompleto || nestedTarget?.fullName || nestedTarget?.name || ''
+  ).trim();
+  if (nestedFallback) return nestedFallback;
+
+  return resolveGroupMemberDisplayNameFromChat(chatItem, targetUserId);
+}
+
+function resolveExpulsionPerspectiveText(
+  mensaje: any,
+  perspective: 'actor' | 'target' | 'third'
+): string {
+  const byPerspective =
+    perspective === 'actor'
+      ? pickFirstStringValue(mensaje, [
+          'textoActor',
+          'textoParaActor',
+          'actorText',
+          'textForActor',
+          'previewActor',
+        ])
+      : perspective === 'target'
+      ? pickFirstStringValue(mensaje, [
+          'textoExpulsado',
+          'textoParaExpulsado',
+          'expelledText',
+          'textForTarget',
+          'previewTarget',
+        ])
+      : pickFirstStringValue(mensaje, [
+          'textoTerceros',
+          'textoTercero',
+          'textoParaTerceros',
+          'thirdPartyText',
+          'textForOthers',
+          'previewThird',
+        ]);
+  return byPerspective;
+}
+
+function normalizeQuotedDisplayText(text: string): string {
+  const raw = String(text || '').trim();
+  if (!raw) return raw;
+  return raw
+    .replace(/"([^"]+)"/g, '$1')
+    .replace(/“([^”]+)”/g, '$1')
+    .trim();
+}
+
+export function buildGroupExpulsionPreview(
+  mensaje: any,
+  chatItem: any | undefined,
+  usuarioActualId: number
+): string | null {
+  const rawContent = String(mensaje?.contenido || '').trim();
+  const parsedContentPayload = parsePossiblySerializedE2EPayload(rawContent);
+  const source =
+    parsedContentPayload && typeof parsedContentPayload === 'object'
+      ? { ...parsedContentPayload, ...mensaje }
+      : mensaje;
+
+  const content = String(source?.contenido || '').trim();
+  const eventCode = normalizeSystemEventCode(source);
+  const isExpulsionEvent = isGroupExpulsionEventCode(eventCode);
+  const isExpulsionNotice = looksLikeExpulsionNoticeText(content);
+  const hasGroupContext = !!chatItem?.esGrupo || isExpulsionEvent;
+  if (!hasGroupContext || (!isExpulsionEvent && !isExpulsionNotice)) return null;
+
+  const myId = Number(usuarioActualId);
+  const actorId = Number(source?.emisorId || 0);
+  const targetUserId = extractGroupExpulsionTargetUserIdLike(source);
+  const groupName = resolveGroupNameForExpulsion(source, chatItem);
+  const actorName = resolveExpulsionActorDisplayName(source, chatItem, actorId);
+  const targetName = resolveExpulsionTargetDisplayName(
+    source,
+    chatItem,
+    targetUserId
+  );
+
+  if (targetUserId > 0 && targetUserId === myId) {
+    const targetText = resolveExpulsionPerspectiveText(source, 'target');
+    if (targetText) return normalizeQuotedDisplayText(targetText);
+    let notice = groupName
+      ? `Has sido expulsado de ${groupName}`
+      : 'Has sido expulsado del grupo';
+    if (actorName && actorId !== myId) {
+      notice += ` por ${actorName}`;
+    }
+    return normalizeQuotedDisplayText(notice);
+  }
+
+  if (actorId > 0 && actorId === myId) {
+    const actorText = resolveExpulsionPerspectiveText(source, 'actor');
+    if (actorText) return normalizeQuotedDisplayText(actorText);
+    if (targetName) {
+      const message = groupName
+        ? `Has expulsado a ${targetName} del grupo ${groupName}`
+        : `Has expulsado a ${targetName} del grupo`;
+      return normalizeQuotedDisplayText(message);
+    }
+    const message = groupName
+      ? `Has expulsado a un usuario del grupo ${groupName}`
+      : 'Has expulsado a un usuario del grupo';
+    return normalizeQuotedDisplayText(message);
+  }
+
+  const thirdText = resolveExpulsionPerspectiveText(source, 'third');
+  if (thirdText) return normalizeQuotedDisplayText(thirdText);
+
+  if (actorName && targetName) {
+    const message = groupName
+      ? `${actorName} ha expulsado a ${targetName} del grupo ${groupName}`
+      : `${actorName} ha expulsado a ${targetName} del grupo`;
+    return normalizeQuotedDisplayText(message);
+  }
+  if (targetName) {
+    const message = groupName
+      ? `${targetName} ha sido expulsado del grupo ${groupName}`
+      : `${targetName} ha sido expulsado del grupo`;
+    return normalizeQuotedDisplayText(message);
+  }
+  if (content) return normalizeQuotedDisplayText(content);
+  const fallback = groupName
+    ? `Se ha expulsado a un usuario del grupo ${groupName}`
+    : 'Se ha expulsado a un usuario del grupo';
+  return normalizeQuotedDisplayText(fallback);
+}
+
 export function isSystemMessageLike(mensaje: any): boolean {
   if (isTemporalExpiredMessageLike(mensaje)) return false;
   const tipo = String(mensaje?.tipo || '')
@@ -1128,23 +1393,17 @@ export function isSystemMessageLike(mensaje: any): boolean {
     'EVENT',
     'INFO',
   ]);
-  const eventCode = String(mensaje?.systemEvent || mensaje?.evento || '')
-    .trim()
-    .toUpperCase();
+  const eventCode = normalizeSystemEventCode(mensaje);
   const systemEvents = new Set([
     'GROUP_MEMBER_LEFT',
-    'GROUP_MEMBER_REMOVED',
-    'GROUP_MEMBER_EXPELLED',
-    'GROUP_MEMBER_KICKED',
-    'GROUP_USER_REMOVED',
-    'GROUP_USER_EXPELLED',
-    'GROUP_USER_KICKED',
+    ...Array.from(GROUP_EXPULSION_SYSTEM_EVENTS),
   ]);
 
   return (
     systemTypes.has(tipo) ||
     mensaje?.esSistema === true ||
-    systemEvents.has(eventCode)
+    systemEvents.has(eventCode) ||
+    isGroupExpulsionEventCode(eventCode)
   );
 }
 
@@ -1289,6 +1548,15 @@ export function buildPreviewFromMessage(
   usuarioActualId: number,
   maxLen = 60
 ): string {
+  const expulsionPreview = buildGroupExpulsionPreview(
+    mensaje,
+    chatItem,
+    usuarioActualId
+  );
+  if (expulsionPreview) {
+    return truncate(expulsionPreview, maxLen);
+  }
+
   if (isSystemMessageLike(mensaje)) {
     const systemText = String(mensaje?.contenido ?? '').trim();
     return truncate(systemText || 'Evento del grupo', maxLen);
@@ -1386,6 +1654,12 @@ export function computePreviewPatch(
 ): { preview: string; fecha: any; lastId: number | null } {
   let preview = 'Sin mensajes aún';
 
+  const expulsionPreview = buildGroupExpulsionPreview(
+    mensaje,
+    chatItem,
+    usuarioActualId
+  );
+
   const esAudio =
     (typeof mensaje?.tipo === 'string' &&
       mensaje.tipo.toUpperCase() === 'AUDIO') ||
@@ -1403,7 +1677,9 @@ export function computePreviewPatch(
     !!mensaje?.fileDataUrl ||
     !!extractFilePayloadFromContent(mensaje?.contenido);
 
-  if (isSystemMessageLike(mensaje)) {
+  if (expulsionPreview) {
+    preview = expulsionPreview;
+  } else if (isSystemMessageLike(mensaje)) {
     preview = String(mensaje?.contenido ?? '').trim() || 'Evento del grupo';
   } else if (mensaje?.activo === false) {
     preview = isTemporalExpiredMessageLike(mensaje)

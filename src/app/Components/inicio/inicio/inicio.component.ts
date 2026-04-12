@@ -23,6 +23,7 @@ import { finalize, firstValueFrom } from 'rxjs';
 import { AuthService } from '../../../Service/auth/auth.service';
 import {
   avatarOrDefault,
+  buildGroupExpulsionPreview,
   buildConversationHistoryKey,
   buildPreviewFromMessage,
   buildTypingHeaderText,
@@ -241,6 +242,7 @@ interface WsSemanticErrorPayload {
   message?: string;
   traceId?: string;
   chatId?: number;
+  callId?: string;
   senderId?: number;
   destination?: string;
   retryAfterSeconds?: number;
@@ -755,6 +757,7 @@ export class InicioComponent {
   private readonly MESSAGE_NOTIFICATION_TONE_COOLDOWN_MS = 1200;
   private lastMessageNotificationToneAt = 0;
   private outgoingCallPendingAcceptance = false;
+  private signalingBlockedCallIds = new Set<string>();
   private notifsLoadedOnce = false;
   private aiWaitTicker?: any;
   private aiWaitDots = 0;
@@ -943,6 +946,12 @@ export class InicioComponent {
             this.ngZone.run(() => {
               this.ultimaInvite = invite; // muestra el panel entrante
               this.currentCallId = invite.callId; // guarda el id
+              this.wsService.setActiveCallSession(
+                invite.callId,
+                Number(invite.callerId),
+                Number(invite.calleeId)
+              );
+              this.signalingBlockedCallIds.delete(String(invite.callId || '').trim());
               this.startIncomingRingtone();
               this.cdr.markForCheck();
             });
@@ -954,6 +963,15 @@ export class InicioComponent {
           this.usuarioActualId,
           (answer) => {
             this.ngZone.run(async () => {
+              const answerCallId = String(answer?.callId || '').trim();
+              if (answerCallId) {
+                this.wsService.setActiveCallSession(
+                  answerCallId,
+                  Number(answer.toUserId),
+                  Number(answer.fromUserId)
+                );
+                this.signalingBlockedCallIds.delete(answerCallId);
+              }
               if (answer?.reason === 'RINGING') {
                 const soyCaller =
                   Number(answer.toUserId) === Number(this.usuarioActualId);
@@ -1016,6 +1034,7 @@ export class InicioComponent {
                   this.showCallUI = false;
                   this.callInfoMessage = null;
                   this.currentCallId = undefined;
+                  if (answerCallId) this.wsService.clearActiveCallSession(answerCallId);
                   this.cdr.markForCheck();
                 }
               }
@@ -1026,12 +1045,18 @@ export class InicioComponent {
         // ?? Llamadas: fin (colgar)
         this.wsService.suscribirseAFinLlamada(this.usuarioActualId, (end) => {
           this.ngZone.run(() => {
+            const endedCallId = String(end?.callId || '').trim();
+            if (endedCallId) {
+              this.signalingBlockedCallIds.add(endedCallId);
+              this.wsService.markCallEnded(endedCallId);
+            }
             this.stopOutgoingRingback();
             this.stopIncomingRingtone();
             this.outgoingCallPendingAcceptance = false;
             if (this.ultimaInvite && end.callId === this.ultimaInvite.callId) {
               this.ultimaInvite = undefined; // ?? quita el banner
               this.currentCallId = undefined;
+              if (endedCallId) this.wsService.clearActiveCallSession(endedCallId);
               this.callInfoMessage = null;
               this.callStatusClass = null;
               this.cdr.markForCheck();
@@ -2147,6 +2172,7 @@ export class InicioComponent {
       message: String(rawPayload?.message || '').trim(),
       traceId: String(rawPayload?.traceId || '').trim(),
       chatId: Number(rawPayload?.chatId),
+      callId: String(rawPayload?.callId || '').trim(),
       senderId: Number(rawPayload?.senderId),
       destination: String(rawPayload?.destination || '').trim(),
       retryAfterSeconds: Number(rawPayload?.retryAfterSeconds),
@@ -2165,6 +2191,10 @@ export class InicioComponent {
     const myId = this.getMyUserId ? this.getMyUserId() : this.usuarioActualId;
     const senderId = Number(payload.senderId);
     if (Number.isFinite(senderId) && senderId > 0 && Number(senderId) !== Number(myId)) {
+      return;
+    }
+
+    if (this.handleSignalingWsSemanticError(payload, code)) {
       return;
     }
 
@@ -2215,6 +2245,51 @@ export class InicioComponent {
     }
 
     console.warn('[E2E][ws-error-unknown-code]', payload);
+  }
+
+  private handleSignalingWsSemanticError(
+    payload: WsSemanticErrorPayload,
+    codeUpper: string
+  ): boolean {
+    const isSecurityCode =
+      codeUpper === 'NO_AUTORIZADO' || codeUpper === 'RESPUESTA_INVALIDA';
+    if (!isSecurityCode) return false;
+
+    const destination = String(payload.destination || '').trim();
+    const isSignalingDestination =
+      destination === '/app/call.sdp.offer' ||
+      destination === '/app/call.sdp.answer' ||
+      destination === '/app/call.ice';
+    if (!isSignalingDestination) return false;
+
+    const callId = String(payload.callId || this.currentCallId || '').trim();
+    if (callId) {
+      this.signalingBlockedCallIds.add(callId);
+      this.wsService.markCallEnded(callId);
+    }
+
+    const traceSuffix = payload.traceId ? ` (traceId: ${payload.traceId})` : '';
+    const backendMsg = String(payload.message || '').trim();
+    const msg =
+      backendMsg ||
+      'El servidor rechazó la señalización de la llamada por seguridad.';
+    try {
+      this.peer?.close();
+    } catch {}
+    this.peer = undefined;
+    try {
+      this.localStream?.getTracks().forEach((t) => t.stop());
+    } catch {}
+    try {
+      this.remoteStream?.getTracks().forEach((t) => t.stop());
+    } catch {}
+    this.localStream = null;
+    this.remoteStream = null;
+    this.outgoingCallPendingAcceptance = false;
+    this.showCallUI = true;
+    this.showRemoteStatus(`${msg}${traceSuffix}`, 'is-error', 1800);
+    this.showToast(msg, 'warning', 'Llamada');
+    return true;
   }
 
   private async handleE2ESenderKeyMissingError(payload: WsSemanticErrorPayload): Promise<void> {
@@ -7475,28 +7550,16 @@ private async decryptPreviewString(
     clearTimeout(this.escribiendoTimeout);
 
     if (this.chatActual.esGrupo) {
-      this.wsService.enviarEscribiendoGrupo(
-        this.usuarioActualId,
-        this.chatActual.id,
-        true
-      );
+      this.wsService.enviarEscribiendoGrupo(this.chatActual.id, true);
       this.escribiendoTimeout = setTimeout(() => {
-        this.wsService.enviarEscribiendoGrupo(
-          this.usuarioActualId,
-          this.chatActual.id,
-          false
-        );
+        this.wsService.enviarEscribiendoGrupo(this.chatActual.id, false);
       }, 1000);
     } else {
       const receptorId = this.chatActual.receptor?.id;
       if (!receptorId) return;
-      this.wsService.enviarEscribiendo(this.usuarioActualId, receptorId, true);
+      this.wsService.enviarEscribiendo(receptorId, true);
       this.escribiendoTimeout = setTimeout(() => {
-        this.wsService.enviarEscribiendo(
-          this.usuarioActualId,
-          receptorId,
-          false
-        );
+        this.wsService.enviarEscribiendo(receptorId, false);
       }, 1000);
     }
   }
@@ -7564,14 +7627,7 @@ private async decryptPreviewString(
   ): void {
     if (nuevoEstado === this.estadoActual) return;
 
-    const usuarioId = Number(localStorage.getItem('usuarioId'));
-    if (this.wsService.stompClient?.connected && usuarioId) {
-      const dto = { usuarioId, estado: nuevoEstado };
-      this.wsService.stompClient.publish({
-        destination: '/app/estado',
-        body: JSON.stringify(dto),
-      });
-
+    if (this.wsService.enviarEstado(nuevoEstado)) {
       this.estadoActual = nuevoEstado;
     }
   }
@@ -9854,6 +9910,313 @@ private async decryptPreviewString(
     this.composerDraftPrefixVisible = false;
   }
 
+  private parseLastPreviewRawPayload(raw: unknown): any | null {
+    if (raw && typeof raw === 'object') return raw;
+    let text = String(raw || '').trim();
+    if (!text) return null;
+
+    const extracted = this.extractPayloadCandidateFromPreview(text);
+    if (typeof extracted === 'object' && extracted != null) return extracted;
+    if (typeof extracted === 'string') {
+      text = extracted.trim();
+    }
+
+    for (let i = 0; i < 3; i += 1) {
+      if (!text) return null;
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === 'object') return parsed;
+        if (typeof parsed === 'string') {
+          text = parsed.trim();
+          continue;
+        }
+        return null;
+      } catch {
+        const quoted =
+          (text.startsWith('"') && text.endsWith('"')) ||
+          (text.startsWith("'") && text.endsWith("'"));
+        if (quoted) {
+          text = text.slice(1, -1).trim();
+          continue;
+        }
+        if (text.includes('\\"')) {
+          const unescaped = text
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, '\\')
+            .trim();
+          if (unescaped !== text) {
+            text = unescaped;
+            continue;
+          }
+        }
+      }
+      break;
+    }
+
+    return null;
+  }
+
+  private rewriteOwnGroupExpulsionPreviewIfNeeded(
+    chat: any,
+    normalizedPreview: string
+  ): string {
+    if (!chat?.esGrupo) return normalizedPreview;
+    const previewText = String(normalizedPreview || '').trim();
+    if (!previewText) return previewText;
+
+    const bodyWithoutOwnPrefix = previewText.replace(/^yo:\s*/i, '').trim();
+    if (!/^has sido expulsad[oa]\b/i.test(bodyWithoutOwnPrefix)) {
+      return previewText;
+    }
+
+    const myId = Number(this.usuarioActualId);
+    const senderId = this.getChatLastPreviewSenderId(chat);
+    const isOwnPreview =
+      /^yo:\s*/i.test(previewText) ||
+      (Number.isFinite(senderId) && senderId > 0 && senderId === myId);
+    if (!isOwnPreview) return previewText;
+
+    const rawPayload = this.parseLastPreviewRawPayload(
+      chat?.ultimaMensajeRaw ?? chat?.__ultimaMensajeRaw
+    );
+    const messageLike =
+      rawPayload && typeof rawPayload === 'object'
+        ? {
+            ...rawPayload,
+            contenido: String(
+              (rawPayload as any)?.contenido ?? chat?.ultimaMensaje ?? ''
+            ).trim(),
+            emisorId: Number(
+              (rawPayload as any)?.emisorId ?? senderId ?? 0
+            ),
+            chatId: Number((rawPayload as any)?.chatId ?? chat?.id ?? 0),
+            tipo: String(
+              (rawPayload as any)?.tipo ??
+                chat?.ultimaMensajeTipo ??
+                chat?.__ultimaTipo ??
+                'SYSTEM'
+            ).trim(),
+          }
+        : {
+            contenido: String(chat?.ultimaMensaje ?? '').trim(),
+            emisorId: Number(senderId || 0),
+            chatId: Number(chat?.id || 0),
+            tipo: String(chat?.ultimaMensajeTipo ?? chat?.__ultimaTipo ?? 'SYSTEM').trim(),
+          };
+
+    const rebuilt = buildGroupExpulsionPreview(messageLike, chat, myId);
+    if (rebuilt && !/^has sido expulsad[oa]\b/i.test(String(rebuilt).trim())) {
+      return rebuilt;
+    }
+
+    const groupName = String(
+      this.resolveGroupNameById(Number(chat?.id || 0)) ||
+        chat?.nombreGrupo ||
+        chat?.nombre ||
+        ''
+    ).trim();
+    return groupName
+      ? `Has expulsado a un usuario del grupo ${groupName}`
+      : 'Has expulsado a un usuario del grupo';
+  }
+
+  private resolveChatContextForMessage(chatIdRaw: unknown): any | undefined {
+    const chatId = Number(chatIdRaw || 0);
+    if (!Number.isFinite(chatId) || chatId <= 0) {
+      return this.chatActual || undefined;
+    }
+    if (
+      this.chatActual &&
+      Number(this.chatActual?.id) === chatId
+    ) {
+      return this.chatActual;
+    }
+    return (this.chats || []).find((c: any) => Number(c?.id) === chatId);
+  }
+
+  public formatSystemMessageContent(mensaje: any): string {
+    if (!mensaje) return 'Evento del grupo';
+    const rawContent = String(mensaje?.contenido ?? '').trim();
+    const parsedPayload = this.parseLastPreviewRawPayload(mensaje?.contenido);
+    const mergedMessage =
+      parsedPayload && typeof parsedPayload === 'object'
+        ? {
+            ...(parsedPayload as any),
+            ...mensaje,
+            contenido: String(
+              (parsedPayload as any)?.contenido ?? rawContent
+            ).trim(),
+            systemEvent: String(
+              (mensaje as any)?.systemEvent ??
+                (parsedPayload as any)?.systemEvent ??
+                (parsedPayload as any)?.evento ??
+                ''
+            ).trim(),
+            chatId: Number(
+              (mensaje as any)?.chatId ??
+                (parsedPayload as any)?.chatId ??
+                this.chatActual?.id ??
+                0
+            ),
+          }
+        : mensaje;
+
+    const chatContext = this.resolveChatContextForMessage(mergedMessage?.chatId);
+    const expulsionText = buildGroupExpulsionPreview(
+      mergedMessage,
+      chatContext,
+      Number(this.usuarioActualId)
+    );
+    if (expulsionText) return expulsionText;
+
+    if (parsedPayload && typeof parsedPayload === 'object') {
+      const preferred = [
+        (parsedPayload as any)?.texto,
+        (parsedPayload as any)?.mensaje,
+        (parsedPayload as any)?.message,
+        (parsedPayload as any)?.descripcion,
+        (parsedPayload as any)?.description,
+      ]
+        .map((x) => String(x || '').trim())
+        .find((x) => !!x);
+      if (preferred) return preferred;
+
+      const payloadContent = String((parsedPayload as any)?.contenido || '').trim();
+      if (payloadContent && !/^[A-Z0-9_]+$/.test(payloadContent)) {
+        return payloadContent;
+      }
+    }
+
+    if (rawContent && !/^[A-Z0-9_]+$/.test(rawContent)) return rawContent;
+    return 'Evento del grupo';
+  }
+
+  private escapeSystemMessageHtml(text: string): string {
+    return String(text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private emphasizeQuotedSegments(text: string): string {
+    const source = String(text || '').trim();
+    if (!source) return '';
+    const regex = /"([^"]+)"|“([^”]+)”/g;
+    let html = '';
+    let lastIndex = 0;
+    let matched = false;
+    let match: RegExpExecArray | null = null;
+
+    while ((match = regex.exec(source)) !== null) {
+      matched = true;
+      html += this.escapeSystemMessageHtml(source.slice(lastIndex, match.index));
+      const emphasized = String(match[1] || match[2] || '').trim();
+      html += `<strong style="font-weight: 600;">${this.escapeSystemMessageHtml(emphasized)}</strong>`;
+      lastIndex = regex.lastIndex;
+    }
+    html += this.escapeSystemMessageHtml(source.slice(lastIndex));
+    return matched ? html : this.escapeSystemMessageHtml(source);
+  }
+
+  private extractExpulsionTargetUserIdFromSource(source: any): number {
+    const fields = [
+      'targetUserId',
+      'targetId',
+      'usuarioObjetivoId',
+      'miembroId',
+      'memberId',
+      'removedUserId',
+      'removedMemberId',
+      'expulsadoId',
+      'kickedUserId',
+      'affectedUserId',
+      'userIdObjetivo',
+    ];
+    for (const key of fields) {
+      const value = Number(source?.[key]);
+      if (Number.isFinite(value) && value > 0) return value;
+    }
+    return 0;
+  }
+
+  private resolveExpulsionPerspectiveTextForCurrentUser(source: any): string {
+    if (!source || typeof source !== 'object') return '';
+    const eventCode = String(source?.systemEvent || source?.evento || '')
+      .trim()
+      .toUpperCase();
+    const hasExpulsionText =
+      !!String(source?.textoActor || '').trim() ||
+      !!String(source?.textoExpulsado || '').trim() ||
+      !!String(source?.textoTerceros || '').trim();
+    const expulsionEvents = new Set([
+      'GROUP_MEMBER_EXPELLED',
+      'GROUP_MEMBER_KICKED',
+      'GROUP_USER_EXPELLED',
+      'GROUP_USER_KICKED',
+      'GROUP_MEMBER_REMOVED',
+      'GROUP_USER_REMOVED',
+    ]);
+    const isExpulsionEvent =
+      expulsionEvents.has(eventCode) ||
+      (/^GROUP_/.test(eventCode) &&
+        /(EXPELLED|KICKED|REMOVED)/.test(eventCode));
+    if (!isExpulsionEvent && !hasExpulsionText) return '';
+
+    const myId = Number(this.usuarioActualId);
+    const actorId = Number(source?.emisorId || 0);
+    const targetId = this.extractExpulsionTargetUserIdFromSource(source);
+
+    if (targetId > 0 && targetId === myId) {
+      return String(source?.textoExpulsado || '').trim();
+    }
+    if (actorId > 0 && actorId === myId) {
+      return String(source?.textoActor || '').trim();
+    }
+    return String(source?.textoTerceros || '').trim();
+  }
+
+  private buildExpulsionSourceFromPreviewChat(chat: any): any | null {
+    const rawPayload = this.parseLastPreviewRawPayload(
+      chat?.ultimaMensajeRaw ?? chat?.__ultimaMensajeRaw ?? chat?.ultimaMensaje
+    );
+    if (!rawPayload || typeof rawPayload !== 'object') return null;
+    return {
+      ...(rawPayload as any),
+      emisorId: Number(
+        (rawPayload as any)?.emisorId ??
+          this.getChatLastPreviewSenderId(chat) ??
+          chat?.ultimaMensajeEmisorId ??
+          0
+      ),
+      chatId: Number((rawPayload as any)?.chatId ?? chat?.id ?? 0),
+      systemEvent: String(
+        (rawPayload as any)?.systemEvent ?? (rawPayload as any)?.evento ?? ''
+      ).trim(),
+    };
+  }
+
+  public formatSystemMessageContentHtml(mensaje: any): string {
+    const parsedPayload = this.parseLastPreviewRawPayload(mensaje?.contenido);
+    const source =
+      parsedPayload && typeof parsedPayload === 'object'
+        ? { ...(parsedPayload as any), ...(mensaje || {}) }
+        : mensaje;
+    const perspectiveText = this.resolveExpulsionPerspectiveTextForCurrentUser(source);
+    if (perspectiveText) return this.emphasizeQuotedSegments(perspectiveText);
+
+    const plain = this.formatSystemMessageContent(mensaje);
+    return this.emphasizeQuotedSegments(plain);
+  }
+
+  public formatearPreviewHtml(chat: any): string {
+    const source = this.buildExpulsionSourceFromPreviewChat(chat);
+    const perspectiveText = this.resolveExpulsionPerspectiveTextForCurrentUser(source);
+    if (perspectiveText) return this.emphasizeQuotedSegments(perspectiveText);
+    return this.escapeSystemMessageHtml(this.formatearPreview(chat));
+  }
+
   public formatearPreview(chat: any): string {
     if (chat?.esGrupo && this.containsEncryptedHiddenPlaceholder(chat?.ultimaMensaje)) {
       return this.GROUP_HISTORY_UNAVAILABLE_TEXT;
@@ -9889,7 +10252,9 @@ private async decryptPreviewString(
       chat?.ultimaMensaje || '',
       chat
     );
-    return formatPreviewText(normalized);
+    return formatPreviewText(
+      this.rewriteOwnGroupExpulsionPreviewIfNeeded(chat, normalized)
+    );
   }
 
   private normalizeLastMessageTipo(raw: unknown): string {
@@ -12158,6 +12523,14 @@ private async decryptPreviewString(
   public async aceptarLlamada(): Promise<void> {
     if (!this.ultimaInvite) return;
     this.stopIncomingRingtone();
+    this.wsService.setActiveCallSession(
+      this.ultimaInvite.callId,
+      Number(this.ultimaInvite.callerId),
+      Number(this.ultimaInvite.calleeId)
+    );
+    this.signalingBlockedCallIds.delete(
+      String(this.ultimaInvite.callId || '').trim()
+    );
 
     // ?? Primero probamos acceder a cam/mic. Si falla, rechazamos con motivo.
     try {
@@ -12171,9 +12544,15 @@ private async decryptPreviewString(
         false,
         'NO_MEDIA'
       );
+      const failedCallId = String(this.ultimaInvite.callId || '').trim();
+      if (failedCallId) {
+        this.signalingBlockedCallIds.add(failedCallId);
+        this.wsService.markCallEnded(failedCallId);
+      }
       // quitar el banner
       this.ultimaInvite = undefined;
       this.currentCallId = undefined;
+      if (failedCallId) this.wsService.clearActiveCallSession(failedCallId);
       this.callInfoMessage = null;
       this.cdr.markForCheck();
       return;
@@ -12194,6 +12573,11 @@ private async decryptPreviewString(
   public rechazarLlamada(): void {
     if (!this.ultimaInvite) return;
     this.stopIncomingRingtone();
+    const rejectedCallId = String(this.ultimaInvite.callId || '').trim();
+    if (rejectedCallId) {
+      this.signalingBlockedCallIds.add(rejectedCallId);
+      this.wsService.markCallEnded(rejectedCallId);
+    }
     this.wsService.responderLlamada(
       this.ultimaInvite.callId,
       this.ultimaInvite.callerId,
@@ -12203,6 +12587,7 @@ private async decryptPreviewString(
     );
     this.ultimaInvite = undefined;
     this.currentCallId = undefined;
+    if (rejectedCallId) this.wsService.clearActiveCallSession(rejectedCallId);
   }
 
   /**
@@ -12215,6 +12600,8 @@ private async decryptPreviewString(
     this.playHangupTone();
     const callId = this.currentCallId ?? this.ultimaInvite?.callId;
     if (callId) {
+      this.signalingBlockedCallIds.add(String(callId).trim());
+      this.wsService.markCallEnded(callId);
       this.wsService.colgarLlamada(callId, this.usuarioActualId);
     }
     this.cerrarLlamadaLocal();
@@ -12224,6 +12611,12 @@ private async decryptPreviewString(
    * Limpia y apaga recursos locales de una llamada finalizada (cierra la cámara, micrófono y conexión remota).
    */
   private cerrarLlamadaLocal(): void {
+    const closingCallId = String(
+      this.currentCallId || this.ultimaInvite?.callId || ''
+    ).trim();
+    if (closingCallId) {
+      this.wsService.clearActiveCallSession(closingCallId);
+    }
     this.stopOutgoingRingback();
     this.stopIncomingRingtone();
     this.outgoingCallPendingAcceptance = false;
@@ -12360,18 +12753,21 @@ private async decryptPreviewString(
     // OFERTA entrante (inicial o de renegociación)
     this.wsService.suscribirseASdpOffer(this.usuarioActualId, async (offer) => {
       if (!offer?.sdp) return;
+      if (!this.shouldProcessInboundSignaling(offer.callId)) return;
       await this._handleRemoteOffer(offer);
     });
 
     // ANSWER entrante (yo soy A)
     this.wsService.suscribirseASdpAnswer(this.usuarioActualId, async (ans) => {
       if (!ans?.sdp || !this.peer) return;
+      if (!this.shouldProcessInboundSignaling(ans.callId)) return;
       await this.peer.setRemoteDescription({ type: 'answer', sdp: ans.sdp });
     });
 
     // ICE entrante (ambos)
     this.wsService.suscribirseAIce(this.usuarioActualId, async (ice) => {
       if (!this.peer || !ice?.candidate) return;
+      if (!this.shouldProcessInboundSignaling(ice.callId)) return;
       try {
         await this.peer.addIceCandidate({
           candidate: ice.candidate,
@@ -12393,17 +12789,21 @@ private async decryptPreviewString(
     toUserId: number;
     sdp: string;
   }): Promise<void> {
+    const callId = String(offer?.callId || '').trim();
+    if (!callId || !this.shouldProcessInboundSignaling(callId)) return;
+    this.wsService.setActiveCallSession(
+      callId,
+      Number(offer.fromUserId),
+      Number(offer.toUserId)
+    );
+    this.currentCallId = callId;
+
     if (this.peer) {
       // Renegociacion
       await this.peer.setRemoteDescription({ type: 'offer', sdp: offer.sdp });
       const answer = await this.peer.createAnswer();
       await this.peer.setLocalDescription(answer);
-      this.wsService.enviarSdpAnswer({
-        callId: offer.callId,
-        fromUserId: this.usuarioActualId,
-        toUserId: offer.fromUserId,
-        sdp: answer.sdp as string,
-      });
+      this.sendSdpAnswerSecure(callId, answer.sdp as string, offer.fromUserId);
       return;
     }
     // primera vez (callee)
@@ -12805,8 +13205,11 @@ private async decryptPreviewString(
     callId: string,
     toUserId: number
   ): Promise<void> {
+    const normalizedCallId = String(callId || '').trim();
+    if (!normalizedCallId) return;
+    if (!this.currentCallId) this.currentCallId = normalizedCallId;
     await this.prepararMediosLocales(); // solo audio
-    this.crearPeerHandlers(callId, this.usuarioActualId, toUserId); // crea transceiver vídeo
+    this.crearPeerHandlers(normalizedCallId); // crea transceiver vídeo
 
     const offer = await this.peer!.createOffer({
       offerToReceiveAudio: true,
@@ -12814,12 +13217,7 @@ private async decryptPreviewString(
     });
     await this.peer!.setLocalDescription(offer);
 
-    this.wsService.enviarSdpOffer({
-      callId,
-      fromUserId: this.usuarioActualId,
-      toUserId,
-      sdp: offer.sdp as string,
-    });
+    this.sendSdpOfferSecure(normalizedCallId, offer.sdp as string, toUserId);
 
     this.showCallUI = true;
     this.cdr.markForCheck();
@@ -12834,29 +13232,34 @@ private async decryptPreviewString(
     toUserId: number;
     sdp: string;
   }): Promise<void> {
+    const normalizedCallId = String(offer?.callId || '').trim();
+    if (!normalizedCallId) return;
+    this.currentCallId = normalizedCallId;
+    this.wsService.setActiveCallSession(
+      normalizedCallId,
+      Number(offer.fromUserId),
+      Number(offer.toUserId)
+    );
+    this.signalingBlockedCallIds.delete(normalizedCallId);
+
     // ? ocultar banner de llamada entrante
     this.stopIncomingRingtone();
     this.ultimaInvite = undefined;
 
     this.showCallUI = true;
     await this.prepararMediosLocales();
-    this.crearPeerHandlers(
-      offer.callId,
-      this.usuarioActualId,
-      offer.fromUserId
-    );
+    this.crearPeerHandlers(normalizedCallId);
 
     await this.peer!.setRemoteDescription({ type: 'offer', sdp: offer.sdp });
 
     const answer = await this.peer!.createAnswer();
     await this.peer!.setLocalDescription(answer);
 
-    this.wsService.enviarSdpAnswer({
-      callId: offer.callId,
-      fromUserId: this.usuarioActualId,
-      toUserId: offer.fromUserId,
-      sdp: answer.sdp as string,
-    });
+    this.sendSdpAnswerSecure(
+      normalizedCallId,
+      answer.sdp as string,
+      offer.fromUserId
+    );
 
     // Por si venias de "Llamando..."
     this.callInfoMessage = null;
@@ -12917,10 +13320,10 @@ private async decryptPreviewString(
    * Configura las reglas iniciales y los receptores de conexión WebRTC para conectar el video de otra persona directamente.
    */
   private crearPeerHandlers(
-    callId: string,
-    fromUserId: number,
-    toUserId: number
+    callId: string
   ): void {
+    const normalizedCallId = String(callId || '').trim();
+    if (!normalizedCallId) return;
     this.peer = new RTCPeerConnection(this.rtcConfig);
 
     // 1) AUDIO local
@@ -12966,14 +13369,12 @@ private async decryptPreviewString(
     // 4) ICE saliente
     this.peer.onicecandidate = (ev) => {
       if (ev.candidate) {
-        this.wsService.enviarIce({
-          callId,
-          fromUserId,
-          toUserId,
-          candidate: ev.candidate.candidate,
-          sdpMid: ev.candidate.sdpMid || undefined,
-          sdpMLineIndex: ev.candidate.sdpMLineIndex ?? undefined,
-        });
+        this.sendIceCandidateSecure(
+          normalizedCallId,
+          ev.candidate.candidate,
+          ev.candidate.sdpMid || undefined,
+          ev.candidate.sdpMLineIndex ?? undefined
+        );
       }
     };
 
@@ -12982,12 +13383,7 @@ private async decryptPreviewString(
       try {
         const offer = await this.peer!.createOffer();
         await this.peer!.setLocalDescription(offer);
-        this.wsService.enviarSdpOffer({
-          callId,
-          fromUserId,
-          toUserId,
-          sdp: offer.sdp as string,
-        });
+        this.sendSdpOfferSecure(normalizedCallId, offer.sdp as string);
       } catch (e) {
         console.error('[RTC] renegotiation error', e);
       }
@@ -13068,6 +13464,91 @@ private async decryptPreviewString(
     if (autoCloseMs) {
       setTimeout(() => this.cerrarLlamadaLocal(), autoCloseMs);
     }
+  }
+
+  private shouldProcessInboundSignaling(callIdRaw?: string): boolean {
+    const callId = String(callIdRaw || '').trim();
+    if (!callId) return false;
+    if (this.signalingBlockedCallIds.has(callId)) return false;
+    if (this.currentCallId && this.currentCallId !== callId) return false;
+    return true;
+  }
+
+  private canSendSignalingForCall(callIdRaw?: string): boolean {
+    const callId = String(callIdRaw || '').trim();
+    if (!callId) return false;
+    if (this.signalingBlockedCallIds.has(callId)) return false;
+    if (!this.currentCallId) return false;
+    if (this.currentCallId !== callId) return false;
+    return true;
+  }
+
+  private sendSdpOfferSecure(
+    callIdRaw: string,
+    sdpRaw: string,
+    hintedToUserIdRaw?: number
+  ): boolean {
+    const callId = String(callIdRaw || '').trim();
+    const sdp = String(sdpRaw || '').trim();
+    if (!callId || !sdp) return false;
+    if (!this.canSendSignalingForCall(callId)) return false;
+    const hintedToUserId = Number(hintedToUserIdRaw);
+    const ok = this.wsService.enviarSdpOffer({
+      callId,
+      fromUserId: this.usuarioActualId,
+      toUserId:
+        Number.isFinite(hintedToUserId) && hintedToUserId > 0
+          ? hintedToUserId
+          : 0,
+      sdp,
+    });
+    if (!ok) return false;
+    return true;
+  }
+
+  private sendSdpAnswerSecure(
+    callIdRaw: string,
+    sdpRaw: string,
+    hintedToUserIdRaw?: number
+  ): boolean {
+    const callId = String(callIdRaw || '').trim();
+    const sdp = String(sdpRaw || '').trim();
+    if (!callId || !sdp) return false;
+    if (!this.canSendSignalingForCall(callId)) return false;
+    const hintedToUserId = Number(hintedToUserIdRaw);
+    const ok = this.wsService.enviarSdpAnswer({
+      callId,
+      fromUserId: this.usuarioActualId,
+      toUserId:
+        Number.isFinite(hintedToUserId) && hintedToUserId > 0
+          ? hintedToUserId
+          : 0,
+      sdp,
+    });
+    if (!ok) return false;
+    return true;
+  }
+
+  private sendIceCandidateSecure(
+    callIdRaw: string,
+    candidateRaw: string,
+    sdpMid?: string,
+    sdpMLineIndex?: number
+  ): boolean {
+    const callId = String(callIdRaw || '').trim();
+    const candidate = String(candidateRaw || '').trim();
+    if (!callId || !candidate) return false;
+    if (!this.canSendSignalingForCall(callId)) return false;
+    const ok = this.wsService.enviarIce({
+      callId,
+      fromUserId: this.usuarioActualId,
+      toUserId: 0,
+      candidate,
+      sdpMid,
+      sdpMLineIndex,
+    });
+    if (!ok) return false;
+    return true;
   }
 
   /**

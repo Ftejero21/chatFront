@@ -47,8 +47,6 @@ export class SessionService {
       broadcast = true,
       reason = 'manual',
     } = options;
-    const usuarioId = Number(localStorage.getItem('usuarioId'));
-
     const finalizeLogout = (): void => {
       this.clearSessionStorage({ clearE2EKeys, clearAuditKeys });
       if (broadcast) this.broadcastLogout(reason);
@@ -56,33 +54,19 @@ export class SessionService {
       void this.router.navigate(['/login']);
     };
 
-    if (Number.isFinite(usuarioId) && usuarioId > 0) {
-      void this.wsService
-        .enviarEstadoDesconectadoConFlush(usuarioId)
-        .finally(finalizeLogout);
-      return;
-    }
-
-    finalizeLogout();
+    void this.wsService.enviarEstadoDesconectadoConFlush().finally(finalizeLogout);
   }
 
   public handleExternalLogout(): void {
-    const usuarioId = Number(localStorage.getItem('usuarioId'));
-
     const finalizeExternalLogout = (): void => {
       this.clearSessionStorage({ clearE2EKeys: false, clearAuditKeys: false });
       void this.wsService.desconectar();
       void this.router.navigate(['/login']);
     };
 
-    if (Number.isFinite(usuarioId) && usuarioId > 0) {
-      void this.wsService
-        .enviarEstadoDesconectadoConFlush(usuarioId)
-        .finally(finalizeExternalLogout);
-      return;
-    }
-
-    finalizeExternalLogout();
+    void this.wsService
+      .enviarEstadoDesconectadoConFlush()
+      .finally(finalizeExternalLogout);
   }
 
   public clearSessionArtifacts(options?: {
