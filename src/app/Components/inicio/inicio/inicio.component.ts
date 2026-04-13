@@ -1704,8 +1704,14 @@ export class InicioComponent {
           ) {
             this.suscritosEstado.add(receptorId);
             this.wsService.suscribirseAEstado(receptorId, (estado) => {
-              const c = this.chats.find((x) => x.receptor?.id === receptorId);
-              if (c) c.estado = estado;
+              this.ngZone.run(() => {
+                const c = this.chats.find((x) => x.receptor?.id === receptorId);
+                if (c) c.estado = this.toEstado(estado);
+                if (this.chatActual?.receptor?.id === receptorId) {
+                  this.chatActual.estado = this.toEstado(estado);
+                }
+                this.cdr.markForCheck();
+              });
             });
           }
 
@@ -1808,6 +1814,15 @@ export class InicioComponent {
         this.recalcularNoLeidosDesdeHistorial();
 
         // Suscribirse a TODOS los grupos (una vez por grupo)
+        const groupChatIds = this.chats
+          .filter((c) => c.esGrupo)
+          .map((c) => Number(c?.id))
+          .filter((id) => Number.isFinite(id) && id > 0);
+        this.wsService.sincronizarSuscripcionesChatGrupalPermitidas(
+          groupChatIds,
+          'chat-list-refresh'
+        );
+
         this.chats
           .filter((c) => c.esGrupo)
           .forEach((g) => {
@@ -2602,6 +2617,17 @@ export class InicioComponent {
    */
   public mostrarMensajes(chat: any): void {
     this.persistActiveChatDraft();
+    const previousChatId = Number(this.chatActual?.id || 0);
+    const previousWasGroup = !!this.chatActual?.esGrupo;
+    const nextChatId = Number(chat?.id || 0);
+    if (
+      previousWasGroup &&
+      Number.isFinite(previousChatId) &&
+      previousChatId > 0 &&
+      previousChatId !== nextChatId
+    ) {
+      this.wsService.desuscribirseIndicadoresGrupo(previousChatId, 'chat-switch');
+    }
     this.activeMainView = 'chat';
     this.showTopbarProfileMenu = false;
     this.cancelarRespuestaMensaje();
@@ -4963,6 +4989,7 @@ private async decryptPreviewString(
     if (!Number.isFinite(chatId) || chatId <= 0) return false;
 
     const normalizedChatId = Math.round(chatId);
+    this.wsService.desuscribirseDeGrupo(normalizedChatId, 'chat-removed-local-state');
     const existed = (this.chats || []).some(
       (c: any) => Number(c?.id) === normalizedChatId
     );
@@ -5872,6 +5899,7 @@ private async decryptPreviewString(
   ): void {
     const id = Number(chatId);
     if (!Number.isFinite(id) || id <= 0) return;
+    this.wsService.desuscribirseDeGrupo(id, 'not-group-member');
 
     const normalizedNotice =
       String(notice || '').trim() || 'Has salido del grupo';
@@ -14144,12 +14172,14 @@ private async decryptPreviewString(
       this.topbarEstadoSuscritos.add(id);
 
       this.wsService.suscribirseAEstado(id, (estadoStr: string) => {
-        const estado = this.toEstado(estadoStr); // 'Conectado' | 'Desconectado' | 'Ausente'
-        const i = this.topbarResults.findIndex((u) => u.id === id);
-        if (i !== -1) {
-          this.topbarResults[i] = { ...this.topbarResults[i], estado };
-          this.cdr.markForCheck();
-        }
+        this.ngZone.run(() => {
+          const estado = this.toEstado(estadoStr); // 'Conectado' | 'Desconectado' | 'Ausente'
+          const i = this.topbarResults.findIndex((u) => u.id === id);
+          if (i !== -1) {
+            this.topbarResults[i] = { ...this.topbarResults[i], estado };
+            this.cdr.markForCheck();
+          }
+        });
       });
     }
   }
@@ -16282,6 +16312,7 @@ private async decryptPreviewString(
   }
 
   public ngOnDestroy(): void {
+    this.wsService.limpiarSuscripcionesChatUI();
     this.persistActiveChatDraft();
     this.stopProfileCodeCountdown();
     this.clearPendingAttachment();
