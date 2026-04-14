@@ -23,6 +23,7 @@ import {
   ChatPinnedMessageDTO,
   PinMessageRequestDTO,
 } from '../../Interface/ChatPinnedMessageDTO';
+import { PageResponse } from '../../Interface/PageResponse';
 import { environment } from '../../environments';
 
 export interface PollVoteRestRequestDTO {
@@ -105,6 +106,17 @@ export interface ChatMuteStateDTO {
 
 export interface AddUsersToGroupRequestDTO {
   userIds: number[];
+}
+
+export interface AdminGroupListDTO {
+  id: number;
+  nombreGrupo: string | null;
+  descripcion: string | null;
+  visibilidad: 'PUBLICO' | 'PRIVADO' | null;
+  activo: boolean;
+  fechaCreacion: string;
+  creadorId: number | null;
+  totalMiembros: number;
 }
 
 @Injectable({
@@ -471,6 +483,23 @@ export class ChatService {
     return this.http.post<{ [key: number]: boolean }>(
       `${environment.backendBaseUrl}/api/estado/usuarios`,
       usuarioIds
+    );
+  }
+
+  listarGruposAdmin(
+    page: number = 0,
+    size: number = 10
+  ): Observable<PageResponse<AdminGroupListDTO>> {
+    const normalizedPage = Number.isFinite(page) ? Math.max(0, Math.floor(page)) : 0;
+    const normalizedSize = Number.isFinite(size)
+      ? Math.max(1, Math.min(50, Math.floor(size)))
+      : 10;
+    const params = new HttpParams()
+      .set('page', String(normalizedPage))
+      .set('size', String(normalizedSize));
+    return this.http.get<PageResponse<AdminGroupListDTO>>(
+      `${this.baseUrl}/admin/grupos`,
+      { params }
     );
   }
 

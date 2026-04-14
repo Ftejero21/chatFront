@@ -7,7 +7,7 @@ import { firstValueFrom, Observable, Subject, Subscription } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import Swal from 'sweetalert2';
 import { StompSubscription } from '@stomp/stompjs';
-import { ChatService } from '../../../Service/chat/chat.service';
+import { AdminGroupListDTO, ChatService } from '../../../Service/chat/chat.service';
 import {
   decryptPreviewStringE2E,
   parsePollPayload,
@@ -87,16 +87,25 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   // Variables de control de vista
   isDashboardView: boolean = true;
   isReportsView: boolean = false;
+  isGroupsView: boolean = false;
+  isGroupsTableMode: boolean = false;
   isSidebarOpen: boolean = false;
   headerSubtitle: string = "Gestion centralizada de TejeChat.";
   currentUserName: string = "";
   loadingConversations: boolean = false;
+  loadingGroups: boolean = false;
   loadingChatMessages: boolean = false;
   selectedChatMessagesSource: 'admin' | 'group' = 'admin';
   public usuarioActualId!: number;
   userChats: any[] = [];
   selectedChat: any | null = null;
   selectedChatMensajes: any[] = [];
+  adminGroups: AdminGroupListDTO[] = [];
+  groupsPage: number = 0;
+  groupsPageSize: number = 10;
+  groupsTotalPages: number = 1;
+  groupsTotalElements: number = 0;
+  groupsIsLastPage: boolean = true;
   showAdminFilePreview: boolean = false;
   adminFilePreviewSrc: string = '';
   adminFilePreviewName: string = '';
@@ -430,6 +439,8 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   public showReportes(): void {
     this.isDashboardView = false;
     this.isReportsView = true;
+    this.isGroupsView = false;
+    this.isGroupsTableMode = false;
     this.isSidebarOpen = false;
     this.selectedChat = null;
     this.selectedChatMensajes = [];
@@ -820,6 +831,8 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   showConversations(user: any): void {
     this.isDashboardView = false;
     this.isReportsView = false;
+    this.isGroupsView = false;
+    this.isGroupsTableMode = false;
     this.currentUserName = user.nombre;
     this.headerSubtitle = `Inspeccionando registros de: ${user.nombre}`;
     this.inspectedUserId = Number(user.id);
@@ -3604,11 +3617,94 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   showDashboard() {
     this.isDashboardView = true;
     this.isReportsView = false;
+    this.isGroupsView = false;
+    this.isGroupsTableMode = false;
     this.isSidebarOpen = false;
     this.selectedChat = null;
     this.selectedChatMensajes = [];
     this.selectedChatMessagesSource = 'admin';
     this.headerSubtitle = "Gestion centralizada de TejeChat.";
+  }
+
+  public showGroupsView(): void {
+    this.isDashboardView = true;
+    this.isReportsView = false;
+    this.isGroupsView = true;
+    this.isGroupsTableMode = false;
+    this.isSidebarOpen = false;
+    this.selectedChat = null;
+    this.selectedChatMensajes = [];
+    this.selectedChatMessagesSource = 'admin';
+    this.headerSubtitle = 'Dashboard con listado administrativo de grupos.';
+    this.loadAdminGroups(0);
+  }
+
+  public loadAdminGroups(page: number = 0): void {
+    this.loadingGroups = true;
+    const targetPage = Number.isFinite(Number(page)) ? Math.max(0, Number(page)) : 0;
+    this.chatService.listarGruposAdmin(targetPage, this.groupsPageSize).subscribe({
+      next: (resp) => {
+        const content = Array.isArray(resp?.content) ? resp.content : [];
+        this.adminGroups = content;
+        this.groupsPage = Number(resp?.number ?? targetPage);
+        this.groupsPageSize = Number(resp?.size ?? this.groupsPageSize);
+        this.groupsTotalPages = Math.max(1, Number(resp?.totalPages ?? 1));
+        this.groupsTotalElements = Math.max(0, Number(resp?.totalElements ?? content.length));
+        this.groupsIsLastPage = Boolean(resp?.last ?? (this.groupsPage >= this.groupsTotalPages - 1));
+        this.loadingGroups = false;
+      },
+      error: (err) => {
+        console.error('Error cargando grupos admin', err);
+        this.loadingGroups = false;
+        this.adminGroups = [];
+        this.groupsTotalElements = 0;
+        this.groupsTotalPages = 1;
+        this.groupsIsLastPage = true;
+      },
+    });
+  }
+
+  public nextGroupsPage(): void {
+    if (this.loadingGroups || this.groupsIsLastPage) return;
+    this.loadAdminGroups(this.groupsPage + 1);
+  }
+
+  public prevGroupsPage(): void {
+    if (this.loadingGroups || this.groupsPage <= 0) return;
+    this.loadAdminGroups(this.groupsPage - 1);
+  }
+
+  public onGroupSettings(group: AdminGroupListDTO): void {
+    const groupLabel = group?.nombreGrupo?.trim() || `Grupo #${group?.id ?? '-'}`;
+    void Swal.fire({
+      title: 'Configuracion de grupo',
+      text: `Abriremos la configuracion de ${groupLabel} cuando conectemos esta accion con backend.`,
+      icon: 'info',
+      confirmButtonText: 'Entendido',
+      confirmButtonColor: '#2563eb',
+    });
+  }
+
+  public onGroupMute(group: AdminGroupListDTO): void {
+    const groupLabel = group?.nombreGrupo?.trim() || `Grupo #${group?.id ?? '-'}`;
+    void Swal.fire({
+      title: 'Silenciar grupo',
+      text: `La accion de silenciar ${groupLabel} queda preparada en UI. Falta enlazar endpoint backend.`,
+      icon: 'warning',
+      confirmButtonText: 'Entendido',
+      confirmButtonColor: '#d97706',
+    });
+  }
+
+  public onGroupDelete(group: AdminGroupListDTO): void {
+    const groupLabel = group?.nombreGrupo?.trim() || `Grupo #${group?.id ?? '-'}`;
+    void Swal.fire({
+      title: 'Eliminar grupo',
+      text: `La accion de eliminar ${groupLabel} queda preparada en UI. Falta enlazar endpoint backend.`,
+      icon: 'warning',
+      confirmButtonText: 'Entendido',
+      confirmButtonColor: '#e11d48',
+    });
   }
 
   logoutFromAdmin(): void {

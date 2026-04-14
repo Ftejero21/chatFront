@@ -16,6 +16,15 @@ import { UnbanAppealDTO, UnbanAppealEstado } from '../../Interface/UnbanAppealDT
 
 import { PreKeyBundleDTO, UploadBundleDTO } from '../../Interface/UploadBundleDTO';
 
+export interface LoginRegistrationInitResponse {
+  requiresVerification?: boolean;
+  email?: string;
+  message?: string;
+  mensaje?: string;
+  status?: string;
+  flow?: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -26,6 +35,17 @@ export class AuthService {
 
   login(dto: LoginRequestDTO): Observable<AuthRespuestaDTO> {
     return this.http.post<AuthRespuestaDTO>(`${this.baseUrl}/login`, dto);
+  }
+
+  verificarRegistroDesdeLogin(
+    email: string,
+    password: string,
+    code: string
+  ): Observable<AuthRespuestaDTO> {
+    return this.http.post<AuthRespuestaDTO>(
+      `${this.baseUrl}/login/verificar-codigo`,
+      { email, password, code }
+    );
   }
 
   loginConGoogle(

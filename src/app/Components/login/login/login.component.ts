@@ -1,11 +1,15 @@
-import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
-import { AuthService } from '../../../Service/auth/auth.service';
+import { Component, OnDestroy, OnInit } from '@angular/core';
+import {
+  AuthService,
+  LoginRegistrationInitResponse,
+} from '../../../Service/auth/auth.service';
 import Swal from 'sweetalert2';
 
 import { CryptoService } from '../../../Service/crypto/crypto.service';
 import { Router } from '@angular/router';
 import { UsuarioDTO } from '../../../Interface/UsuarioDTO';
 import { LoginRequestDTO } from '../../../Interface/LoginRequestDTO ';
+import { AuthRespuestaDTO } from '../../../Interface/AuthRespuestaDTO';
 import { SessionService } from '../../../Service/session/session.service';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments';
@@ -39,8 +43,9 @@ export class LoginComponent implements OnInit, OnDestroy {
   showBanAppealButton: boolean = false;
   lastBannedEmail: string = '';
   showLoginPassword: boolean = false;
-  showRegisterPassword: boolean = false;
-  registerEmailError: string = '';
+  showVerificationCodeInput = false;
+  verificationCode = '';
+  verifyingRegistrationCode = false;
   googleAuthInProgress = false;
   loginRateLimitSeconds = 0;
   unbanAppealRateLimitSeconds = 0;
@@ -48,22 +53,7 @@ export class LoginComponent implements OnInit, OnDestroy {
   private unbanAppealRateLimitTimer: any = null;
   private googleIdentityScriptPromise: Promise<void> | null = null;
   private googleIdentityInitializedClientId = '';
-
-  // --- Registro (DTO limpio, sin File) ---
-  registro: UsuarioDTO = {
-    nombre: '',
-    apellido: '',
-    email: '',
-    password: '',
-    // foto?: string (enviado como dataURL si el usuario sube avatar)
-  };
-
-  // --- UI ---
-  modoLogin = true;
-  avatarPreviewUrl: string | null = null; // para mostrar la imagen
-  private avatarBase64: string | null = null; // lo que enviaremos en registro.foto
-
-  @ViewChild('avatarInput') avatarInput!: ElementRef<HTMLInputElement>;
+  private readonly OPEN_PROFILE_AFTER_REGISTER_KEY = 'openProfileAfterRegister';
 
   constructor(
     private authService: AuthService,
@@ -96,21 +86,9 @@ export class LoginComponent implements OnInit, OnDestroy {
     void this.prepareGoogleIdentity(false);
   }
 
-  // Cambio de tab con reseteo del uploader al pasar a login
-  switchTo(login: boolean): void {
-    this.modoLogin = login;
-    this.registerEmailError = '';
-    if (login) this.resetAvatar(); // limpia al salir de registro
-  }
-
-  onRegisterEmailInput(): void {
-    if (this.registerEmailError) this.registerEmailError = '';
-  }
-
   continuarConGoogle(): void {
     if (this.googleAuthInProgress) return;
     this.googleAuthInProgress = true;
-    this.registerEmailError = '';
     void this.startGoogleAuthFlow();
   }
 
@@ -337,13 +315,6 @@ export class LoginComponent implements OnInit, OnDestroy {
     const code = String(err?.error?.code || '')
       .trim()
       .toUpperCase();
-
-    if (flow === 'register' && code === 'EMAIL_YA_EXISTE') {
-      this.registerEmailError = 'Ese email ya está registrado.';
-      this.showToast(this.registerEmailError, 'warning', 'Registro');
-      return;
-    }
-
     if (status === 404 || status === 405 || status === 501) {
       this.showToast(
         'El acceso con Google no está disponible en backend.',
@@ -378,6 +349,19 @@ export class LoginComponent implements OnInit, OnDestroy {
 
     this.authService.login(this.login).subscribe({
       next: async (response) => {
+        if (this.isVerificationStepResponse(response)) {
+          this.showVerificationCodeInput = true;
+          this.verificationCode = '';
+          this.showBanAppealButton = false;
+          this.lastBannedEmail = '';
+          const msg = this.extractInitFlowMessage(response);
+          this.showToast(
+            msg || 'Te enviamos un código de verificación para completar el registro.',
+            'info',
+            'Verificación'
+          );
+          return;
+        }
         await this.finalizeAuthSuccess(response, 'login');
       },
       error: (err) => {
@@ -416,6 +400,72 @@ export class LoginComponent implements OnInit, OnDestroy {
         }
       },
     });
+  }
+
+  confirmarCodigoRegistro(): void {
+    const email = String(this.login?.email || '').trim();
+    const password = String(this.login?.password || '');
+    const code = String(this.verificationCode || '').trim();
+    if (!email || !password) {
+      this.showToast('Debes indicar email y contraseña.', 'warning', 'Aviso');
+      return;
+    }
+    if (!code) {
+      this.showToast('Ingresa el código de verificación.', 'warning', 'Aviso');
+      return;
+    }
+
+    this.verifyingRegistrationCode = true;
+    this.authService.verificarRegistroDesdeLogin(email, password, code).subscribe({
+      next: async (response) => {
+        this.verifyingRegistrationCode = false;
+        this.showVerificationCodeInput = false;
+        this.verificationCode = '';
+        await this.finalizeAuthSuccess(response, 'register');
+      },
+      error: (err) => {
+        this.verifyingRegistrationCode = false;
+        const backendMsg = this.extractBackendErrorMessage(err);
+        this.showToast(
+          backendMsg || 'Código inválido o expirado. Inténtalo de nuevo.',
+          'danger',
+          'Verificación'
+        );
+      },
+    });
+  }
+
+  cancelarVerificacionRegistro(): void {
+    this.showVerificationCodeInput = false;
+    this.verificationCode = '';
+  }
+
+  private isVerificationStepResponse(
+    response: AuthRespuestaDTO | LoginRegistrationInitResponse | any
+  ): boolean {
+    if (!response || typeof response !== 'object') return false;
+    const hasAuthToken = String((response as any)?.token || '').trim().length > 0;
+    const hasUsuarioId = Number.isFinite(
+      Number((response as any)?.usuario?.id || (response as any)?.id || 0)
+    );
+    if (hasAuthToken && hasUsuarioId) return false;
+    if ((response as any)?.requiresVerification === true) return true;
+    const status = String(
+      (response as any)?.status || (response as any)?.flow || ''
+    )
+      .trim()
+      .toUpperCase();
+    return (
+      status === 'REGISTRATION_VERIFICATION_REQUIRED' ||
+      status === 'PENDING_REGISTRATION' ||
+      status === 'VERIFY_CODE'
+    );
+  }
+
+  private extractInitFlowMessage(
+    response: LoginRegistrationInitResponse | any
+  ): string {
+    return String(response?.mensaje || response?.message || '').trim();
   }
 
   async abrirReporteDesbaneo(): Promise<void> {
@@ -526,47 +576,6 @@ export class LoginComponent implements OnInit, OnDestroy {
       });
   }
 
-  registrarse(): void {
-    this.registerEmailError = '';
-    const payload: UsuarioDTO = { ...this.registro };
-    if (this.avatarBase64) {
-      (payload as any).foto = this.avatarBase64; // el back ya sabe manejar dataURL
-    }
-
-    this.authService.registro(payload).subscribe({
-      next: async (response: any) => {
-        await this.finalizeAuthSuccess(response, 'register');
-      },
-      error: (err) => {
-        console.error('Error al registrar:', err);
-        if (this.isDuplicateEmailRegistrationError(err)) {
-          this.registerEmailError = 'Ese email ya esta registrado.';
-          this.showToast(this.registerEmailError, 'warning', 'Registro');
-          return;
-        }
-
-        const backendMsg = this.extractBackendErrorMessage(err);
-        if (backendMsg) {
-          this.showToast(backendMsg, 'danger', 'Registro');
-          return;
-        }
-
-        this.showToast(
-          'No se pudo completar el registro. Intentalo de nuevo.',
-          'danger',
-          'Registro'
-        );
-      },
-    });
-  }
-
-  private isDuplicateEmailRegistrationError(err: any): boolean {
-    const status = Number(err?.status || 0);
-    const code = String(err?.error?.code || '')
-      .trim()
-      .toUpperCase();
-    return status === 409 && code === 'EMAIL_YA_EXISTE';
-  }
 
   private extractBackendErrorMessage(err: any): string {
     const asObject =
@@ -607,7 +616,7 @@ export class LoginComponent implements OnInit, OnDestroy {
       localStorage.setItem('token', token);
     }
     localStorage.setItem('usuarioId', String(userId));
-    if (source === 'login') {
+    if (source === 'login' || source === 'register') {
       localStorage.setItem('rememberMe', String(this.rememberMe));
     }
 
@@ -651,6 +660,9 @@ export class LoginComponent implements OnInit, OnDestroy {
         return;
       }
 
+      if (source === 'register') {
+        sessionStorage.setItem(this.OPEN_PROFILE_AFTER_REGISTER_KEY, 'true');
+      }
       this.router.navigate(['/inicio']);
     } catch (e) {
       console.error('Error criptográfico', e);
@@ -863,9 +875,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     source: 'login' | 'register'
   ): string {
     const loginPassword = String(this.login?.password || '').trim();
-    const registerPassword = String(this.registro?.password || '').trim();
-    if (source === 'register') return registerPassword || loginPassword;
-    return loginPassword || registerPassword;
+    return loginPassword;
   }
 
   private async promptPasswordForE2EBackupRestore(): Promise<string | null> {
@@ -990,45 +1000,6 @@ export class LoginComponent implements OnInit, OnDestroy {
     }
   }
 
-  onAvatarSelected(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const file = input.files && input.files[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      alert('Selecciona una imagen válida.');
-      input.value = '';
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      alert('La imagen es demasiado grande (máx 5MB).');
-      input.value = '';
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      this.avatarPreviewUrl = dataUrl; // previsualización inmediata
-      this.avatarBase64 = dataUrl; // se enviará en el DTO
-      input.value = ''; // permite re-seleccionar el MISMO archivo
-    };
-    reader.readAsDataURL(file);
-  }
-
-  clearAvatar(): void {
-    this.resetAvatar();
-    // opcional: feedback
-    // this.showToast('Imagen eliminada', 'info');
-  }
-
-  private resetAvatar(): void {
-    this.avatarPreviewUrl = null;
-    this.avatarBase64 = null;
-    if (this.avatarInput?.nativeElement) {
-      this.avatarInput.nativeElement.value = '';
-    }
-  }
 
   private extractAuditPublicKeyFromSource(source: any): string | null {
     if (!source || typeof source !== 'object') return null;
@@ -1130,9 +1101,6 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.showLoginPassword = !this.showLoginPassword;
   }
 
-  toggleRegisterPasswordVisibility(): void {
-    this.showRegisterPassword = !this.showRegisterPassword;
-  }
 
   ngOnDestroy(): void {
     if (this.loginRateLimitTimer) clearInterval(this.loginRateLimitTimer);
@@ -1192,6 +1160,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     }, 1000);
   }
 }
+
 
 
 

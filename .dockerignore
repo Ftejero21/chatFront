@@ -1,0 +1,8 @@
+node_modules
+.angular
+.git
+.vscode
+dist
+npm-debug.log*
+yarn-error.log*
+docker-compose.yml

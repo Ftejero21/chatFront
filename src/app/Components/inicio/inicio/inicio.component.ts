@@ -775,6 +775,10 @@ export class InicioComponent {
     return (s || '').trim();
   }
   private inactividadTimer: any;
+  private tabOcultaTimer: any;
+  private readonly presenciaActividadEventos = ['mousemove', 'keydown', 'click', 'scroll'];
+  private presenciaOnActividad?: () => void;
+  private presenciaOnVisibilidadChange?: () => void;
   private topbarEstadoSuscritos = new Set<number>();
   private enrichedUsers = new Set<number>();
   private HANDLED_INVITES_KEY = 'handledInviteIds';
@@ -783,6 +787,7 @@ export class InicioComponent {
   private readonly CHAT_DRAFTS_KEY = 'chatDraftsByChat';
   private readonly TEMPORARY_CHAT_SETTINGS_KEY = 'chatTemporarySecondsByChat';
   private readonly PINNED_CHAT_ID_KEY = 'pinnedChatId';
+  private readonly OPEN_PROFILE_AFTER_REGISTER_KEY = 'openProfileAfterRegister';
   private draftByChatId = new Map<number, string>();
   private temporarySecondsByChatId = new Map<number, number>();
   private mutedChatUntilByChatId = new Map<number, number | null>();
@@ -883,6 +888,8 @@ export class InicioComponent {
    */
   public ngOnInit(): void {
     const id = localStorage.getItem('usuarioId');
+    const openProfileAfterRegister =
+      sessionStorage.getItem(this.OPEN_PROFILE_AFTER_REGISTER_KEY) === 'true';
     this.resetEdicion();
     this.cargarPerfil();
     this.inicializarDeteccionInactividad();
@@ -893,6 +900,10 @@ export class InicioComponent {
     }
 
     this.usuarioActualId = parseInt(id, 10);
+    if (openProfileAfterRegister) {
+      sessionStorage.removeItem(this.OPEN_PROFILE_AFTER_REGISTER_KEY);
+      this.openProfileView();
+    }
     this.loadChatDraftsFromStorage();
     this.loadTemporarySettingsFromStorage();
     this.loadPinnedChatFromStorage();
@@ -12484,12 +12495,12 @@ private async decryptPreviewString(
   }
 
   /**
-   * Programa un reloj para cambiar de "Conectado" a "Ausente" si la persona no mueve el ratón en 20 minutos.
+   * Programa relojes de presencia:
+   * - Inactividad general (20 min) => Ausente.
+   * - Pestaña oculta (5 min aprox) => Ausente.
    */
   private inicializarDeteccionInactividad(): void {
-    const eventos = ['mousemove', 'keydown', 'click', 'scroll'];
-
-    const resetTimer = () => {
+    const resetTimerInactividad = () => {
       if (this.estadoActual === 'Ausente') {
         this.cambiarEstado('Conectado');
       }
@@ -12499,11 +12510,37 @@ private async decryptPreviewString(
       }, 20 * 60 * 1000); // 20 min
     };
 
-    eventos.forEach((evento) => {
-      window.addEventListener(evento, resetTimer);
-    });
+    const iniciarTimerPestanaOculta = () => {
+      clearTimeout(this.tabOcultaTimer);
+      this.tabOcultaTimer = setTimeout(() => {
+        if (this.isAppTabInBackground()) {
+          this.cambiarEstado('Ausente');
+        }
+      }, 5 * 60 * 1000); // ~5 min
+    };
 
-    resetTimer();
+    this.presenciaOnActividad = () => {
+      resetTimerInactividad();
+    };
+
+    this.presenciaOnVisibilidadChange = () => {
+      if (this.isAppTabInBackground()) {
+        iniciarTimerPestanaOculta();
+        return;
+      }
+      clearTimeout(this.tabOcultaTimer);
+      resetTimerInactividad();
+    };
+
+    this.presenciaActividadEventos.forEach((evento) => {
+      window.addEventListener(evento, this.presenciaOnActividad!);
+    });
+    document.addEventListener('visibilitychange', this.presenciaOnVisibilidadChange);
+
+    resetTimerInactividad();
+    if (this.isAppTabInBackground()) {
+      iniciarTimerPestanaOculta();
+    }
   }
 
   /**
@@ -16321,6 +16358,16 @@ private async decryptPreviewString(
       clearTimeout(timer);
     }
     this.scheduledDeliveryProbeTimers.clear();
+    clearTimeout(this.inactividadTimer);
+    clearTimeout(this.tabOcultaTimer);
+    if (this.presenciaOnActividad) {
+      this.presenciaActividadEventos.forEach((evento) => {
+        window.removeEventListener(evento, this.presenciaOnActividad!);
+      });
+    }
+    if (this.presenciaOnVisibilidadChange) {
+      document.removeEventListener('visibilitychange', this.presenciaOnVisibilidadChange);
+    }
     clearTimeout(this.escribiendoTimeout);
     clearTimeout(this.grabandoAudioTimeout);
     if (this.recording) {
