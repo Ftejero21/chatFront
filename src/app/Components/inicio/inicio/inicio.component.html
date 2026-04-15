@@ -1,4 +1,4 @@
-<div class="imagenPrincipal">
+﻿<div class="imagenPrincipal">
   <div class="contenedorChat">
 
     <header class="topbar">
@@ -14,7 +14,7 @@
           (input)="onTopbarSearch($event)" (focus)="topbarOpen = !!topbarResults.length" />
 
         <div class="topbar__results collapse" [class.show]="topbarOpen" (mousedown)="$event.preventDefault()">
-          <div *ngIf="topbarSearching" class="result-row muted">Buscando…</div>
+          <div *ngIf="topbarSearching" class="result-row muted">Buscandoâ€¦</div>
           <div *ngIf="!topbarSearching && topbarResults.length === 0" class="result-row muted">Sin resultados</div>
           <button type="button" class="result-row" *ngFor="let u of topbarResults; trackBy: trackIndex"
             (click)="onTopbarResultClick(u)">
@@ -51,7 +51,7 @@
             <ng-container *ngIf="notifInvites.length else notifEmpty">
               <div *ngFor="let n of notifInvites" class="notif-card">
                 <div class="notif-text">
-                  <strong>{{ n.inviterNombre }}</strong> te invita al grupo <strong>“{{ n.groupName }}”</strong>
+                  <strong>{{ n.inviterNombre }}</strong> te invita al grupo <strong>â€œ{{ n.groupName }}â€</strong>
                 </div>
                 <div class="notif-actions">
                   <button class="btn-add-user" (click)="aceptarInvitacion(n)">Aceptar</button>
@@ -83,7 +83,7 @@
             </button>
             <button type="button" class="topbar-profile-item topbar-profile-item--danger" (click)="logoutFromTopbar($event)">
               <i class="bi bi-box-arrow-right"></i>
-              Cerrar sesión
+              Cerrar sesiÃ³n
             </button>
           </div>
         </div>
@@ -278,7 +278,7 @@
                     <span class="audio-activity-indicator audio-activity-indicator--mini" aria-hidden="true">
                       <i class="fas fa-microphone"></i>
                     </span>
-                    {{ chat.esGrupo ? (quienGrabaAudioEnGrupo.get(chat.id) || 'Alguien') + ' está grabando audio...' :
+                    {{ chat.esGrupo ? (quienGrabaAudioEnGrupo.get(chat.id) || 'Alguien') + ' estÃ¡ grabando audio...' :
                     'Grabando audio...' }}
                   </em>
                 </ng-container>
@@ -290,13 +290,22 @@
                     else ultimoMensaje
                   ">
                     <em class="escribiendo-lista">
-                      {{ chat.esGrupo ? (quienEscribeEnGrupo.get(chat.id) || 'Alguien') + ' está escribiendo...' :
+                      {{ chat.esGrupo ? (quienEscribeEnGrupo.get(chat.id) || 'Alguien') + ' estÃ¡ escribiendo...' :
                       'Escribiendo...' }}
                     </em>
                   </ng-container>
                 </ng-template>
 
                 <ng-template #ultimoMensaje>
+                  <ng-container *ngIf="isGroupChatClosed(chat); else previewNotClosed">
+                    <span class="preview-line preview-line--closed">
+                      <i class="bi bi-lock-fill" aria-hidden="true"></i>
+                      <span class="preview-text">{{ chat.chatCerradoMotivo || 'Chat cerrado por administracion' }}</span>
+                      <span *ngIf="chat.unreadCount > 0" class="badge-inline">{{ chat.unreadCount }}</span>
+                    </span>
+                  </ng-container>
+
+                  <ng-template #previewNotClosed>
                   <ng-container *ngIf="shouldShowDraftPreview(chat); else ultimoMensajeBase">
                     <span class="preview-line preview-line--draft">
                       <span class="preview-draft-label">Borrador:</span>
@@ -307,9 +316,9 @@
                   <ng-template #ultimoMensajeBase>
                     <ng-container *ngIf="isAudioPreviewChat(chat); else noAudioPrev">
                       <span class="preview-audio compact">
-                        <span *ngIf="audioPreviewLabel(chat) === 'Tú'" class="me-label">Tú:</span>
+                        <span *ngIf="audioPreviewLabel(chat) === 'TÃº'" class="me-label">TÃº:</span>
                         <i class="fas fa-microphone" aria-hidden="true"></i>
-                        <span class="sep">•</span>
+                        <span class="sep">â€¢</span>
                         <span class="time">{{ audioPreviewTime(chat) }}</span>
                       </span>
                       <span *ngIf="chat.unreadCount > 0" class="badge-inline">{{ chat.unreadCount }}</span>
@@ -330,7 +339,7 @@
                             </span>
                           </ng-template>
                           <span *ngIf="imagePreviewCaption(chat) as caption" class="preview-text">
-                            <span class="preview-caption-chip">“{{ caption }}”</span>
+                            <span class="preview-caption-chip">â€œ{{ caption }}â€</span>
                           </span>
                           <span *ngIf="chat.unreadCount > 0" class="badge-inline">{{ chat.unreadCount }}</span>
                         </span>
@@ -364,6 +373,7 @@
                       </span>
                     </ng-template>
                   </ng-template>
+                  </ng-template>
                 </ng-template>
               </div>
             </div>
@@ -377,6 +387,14 @@
               <i class="bi bi-bell-slash-fill"></i>
             </span>
 
+            <span
+              *ngIf="!forwardModalOpen && isGroupChatClosed(chat)"
+              class="chat-muted-indicator chat-closed-indicator"
+              [attr.title]="(chat.chatCerradoMotivo || 'Chat cerrado por administracion')"
+              [attr.aria-label]="(chat.chatCerradoMotivo || 'Chat cerrado por administracion')"
+            >
+              <i class="bi bi-lock-fill"></i>
+            </span>
             <div *ngIf="!forwardModalOpen" class="chat-pin-anchor" (click)="$event.stopPropagation()">
               <button
                 type="button"
@@ -405,6 +423,15 @@
                 >
                   <i class="bi" [ngClass]="isChatMuted(chat) ? 'bi-bell-fill' : 'bi-bell-slash-fill'"></i>
                   {{ isChatMuted(chat) ? 'Activar notificaciones' : 'Silenciar notificaciones' }}
+                </button>
+                <button
+                  *ngIf="chat.esGrupo && isGroupChatClosed(chat)"
+                  type="button"
+                  class="chat-pin-menu-btn chat-pin-menu-btn--report"
+                  (click)="reportarCierreChatDesdeListado(chat, $event)"
+                >
+                  <i class="bi bi-flag-fill"></i>
+                  Poner reporte
                 </button>
                 <button
                   type="button"
@@ -479,7 +506,7 @@
               class="chat-empty-state__link"
               (click)="setChatListFilter('GRUPOS')"
             >
-              Explorar grupos públicos
+              Explorar grupos pÃºblicos
             </button>
           </div>
         </ng-template>
@@ -592,6 +619,14 @@
                   <span class="icono-salir" aria-hidden="true"><i class="bi bi-box-arrow-right"></i></span>
                   Salir del grupo
                 </button>
+                <button
+                  *ngIf="chatActual?.esGrupo && chatGrupalCerradoPorAdmin"
+                  class="dropdown-item dropdown-item--reportar"
+                  (mousedown)="reportarCierreChatActual($event); $event.stopPropagation()"
+                >
+                  <span class="icono-reportar" aria-hidden="true"><i class="bi bi-flag-fill"></i></span>
+                  Poner reporte
+                </button>
                 <button class="dropdown-item" *ngIf="chatActual && !chatActual.esGrupo"
                   [ngClass]="yoLoBloquee ? 'dropdown-item--desbloquear' : 'dropdown-item--bloquear'"
                   (mousedown)="toggleBloquearUsuario(); $event.stopPropagation()">
@@ -663,7 +698,7 @@
           <div *ngIf="chatSeleccionadoId !== null && mensajesSeleccionados.length === 0 && !showGroupHistoryUnavailableNotice" class="placeholder-chat">
             <i class="bi bi-inbox"></i>
             <h3>No hay mensajes</h3>
-            <p>Envía un mensaje para iniciar la conversación</p>
+            <p>EnvÃ­a un mensaje para iniciar la conversaciÃ³n</p>
           </div>
 
           <div *ngIf="chatSeleccionadoId !== null && showGroupHistoryUnavailableNotice" class="mensaje-row mensaje-row--system">
@@ -692,7 +727,7 @@
 
           <div *ngIf="ultimaInvite && !showCallUI" class="incoming-call-banner">
             <div class="caller">
-              <strong>{{ ultimaInvite.callerNombre }} {{ ultimaInvite.callerApellido }}</strong> te está llamando…
+              <strong>{{ ultimaInvite.callerNombre }} {{ ultimaInvite.callerApellido }}</strong> te estÃ¡ llamandoâ€¦
             </div>
             <div class="actions">
               <button class="btn-accept" (click)="aceptarLlamada()"><i class="bi bi-telephone-inbound-fill"></i>
@@ -959,8 +994,8 @@
                                         <ng-container *ngIf="getFileSizeLabel(mensaje) as fileSize; else unknownFileSize">
                                           {{ fileSize }}
                                         </ng-container>
-                                        <ng-template #unknownFileSize>Sin tamaño</ng-template>
-                                        &nbsp;•&nbsp;{{ getFileTypeLabel(mensaje) }}
+                                        <ng-template #unknownFileSize>Sin tamaÃ±o</ng-template>
+                                        &nbsp;â€¢&nbsp;{{ getFileTypeLabel(mensaje) }}
                                       </span>
                                     </span>
                                   </a>
@@ -1224,7 +1259,7 @@
               <h3>Fijar mensaje</h3>
             </div>
             <p class="pin-duration-card__subtitle">
-              Elige durante cuánto tiempo quieres mantener este mensaje fijado.
+              Elige durante cuÃ¡nto tiempo quieres mantener este mensaje fijado.
             </p>
             <div class="pin-duration-card__options">
               <button
@@ -1260,7 +1295,7 @@
               <h3>Silenciar notificaciones</h3>
             </div>
             <p class="pin-duration-card__subtitle">
-              Elige durante cuánto tiempo quieres silenciar este chat.
+              Elige durante cuÃ¡nto tiempo quieres silenciar este chat.
             </p>
             <div class="pin-duration-card__options">
               <button
@@ -1303,8 +1338,8 @@
                 class="btn-forward-cancel-x"
                 (click)="cerrarModalReenvio()"
                 [disabled]="forwardingInProgress"
-                title="Cancelar reenvío"
-                aria-label="Cancelar reenvío"
+                title="Cancelar reenvÃ­o"
+                aria-label="Cancelar reenvÃ­o"
               >
                 <i class="bi bi-x-lg"></i>
               </button>
@@ -1325,15 +1360,15 @@
                 type="button"
                 class="reply-compose-banner__close"
                 (click)="cancelarEdicionMensaje()"
-                title="Cancelar edición"
-                aria-label="Cancelar edición"
+                title="Cancelar ediciÃ³n"
+                aria-label="Cancelar ediciÃ³n"
               >
                 <i class="bi bi-x-lg"></i>
               </button>
             </div>
             <div *ngIf="mensajeRespuestaObjetivo" class="reply-compose-banner">
               <div class="reply-compose-banner__meta">
-                <span class="reply-compose-banner__label">Respondiendo a {{ mensajeRespuestaObjetivo.emisorId === usuarioActualId ? 'Tú' : (mensajeRespuestaObjetivo.emisorNombre || obtenerNombrePorId(mensajeRespuestaObjetivo.emisorId) || 'Usuario') }}</span>
+                <span class="reply-compose-banner__label">Respondiendo a {{ mensajeRespuestaObjetivo.emisorId === usuarioActualId ? 'TÃº' : (mensajeRespuestaObjetivo.emisorNombre || obtenerNombrePorId(mensajeRespuestaObjetivo.emisorId) || 'Usuario') }}</span>
                 <span class="reply-compose-banner__text">
                   {{
                     (mensajeRespuestaObjetivo.tipo || 'TEXT') === 'AUDIO'
@@ -1372,7 +1407,7 @@
                   [alt]="pendingAttachmentFile.name"
                 />
                 <div class="attachment-preview__caption">
-                  {{ pendingAttachmentFile.name }} · {{ formatAttachmentSize(pendingAttachmentFile.size) }}
+                  {{ pendingAttachmentFile.name }} Â· {{ formatAttachmentSize(pendingAttachmentFile.size) }}
                 </div>
               </ng-container>
               <ng-template #genericAttachmentCard>
@@ -1391,7 +1426,7 @@
                 <button
                   type="button"
                   class="btn-compose-actions"
-                  [disabled]="attachmentUploading || haSalidoDelGrupo || chatEstaBloqueado || noGroupRecipientsForSend"
+                  [disabled]="attachmentUploading || haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin || noGroupRecipientsForSend"
                   [title]="attachmentUploading ? 'Subiendo archivo...' : 'Abrir acciones de mensaje'"
                   aria-label="Abrir acciones de mensaje"
                   (click)="toggleComposeActionsPopup($event)"
@@ -1430,8 +1465,8 @@
                   type="button"
                   class="btn-emoji"
                   [class.btn-emoji--active]="showEmojiPicker"
-                  [disabled]="haSalidoDelGrupo || chatEstaBloqueado"
-                  [title]="haSalidoDelGrupo || chatEstaBloqueado ? 'No disponible' : 'Abrir emoticonos'"
+                  [disabled]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin"
+                  [title]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin ? 'No disponible' : 'Abrir emoticonos'"
                   aria-label="Abrir emoticonos"
                   (click)="toggleEmojiPicker($event)"
                 >
@@ -1449,8 +1484,8 @@
                   type="button"
                   class="btn-temp-message"
                   [class.btn-temp-message--active]="isTemporaryMessageEnabledForActiveChat"
-                  [disabled]="haSalidoDelGrupo || chatEstaBloqueado"
-                  [title]="haSalidoDelGrupo || chatEstaBloqueado ? 'No disponible' : 'Mensajes temporales'"
+                  [disabled]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin"
+                  [title]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin ? 'No disponible' : 'Mensajes temporales'"
                   aria-label="Mensajes temporales"
                   (click)="toggleTemporaryMessagePopup($event)"
                 >
@@ -1492,25 +1527,25 @@
                 <textarea #messageInput [(ngModel)]="mensajeNuevo" (input)="onComposerInput()" (keydown)="onKeydown($event)" (keydown.enter)="onEnter($event)"
                   (click)="onMessageInputSelectionChange()" (keyup)="onMessageInputSelectionChange()"
                   (select)="onMessageInputSelectionChange()" (focus)="onMessageInputSelectionChange()"
-                  [placeholder]="chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario.' : 'Estás bloqueado por este usuario.') : 'Escribe un mensaje...'"
-                  class="input-mensaje" [disabled]="chatEstaBloqueado" [readonly]="haSalidoDelGrupo"
+                  [placeholder]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario.' : 'EstÃ¡s bloqueado por este usuario.') : 'Escribe un mensaje...')"
+                  class="input-mensaje" [disabled]="chatEstaBloqueado || chatGrupalCerradoPorAdmin" [readonly]="haSalidoDelGrupo"
                   [class.input-mensaje--loading]="aiLoading"
-                  [class.input-mensaje--salido]="haSalidoDelGrupo || chatEstaBloqueado"
+                  [class.input-mensaje--salido]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin"
                   [class.input-mensaje--with-draft-prefix]="shouldShowComposerDraftPrefix()"
                   [class.input-mensaje--replying]="!!mensajeRespuestaObjetivo || !!mensajeEdicionObjetivo"
-                  [title]="chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : '')">
+                  [title]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'EstÃ¡s bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : ''))">
                 </textarea>
               </div>
               <button class="btn-mic"
-                [title]="chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Grabar audio')"
-                (click)="startRecording()" [disabled]="haSalidoDelGrupo || chatEstaBloqueado || noGroupRecipientsForSend"
-                [class.btn-disabled-block]="chatEstaBloqueado">
+                [title]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'EstÃ¡s bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Grabar audio'))"
+                (click)="startRecording()" [disabled]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin || noGroupRecipientsForSend"
+                [class.btn-disabled-block]="chatEstaBloqueado || chatGrupalCerradoPorAdmin">
                 <i class="fas fa-microphone"></i>
               </button>
               <button class="btn-enviar"
-                [title]="chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Enviar mensaje')"
-                (click)="enviarMensajeDesdeComposer()" [disabled]="attachmentUploading || aiLoading || chatEstaBloqueado || haSalidoDelGrupo || noGroupRecipientsForSend"
-                [class.btn-disabled-block]="chatEstaBloqueado">
+                [title]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'EstÃ¡s bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Enviar mensaje'))"
+                (click)="enviarMensajeDesdeComposer()" [disabled]="attachmentUploading || aiLoading || chatEstaBloqueado || chatGrupalCerradoPorAdmin || haSalidoDelGrupo || noGroupRecipientsForSend"
+                [class.btn-disabled-block]="chatEstaBloqueado || chatGrupalCerradoPorAdmin">
                 <i class="fas fa-paper-plane"></i>
               </button>
             </div>
@@ -1530,7 +1565,7 @@
                 <button class="btn-send-audio" title="Enviar audio" (click)="stopRecordingAndSend()">
                   <i class="fas fa-paper-plane"></i>
                 </button>
-                <button class="btn-cancel-rec" title="Cancelar grabación" (click)="cancelRecording()">
+                <button class="btn-cancel-rec" title="Cancelar grabaciÃ³n" (click)="cancelRecording()">
                   <i class="fas fa-times"></i>
                 </button>
               </div>
@@ -1597,3 +1632,13 @@
 
 <app-crear-grupo-modal #crearGrupoModal [currentUserId]="usuarioActualId"
   (create)="onCrearGrupo($event)"></app-crear-grupo-modal>
+
+<app-report-chat-closure-popup
+  [open]="showReportChatClosurePopup"
+  [chatName]="reportChatClosureTargetName"
+  [value]="reportChatClosureText"
+  [sending]="reportChatClosureSending"
+  (valueChange)="onReportChatClosureValueChange($event)"
+  (submitted)="submitReportChatClosure()"
+  (canceled)="closeReportChatClosurePopup()"
+></app-report-chat-closure-popup>

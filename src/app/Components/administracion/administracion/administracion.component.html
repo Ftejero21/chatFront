@@ -29,15 +29,41 @@
         </div>
 
         <nav class="flex-1 space-y-2">
-            <a href="javascript:void(0)" (click)="showDashboard()"
-                class="sidebar-item flex items-center space-x-3 px-4 py-3 text-sm font-semibold"
+            <button type="button" (click)="toggleDashboardMenu()"
+                class="sidebar-item flex items-center justify-between w-full px-4 py-3 text-sm font-semibold"
                 [class.active]="isDashboardView && !isReportsView && !isGroupsView">
+                <span class="flex items-center space-x-3 min-w-0">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                 </svg>
                 <span>Dashboard</span>
-            </a>
+                </span>
+                <svg class="w-4 h-4 transition-transform duration-200" [class.rotate-180]="isDashboardMenuOpen"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+            <div *ngIf="isDashboardMenuOpen" class="ml-4 pl-4 border-l border-slate-200 space-y-2">
+                <a href="javascript:void(0)" (click)="showUsersView()"
+                    class="sidebar-item sidebar-item--sub flex items-center space-x-3 px-4 py-2 text-sm font-semibold"
+                    [class.active]="isDashboardView && !isReportsView && !isGroupsView">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M5.121 17.804A3 3 0 017 17h10a3 3 0 011.879.646M15 11a3 3 0 11-6 0 3 3 0 016 0zm6 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Usuarios</span>
+                </a>
+                <a href="javascript:void(0)" (click)="showGroupsView()"
+                    class="sidebar-item sidebar-item--sub flex items-center space-x-3 px-4 py-2 text-sm font-semibold"
+                    [class.active]="isGroupsView">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M17 20h5V4H2v16h5m10 0v-4a3 3 0 00-3-3H10a3 3 0 00-3 3v4m10 0H7m10-11a2 2 0 11-4 0 2 2 0 014 0zM11 9a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    <span>Grupos</span>
+                </a>
+            </div>
             <a href="javascript:void(0)"
                 (click)="showReportes()"
                 class="sidebar-item flex items-center space-x-3 px-4 py-3 text-sm font-semibold"
@@ -49,26 +75,15 @@
                 <span class="sidebar-item-label">Reportes</span>
                 <span *ngIf="reportesBadgeCount > 0" class="sidebar-badge">{{ reportesBadgeText }}</span>
             </a>
-            <a href="javascript:void(0)"
-                (click)="showDashboard()"
-                class="sidebar-item flex items-center space-x-3 px-4 py-3 text-sm font-semibold"
-                [class.active]="isDashboardView && !isReportsView && !isGroupsView">
+            <div
+                class="sidebar-item sidebar-item--disabled flex items-center space-x-3 px-4 py-3 text-sm font-semibold opacity-60 cursor-not-allowed"
+                aria-disabled="true">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
                 <span>Mensajes</span>
-            </a>
-            <a href="javascript:void(0)"
-                (click)="showGroupsView()"
-                class="sidebar-item flex items-center space-x-3 px-4 py-3 text-sm font-semibold"
-                [class.active]="isGroupsView">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M17 20h5V4H2v16h5m10 0v-4a3 3 0 00-3-3H10a3 3 0 00-3 3v4m10 0H7m10-11a2 2 0 11-4 0 2 2 0 014 0zM11 9a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-                <span>Grupos</span>
-            </a>
+            </div>
         </nav>
 
         <div class="glass-card p-4 mt-auto bg-white/50">
@@ -344,7 +359,10 @@
                                 <span class="report-card-name">{{ getAppealReporterLabel(item) }}</span>
                                 <span class="report-card-email">{{ item.email }}</span>
                             </div>
-                            <span [class]="getAppealEstadoClass(item)">{{ item.estado }}</span>
+                            <div class="report-card-tags">
+                                <span [class]="getAppealTipoClass(item)">{{ getAppealTipoLabel(item) }}</span>
+                                <span [class]="getAppealEstadoClass(item)">{{ item.estado }}</span>
+                            </div>
                         </div>
                         <p class="report-card-motivo">
                             {{ item.motivo || 'Sin motivo especificado por el usuario.' }}
@@ -353,7 +371,7 @@
                             Enviado: {{ item.createdAt | date:'dd/MM/yyyy HH:mm' }}
                         </p>
                         <p class="report-card-cta">
-                            {{ processingAppealId === item.id ? 'Procesando...' : 'Click para revisar y aprobar desbaneo' }}
+                            {{ processingAppealId === item.id ? 'Procesando...' : getAppealCtaLabel(item) }}
                         </p>
                     </article>
                 </div>
@@ -442,11 +460,20 @@
                       Configuracion
                     </button>
                     <button
+                      *ngIf="!isGroupClosed(group)"
                       type="button"
                       (click)="onGroupMute(group)"
                       class="text-amber-500 hover:text-amber-600 italic text-xs transition-opacity"
                     >
-                      Silenciar grupo
+                      Cerrar chat
+                    </button>
+                    <button
+                      *ngIf="isGroupClosed(group)"
+                      type="button"
+                      (click)="onGroupReopen(group)"
+                      class="text-sky-600 hover:text-sky-700 italic text-xs transition-opacity"
+                    >
+                      Reabrir chat
                     </button>
                     <button
                       type="button"

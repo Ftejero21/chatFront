@@ -22,6 +22,7 @@ import { ScheduleMessageComposerComponent } from './Components/inicio/schedule-m
 import { FilePreviewViewerComponent } from './Components/inicio/file-preview-viewer/file-preview-viewer.component';
 import { VideoCallOverlayComponent } from './Components/inicio/video-call-overlay/video-call-overlay.component';
 import { StarredMessagesPanelComponent } from './Components/inicio/starred-messages-panel/starred-messages-panel.component';
+import { ReportChatClosurePopupComponent } from './Components/popup/report-chat-closure-popup/report-chat-closure-popup.component';
 
 @NgModule({
   declarations: [
@@ -41,7 +42,8 @@ import { StarredMessagesPanelComponent } from './Components/inicio/starred-messa
     ScheduleMessageComposerComponent,
     FilePreviewViewerComponent,
     VideoCallOverlayComponent,
-    StarredMessagesPanelComponent
+    StarredMessagesPanelComponent,
+    ReportChatClosurePopupComponent
   ],
   imports: [
     BrowserModule,

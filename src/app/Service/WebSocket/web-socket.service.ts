@@ -104,6 +104,7 @@ export class WebSocketService {
   private subEstadoPersonal?: StompSubscription;
   private subLeidosPersonal?: StompSubscription;
   private subBloqueosPersonal?: StompSubscription;
+  private subChatClosuresPersonal?: StompSubscription;
   private subReaccionesPersonal?: StompSubscription;
   private subTypingPersonal?: StompSubscription;
   private subAudioPersonal?: StompSubscription;
@@ -114,6 +115,7 @@ export class WebSocketService {
   private bloqueosHandlers = new Set<
     (payload: { blockerId: number; type: 'BLOCKED' | 'UNBLOCKED' }) => void
   >();
+  private chatClosuresHandlers = new Set<(payload: any) => void>();
   private reaccionesHandlers = new Set<(payload: MensajeReaccionDTO) => void>();
   private allowedGroupChatIds = new Set<number>();
   private groupChatHandlers = new Map<number, (m: MensajeDTO) => void>();
@@ -169,6 +171,7 @@ export class WebSocketService {
       this.ensureEstadoPersonalSubscription();
       this.ensureLeidosPersonalSubscription();
       this.ensureBloqueosPersonalSubscription();
+      this.ensureChatClosuresPersonalSubscription();
       this.ensureReaccionesPersonalSubscription();
       this.ensureTypingPersonalSubscription();
       this.ensureAudioPersonalSubscription();
@@ -387,6 +390,7 @@ export class WebSocketService {
     this.subEstadoPersonal = undefined;
     this.subLeidosPersonal = undefined;
     this.subBloqueosPersonal = undefined;
+    this.subChatClosuresPersonal = undefined;
     this.subReaccionesPersonal = undefined;
     this.subTypingPersonal = undefined;
     this.subAudioPersonal = undefined;
@@ -645,6 +649,35 @@ export class WebSocketService {
     this.userErrorsHandlers.clear();
     this.userErrorsHandlers.add(handler);
     this.esperarConexion(() => this.ensureUserErrorsSubscription());
+  }
+
+  suscribirseACierresChatUsuario(handler: (payload: any) => void): void {
+    this.chatClosuresHandlers.add(handler);
+    this.esperarConexion(() => this.ensureChatClosuresPersonalSubscription());
+  }
+
+  private ensureChatClosuresPersonalSubscription(): void {
+    if (!this.stompClient?.connected) return;
+    if (this.chatClosuresHandlers.size === 0) return;
+    if (this.subChatClosuresPersonal) return;
+
+    this.subChatClosuresPersonal = this.stompClient.subscribe(
+      `/user/queue/chat-cierres`,
+      (msg) => {
+        try {
+          const payload = JSON.parse(msg.body);
+          for (const handler of this.chatClosuresHandlers) {
+            try {
+              handler(payload);
+            } catch (err) {
+              this.logError(' Error en handler de /user/queue/chat-cierres:', err);
+            }
+          }
+        } catch (e) {
+          this.logError(' Error parseando cierre de chat WS:', e);
+        }
+      }
+    );
   }
 
   private ensureUserErrorsSubscription(): void {
@@ -1711,6 +1744,12 @@ export class WebSocketService {
       } catch {}
       this.subBloqueosPersonal = undefined;
     }
+    if (this.subChatClosuresPersonal) {
+      try {
+        this.subChatClosuresPersonal.unsubscribe();
+      } catch {}
+      this.subChatClosuresPersonal = undefined;
+    }
     if (this.subReaccionesPersonal) {
       try {
         this.subReaccionesPersonal.unsubscribe();
@@ -1721,6 +1760,7 @@ export class WebSocketService {
     this.estadoHandlersByTargetUserId.clear();
     this.leidosHandlers.clear();
     this.bloqueosHandlers.clear();
+    this.chatClosuresHandlers.clear();
     this.reaccionesHandlers.clear();
   }
 

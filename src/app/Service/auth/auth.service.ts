@@ -192,7 +192,8 @@ export class AuthService {
     page: number = 0,
     size: number = 20,
     estado?: UnbanAppealEstado | '' | UnbanAppealEstado[],
-    sort: string = 'createdAt,desc'
+    sort: string = 'createdAt,desc',
+    tipoReporte?: string | string[] | null
   ): Observable<PageResponse<UnbanAppealDTO>> {
     let params = new HttpParams()
       .set('page', String(Number.isFinite(page) ? page : 0))
@@ -214,6 +215,21 @@ export class AuthService {
       const normalizedEstado = String(estado || '').trim().toUpperCase();
       if (normalizedEstado) {
         params = params.set('estado', normalizedEstado);
+      }
+    }
+
+    if (Array.isArray(tipoReporte)) {
+      const tipos = tipoReporte
+        .map((x) => String(x || '').trim().toUpperCase())
+        .filter(Boolean);
+      if (tipos.length > 0) {
+        // Backend acepta un solo tipo, pero dejamos join por compatibilidad si se amplía.
+        params = params.set('tipoReporte', tipos.join(','));
+      }
+    } else {
+      const normalizedTipo = String(tipoReporte || '').trim().toUpperCase();
+      if (normalizedTipo) {
+        params = params.set('tipoReporte', normalizedTipo);
       }
     }
 

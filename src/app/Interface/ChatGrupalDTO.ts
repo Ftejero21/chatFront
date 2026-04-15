@@ -29,4 +29,8 @@ export interface ChatGrupalDTO {
   ultimaMensajeAudioUrl?: string | null;
   ultimaMensajeAudioMime?: string | null;
   ultimaMensajeAudioDuracionMs?: number | null;
+  chatCerrado?: boolean | null;
+  chatCerradoMotivo?: string | null;
+  closed?: boolean | null;
+  reason?: string | null;
 }

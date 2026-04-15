@@ -1,0 +1,52 @@
+<div
+  *ngIf="open"
+  class="report-popup-overlay"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Reportar cierre de chat"
+  (click)="onBackdropClick()"
+>
+  <div class="modal-container" (click)="$event.stopPropagation()">
+    <div class="report-header-banner">
+      <div class="icon-badge">
+        <i class="bi bi-flag-fill"></i>
+      </div>
+      <div>
+        <h2>Reportar cierre de chat</h2>
+        <p>
+          Enviarás un reporte a administración sobre
+          <span>{{ chatName || 'este chat' }}</span>.
+        </p>
+      </div>
+    </div>
+
+    <div class="popup-body">
+      <div class="popup-body-title">
+        <h3>Motivo del reporte (opcional)</h3>
+        <p>Describe brevemente por qué solicitas la revisión o desbloqueo.</p>
+      </div>
+
+      <div class="popup-field">
+        <textarea
+          class="custom-textarea"
+          [ngModel]="value"
+          (ngModelChange)="onInput($event)"
+          [disabled]="sending"
+          placeholder="Ej: Necesitamos usar este chat para coordinar una entrega urgente del proyecto..."
+        ></textarea>
+      </div>
+
+      <div class="popup-actions">
+        <button type="button" class="btn-send" [disabled]="sending" (click)="onSubmit()">
+          {{ sending ? 'Enviando...' : 'Enviar reporte' }}
+        </button>
+        <button type="button" class="btn-cancel" [disabled]="sending" (click)="onCancel()">
+          Cancelar
+        </button>
+      </div>
+
+      <p class="popup-footnote">Tu solicitud será revisada por un moderador en breve.</p>
+    </div>
+  </div>
+</div>
+

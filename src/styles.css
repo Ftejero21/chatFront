@@ -244,3 +244,149 @@
 .swal-unban-cancel {
   box-shadow: 0 6px 18px rgba(100, 116, 139, 0.15) !important;
 }
+
+/* Popup cerrar chat grupal (naranja/rojo) */
+.swal-close-popup {
+  width: 100% !important;
+  max-width: 480px !important;
+  border-radius: 24px !important;
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.1),
+    0 10px 10px -5px rgba(0, 0, 0, 0.04) !important;
+  overflow: hidden !important;
+  padding: 2rem !important;
+}
+
+.swal-close-html {
+  margin: 0 !important;
+  padding: 0 !important;
+  text-align: left !important;
+}
+
+.swal-close-head {
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+
+.swal-close-head h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.swal-close-head p {
+  margin: 0.35rem 0 0 0;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.swal-close-alert {
+  background-color: #fef2f2;
+  border-left: 4px solid #ef4444;
+  border-radius: 0 0.5rem 0.5rem 0;
+  padding: 1rem;
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.swal-close-alert-icon {
+  color: #ef4444;
+  font-size: 1.2rem;
+  line-height: 1;
+  margin-top: 0.1rem;
+}
+
+.swal-close-alert-body h3 {
+  margin: 0;
+  color: #991b1b;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.swal-close-alert-body p {
+  margin: 0.15rem 0 0 0;
+  color: #b91c1c;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.swal-close-alert-chat {
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.swal-close-body {
+  margin: 0;
+}
+
+.swal-close-label {
+  display: block;
+  text-align: center;
+  color: #374151;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.swal-close-helper {
+  margin: 0 0 0.7rem 0;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 0.75rem;
+}
+
+.swal-close-textarea {
+  width: 100% !important;
+  max-width: 420px !important;
+  display: block !important;
+  min-height: 120px !important;
+  border: 2px solid #e5e7eb !important;
+  border-radius: 12px !important;
+  padding: 12px 16px !important;
+  font-size: 0.95rem !important;
+  line-height: 1.4 !important;
+  resize: none !important;
+  margin: 0 auto !important;
+}
+
+.swal-close-textarea:focus {
+  border-color: #f97316 !important;
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.1) !important;
+}
+
+.swal-close-actions {
+  margin-top: 1.2rem !important;
+  gap: 0.75rem !important;
+}
+
+.swal-close-confirm,
+.swal-close-cancel {
+  border-radius: 12px !important;
+  padding: 12px 24px !important;
+  font-weight: 600 !important;
+  font-size: 0.95rem !important;
+}
+
+.swal-close-confirm {
+  background: linear-gradient(to bottom right, #f97316, #ea580c) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 6px -1px rgba(234, 88, 12, 0.3) !important;
+}
+
+.swal-close-cancel {
+  background: #f3f4f6 !important;
+  color: #4b5563 !important;
+}
+
+.swal-close-foot {
+  margin-top: 1rem;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9ca3af;
+  font-weight: 700;
+}

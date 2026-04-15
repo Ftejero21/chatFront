@@ -661,6 +661,12 @@
   line-height: 1;
 }
 
+.chat-closed-indicator {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
 .chat-pin-toggle {
   border: 1px solid #dbe2ea;
   background: #ffffff;
@@ -735,6 +741,15 @@
 .chat-pin-menu-btn--danger:hover {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.chat-pin-menu-btn--report {
+  color: #b45309;
+}
+
+.chat-pin-menu-btn--report:hover {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .estado-icono {
@@ -2717,6 +2732,16 @@
 
 .preview-line--file {
   width: 100%;
+}
+
+.preview-line--closed {
+  width: 100%;
+  color: #b91c1c;
+}
+
+.preview-line--closed .bi {
+  color: #dc2626;
+  font-size: 0.78rem;
 }
 
 .preview-file-icon {
@@ -5246,6 +5271,16 @@
   color: #991b1b;
 }
 
+.dropdown-item--reportar {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.dropdown-item--reportar:hover {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 /* Icono del botón (puedes cambiar el emoji por un SVG si prefieres) */
 .icono-salir {
   font-size: 1rem;
@@ -5260,6 +5295,12 @@
 
 .icono-vaciar {
   font-size: 1rem;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.icono-reportar {
+  font-size: 0.95rem;
   line-height: 1;
   transform: translateY(-1px);
 }
@@ -5324,6 +5365,16 @@
 
   .dropdown-item--desbloquear:hover {
     background: rgba(52, 211, 153, 0.18);
+  }
+
+  .dropdown-item--reportar {
+    color: #fbbf24;
+    background: transparent;
+  }
+
+  .dropdown-item--reportar:hover {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fde68a;
   }
 }
 

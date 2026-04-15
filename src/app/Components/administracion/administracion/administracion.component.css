@@ -36,6 +36,20 @@
     color: #059669;
 }
 
+.sidebar-item--sub {
+    border-radius: 10px;
+}
+
+.sidebar-item--sub.active {
+    background: linear-gradient(135deg, #ecfeff 0%, #cffafe 100%);
+    color: #0f766e;
+}
+
+.sidebar-item--disabled {
+    pointer-events: none;
+    opacity: 0.55;
+}
+
 .sidebar-item-label {
     flex: 1 1 auto;
 }
@@ -697,6 +711,14 @@
     gap: 10px;
 }
 
+.report-card-tags {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .report-card-user {
     min-width: 0;
 }
@@ -750,6 +772,18 @@
     letter-spacing: 0.03em;
     text-transform: uppercase;
     border: 1px solid transparent;
+}
+
+.appeal-chip--type-user {
+    background: #e0f2fe;
+    border-color: #bae6fd;
+    color: #075985;
+}
+
+.appeal-chip--type-group {
+    background: #fff7ed;
+    border-color: #fed7aa;
+    color: #9a3412;
 }
 
 .appeal-chip--pending {

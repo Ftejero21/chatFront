@@ -104,6 +104,33 @@ export interface ChatMuteStateDTO {
   mutedUntil?: string | null;
 }
 
+export interface GroupChatClosureRequestDTO {
+  motivo?: string | null;
+}
+
+export interface GroupChatClosureStateDTO {
+  ok?: boolean;
+  chatId: number;
+  closed: boolean;
+  reason?: string | null;
+  closedAt?: string | null;
+  closedByAdminId?: number | null;
+}
+
+export interface GroupClosedReportRequestDTO {
+  motivo?: string | null;
+}
+
+export interface GroupClosedReportDTO {
+  id?: number;
+  tipoReporte?: string | null;
+  chatId: number;
+  usuarioId?: number | null;
+  estado?: string | null;
+  motivo?: string | null;
+  createdAt?: string | null;
+}
+
 export interface AddUsersToGroupRequestDTO {
   userIds: number[];
 }
@@ -117,6 +144,10 @@ export interface AdminGroupListDTO {
   fechaCreacion: string;
   creadorId: number | null;
   totalMiembros: number;
+  chatCerrado?: boolean | null;
+  chatCerradoMotivo?: string | null;
+  closed?: boolean | null;
+  reason?: string | null;
 }
 
 @Injectable({
@@ -424,6 +455,32 @@ export class ChatService {
 
   listMutedChats(): Observable<ChatMuteStateDTO[]> {
     return this.http.get<ChatMuteStateDTO[]>(`${this.baseUrl}/muted`);
+  }
+
+  cerrarChatGrupalAdmin(
+    chatId: number,
+    payload: GroupChatClosureRequestDTO
+  ): Observable<GroupChatClosureStateDTO> {
+    return this.http.post<GroupChatClosureStateDTO>(
+      `${this.baseUrl}/admin/grupos/${chatId}/close`,
+      payload
+    );
+  }
+
+  reabrirChatGrupalAdmin(chatId: number): Observable<GroupChatClosureStateDTO> {
+    return this.http.delete<GroupChatClosureStateDTO>(
+      `${this.baseUrl}/admin/grupos/${chatId}/close`
+    );
+  }
+
+  reportarCierreChatGrupal(
+    chatId: number,
+    payload: GroupClosedReportRequestDTO
+  ): Observable<GroupClosedReportDTO> {
+    return this.http.post<GroupClosedReportDTO>(
+      `${this.baseUrl}/grupal/${chatId}/reportes-cierre`,
+      payload
+    );
   }
 
   // Alias temporal para no romper llamadas existentes durante la migracion.

@@ -17,7 +17,11 @@ import { CryptoService } from '../../../Service/crypto/crypto.service';
 import { environment } from '../../../environments';
 import { SessionService } from '../../../Service/session/session.service';
 import { WebSocketService } from '../../../Service/WebSocket/web-socket.service';
-import { UnbanAppealDTO, UnbanAppealEstado } from '../../../Interface/UnbanAppealDTO';
+import {
+  UnbanAppealDTO,
+  UnbanAppealEstado,
+  UnbanAppealTipoReporte,
+} from '../../../Interface/UnbanAppealDTO';
 import { UnbanAppealEventDTO } from '../../../Interface/UnbanAppealEventDTO';
 import {
   RATE_LIMIT_SCOPES,
@@ -89,6 +93,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   isReportsView: boolean = false;
   isGroupsView: boolean = false;
   isGroupsTableMode: boolean = false;
+  isDashboardMenuOpen: boolean = true;
   isSidebarOpen: boolean = false;
   headerSubtitle: string = "Gestion centralizada de TejeChat.";
   currentUserName: string = "";
@@ -332,6 +337,9 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   }
 
   private normalizeAppeal(raw: any): UnbanAppealDTO {
+    const tipoRaw = String(raw?.tipoReporte || raw?.tipo || '').trim().toUpperCase();
+    const normalizedTipo = (tipoRaw ? tipoRaw : null) as UnbanAppealTipoReporte | null;
+    const chatId = Number(raw?.chatId ?? 0) || null;
     return {
       id: Number(raw?.id ?? 0),
       usuarioId: Number(raw?.usuarioId ?? raw?.userId ?? 0) || null,
@@ -344,6 +352,11 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       resolucionMotivo: String(raw?.resolucionMotivo || '').trim() || null,
       usuarioNombre: String(raw?.usuarioNombre || raw?.nombre || '').trim() || null,
       usuarioApellido: String(raw?.usuarioApellido || raw?.apellido || '').trim() || null,
+      tipoReporte: normalizedTipo,
+      chatId,
+      chatNombreSnapshot: String(raw?.chatNombreSnapshot || raw?.chatNombre || '').trim() || null,
+      chatCerradoMotivoSnapshot:
+        String(raw?.chatCerradoMotivoSnapshot || raw?.chatCerradoMotivo || '').trim() || null,
     };
   }
 
@@ -371,7 +384,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   private handleAppealWsEvent(event: UnbanAppealEventDTO): void {
     const normalized = this.normalizeAppeal(event);
     if (!normalized?.id) return;
-    if (normalized.estado === 'APROBADA') {
+    if (normalized.estado === 'APROBADA' && this.isUserUnbanAppeal(normalized)) {
       this.applyUserActiveFromAppeal(normalized, true);
     }
     this.hydrateAppealUserNames([normalized]);
@@ -445,7 +458,8 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.selectedChat = null;
     this.selectedChatMensajes = [];
     this.selectedChatMessagesSource = 'admin';
-    this.headerSubtitle = 'Revisión de reportes de desbaneo en tiempo real.';
+    this.headerSubtitle =
+      'Revisión de reportes (desbaneo de usuario y reapertura de chats) en tiempo real.';
     this.appealViewFilter = 'ABIERTOS';
     this.cargarSolicitudesDesbaneo(0);
   }
@@ -510,6 +524,37 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     return Number(this.stats?.porcentajeMensajes || 0);
   }
 
+  private isGroupClosedAppeal(item: UnbanAppealDTO): boolean {
+    const tipo = String(item?.tipoReporte || '').trim().toUpperCase();
+    if (tipo === 'CHAT_CERRADO') return true;
+    if (tipo === 'DESBANEO') return false;
+    const chatId = Number(item?.chatId || 0);
+    return Number.isFinite(chatId) && chatId > 0;
+  }
+
+  private isUserUnbanAppeal(item: UnbanAppealDTO): boolean {
+    const tipo = String(item?.tipoReporte || '').trim().toUpperCase();
+    // Backends antiguos no enviaban tipoReporte; asumimos DESBANEO si no viene chatId.
+    if (!tipo) return !this.isGroupClosedAppeal(item);
+    return tipo === 'DESBANEO';
+  }
+
+  public getAppealTipoLabel(item: UnbanAppealDTO): string {
+    if (this.isGroupClosedAppeal(item)) return 'Chat bloqueado';
+    return 'Usuario baneado';
+  }
+
+  public getAppealTipoClass(item: UnbanAppealDTO): string {
+    return this.isGroupClosedAppeal(item)
+      ? 'appeal-chip appeal-chip--type-group'
+      : 'appeal-chip appeal-chip--type-user';
+  }
+
+  public getAppealCtaLabel(item: UnbanAppealDTO): string {
+    if (this.isGroupClosedAppeal(item)) return 'Click para revisar y reabrir chat';
+    return 'Click para revisar y aprobar desbaneo';
+  }
+
   public getAppealReporterLabel(item: UnbanAppealDTO): string {
     const nombreApi =
       `${item?.usuarioNombre || ''} ${item?.usuarioApellido || ''}`.trim();
@@ -559,6 +604,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const isGroupReport = this.isGroupClosedAppeal(item);
     this.processingAppealId = appealId;
     try {
       if (estadoActual === 'PENDIENTE') {
@@ -567,26 +613,42 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       }
 
       const reporter = this.getAppealReporterLabel(item);
+      const chatName = String(item?.chatNombreSnapshot || '').trim();
+      const chatId = Number(item?.chatId || 0);
+      const targetStrong = isGroupReport
+        ? chatName || (Number.isFinite(chatId) && chatId > 0 ? `chat #${chatId}` : 'chat')
+        : reporter;
+      const headerTitle = isGroupReport ? 'Reabrir chat' : 'Aprobar desbaneo';
+      const labelText = isGroupReport
+        ? 'Motivo de reapertura (opcional)'
+        : 'Motivo de desbaneo (opcional)';
+      const helperText = 'Si lo dejas vacio, backend completara un motivo automatico.';
+      const inputPlaceholder = isGroupReport
+        ? 'Ej: Se reviso el caso y procede reabrir el chat.'
+        : 'Ej: Se verifico el caso y procede reactivar la cuenta.';
+      const confirmText = isGroupReport ? 'Reabrir chat' : 'Desbanear';
+      const cancelText = isGroupReport ? 'No reabrir' : 'No desbanear';
+      const confirmColor = isGroupReport ? '#f97316' : '#3b82f6';
       const { value: motivo, isConfirmed, dismiss } = await Swal.fire({
         html: `
           <div class="swal-unban-header">
             <div class="swal-unban-header-icon"><i class="bi bi-person-check-fill"></i></div>
             <div class="swal-unban-header-text">
-              <h2>Aprobar desbaneo</h2>
-              <p>Revisar solicitud de <strong>${reporter}</strong></p>
+              <h2>${headerTitle}</h2>
+              <p>Revisar solicitud de <strong>${targetStrong}</strong></p>
             </div>
           </div>
           <div class="swal-unban-body">
-            <label class="swal-unban-label">Motivo de desbaneo (opcional)</label>
-            <p class="swal-unban-helper">Si lo dejas vacío, backend completará un motivo automático.</p>
+            <label class="swal-unban-label">${labelText}</label>
+            <p class="swal-unban-helper">${helperText}</p>
           </div>
         `,
         input: 'textarea',
-        inputPlaceholder: 'Ej: Se verificó el caso y procede reactivar la cuenta.',
+        inputPlaceholder,
         showCancelButton: true,
-        confirmButtonText: 'Desbanear',
-        cancelButtonText: 'No desbanear',
-        confirmButtonColor: '#3b82f6',
+        confirmButtonText: confirmText,
+        cancelButtonText: cancelText,
+        confirmButtonColor: confirmColor,
         cancelButtonColor: '#64748b',
         allowOutsideClick: false,
         allowEscapeKey: false,
@@ -606,8 +668,9 @@ export class AdministracionComponent implements OnInit, OnDestroy {
           if (rejected) {
             await Swal.fire({
               title: 'Solicitud rechazada',
-              text:
-                'La solicitud quedó en estado RECHAZADA. El backend notificará al usuario por email.',
+              text: isGroupReport
+                ? 'El reporte quedó en estado RECHAZADA. El backend notificará por email.'
+                : 'La solicitud quedó en estado RECHAZADA. El backend notificará al usuario por email.',
               icon: 'success',
               confirmButtonColor: '#ef4444',
             });
@@ -625,8 +688,9 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
       await Swal.fire({
         title: 'Solicitud aprobada',
-        text:
-          'La solicitud quedó en estado APROBADA. El backend aplicará el desbaneo y enviará el email al usuario.',
+        text: isGroupReport
+          ? 'El reporte quedó en estado APROBADA. El backend aplicará la reapertura (si corresponde) y enviará un email informativo.'
+          : 'La solicitud quedó en estado APROBADA. El backend aplicará el desbaneo y enviará el email al usuario.',
         icon: 'success',
         confirmButtonColor: '#10b981',
       });
@@ -670,7 +734,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       if (!shouldKeep) {
         this.removeAppealById(merged.id);
       }
-      if (merged.estado === 'APROBADA') {
+      if (merged.estado === 'APROBADA' && this.isUserUnbanAppeal(merged)) {
         this.applyUserActiveFromAppeal(merged, true);
       }
       this.refreshOpenAppealsBadgeCount();
@@ -3614,6 +3678,10 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.isSidebarOpen = !this.isSidebarOpen;
   }
 
+  public toggleDashboardMenu(): void {
+    this.isDashboardMenuOpen = !this.isDashboardMenuOpen;
+  }
+
   showDashboard() {
     this.isDashboardView = true;
     this.isReportsView = false;
@@ -3624,6 +3692,10 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.selectedChatMensajes = [];
     this.selectedChatMessagesSource = 'admin';
     this.headerSubtitle = "Gestion centralizada de TejeChat.";
+  }
+
+  public showUsersView(): void {
+    this.showDashboard();
   }
 
   public showGroupsView(): void {
@@ -3645,11 +3717,17 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.chatService.listarGruposAdmin(targetPage, this.groupsPageSize).subscribe({
       next: (resp) => {
         const content = Array.isArray(resp?.content) ? resp.content : [];
-        this.adminGroups = content;
+        const normalizedContent = content.map((group: any) =>
+          this.normalizeAdminGroupClosureState(group)
+        );
+        this.adminGroups = normalizedContent;
         this.groupsPage = Number(resp?.number ?? targetPage);
         this.groupsPageSize = Number(resp?.size ?? this.groupsPageSize);
         this.groupsTotalPages = Math.max(1, Number(resp?.totalPages ?? 1));
-        this.groupsTotalElements = Math.max(0, Number(resp?.totalElements ?? content.length));
+        this.groupsTotalElements = Math.max(
+          0,
+          Number(resp?.totalElements ?? normalizedContent.length)
+        );
         this.groupsIsLastPage = Boolean(resp?.last ?? (this.groupsPage >= this.groupsTotalPages - 1));
         this.loadingGroups = false;
       },
@@ -3662,6 +3740,57 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         this.groupsIsLastPage = true;
       },
     });
+  }
+
+  private normalizeAdminGroupClosureState(group: any): AdminGroupListDTO {
+    const next: any = { ...(group || {}) };
+    const closed = this.resolveBooleanLike([
+      next?.chatCerrado,
+      next?.closed,
+      next?.cerrado,
+      next?.chat_cerrado,
+      next?.chatClosed,
+      next?.isChatClosed,
+      next?.estadoCierre,
+    ]);
+    const reason = this.resolveStringLike([
+      next?.chatCerradoMotivo,
+      next?.reason,
+      next?.motivo,
+      next?.chat_cerrado_motivo,
+      next?.chatClosedReason,
+      next?.closureReason,
+      next?.cierreMotivo,
+    ]);
+    if (closed !== null) {
+      next.chatCerrado = closed;
+      next.closed = closed;
+    }
+    if (reason) {
+      next.chatCerradoMotivo = reason;
+      next.reason = reason;
+    }
+    return next as AdminGroupListDTO;
+  }
+
+  private resolveBooleanLike(candidates: any[]): boolean | null {
+    for (const candidate of candidates || []) {
+      if (typeof candidate === 'boolean') return candidate;
+      if (typeof candidate === 'number') return candidate !== 0;
+      const text = String(candidate || '').trim().toLowerCase();
+      if (!text) continue;
+      if (['true', '1', 'si', 'yes', 'cerrado', 'closed'].includes(text)) return true;
+      if (['false', '0', 'no', 'abierto', 'open'].includes(text)) return false;
+    }
+    return null;
+  }
+
+  private resolveStringLike(candidates: any[]): string {
+    for (const candidate of candidates || []) {
+      const text = String(candidate || '').trim();
+      if (text) return text;
+    }
+    return '';
   }
 
   public nextGroupsPage(): void {
@@ -3685,14 +3814,156 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     });
   }
 
-  public onGroupMute(group: AdminGroupListDTO): void {
+  public isGroupClosed(group: AdminGroupListDTO | null | undefined): boolean {
+    if (!group) return false;
+    const resolved = this.resolveBooleanLike([
+      (group as any)?.chatCerrado,
+      (group as any)?.closed,
+      (group as any)?.cerrado,
+      (group as any)?.chat_cerrado,
+      (group as any)?.chatClosed,
+      (group as any)?.isChatClosed,
+      (group as any)?.estadoCierre,
+    ]);
+    return resolved === true;
+  }
+
+  public async onGroupMute(group: AdminGroupListDTO): Promise<void> {
     const groupLabel = group?.nombreGrupo?.trim() || `Grupo #${group?.id ?? '-'}`;
-    void Swal.fire({
-      title: 'Silenciar grupo',
-      text: `La accion de silenciar ${groupLabel} queda preparada en UI. Falta enlazar endpoint backend.`,
+    const chatId = Number(group?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+
+    const { value: motivo } = await Swal.fire({
+      title: '',
+      html: `
+        <header class="swal-close-head">
+          <h1>Cerrar chat grupal</h1>
+          <p>Estas a punto de restringir el acceso al chat.</p>
+        </header>
+
+        <div class="swal-close-alert">
+          <div class="swal-close-alert-icon" aria-hidden="true">
+            <i class="bi bi-lock-fill"></i>
+          </div>
+          <div class="swal-close-alert-body">
+            <h3>Cerrar chat de forma inmediata</h3>
+            <p>
+              Los miembros de <span class="swal-close-alert-chat">${groupLabel}</span>
+              no podran enviar mas mensajes hasta que se reabra.
+            </p>
+          </div>
+        </div>
+
+        <div class="swal-close-body">
+          <label class="swal-close-label">Mensaje personalizado para los usuarios</label>
+          <p class="swal-close-helper">
+            Si lo dejas vacio, el sistema aplicara un mensaje por defecto automaticamente.
+          </p>
+        </div>
+
+        <footer class="swal-close-foot">Panel de Control Admin</footer>
+      `,
+      input: 'textarea',
+      inputPlaceholder:
+        'Ej: Chat cerrado temporalmente por mantenimiento de administracion...',
+      showCancelButton: true,
+      confirmButtonText: 'Continuar',
+      cancelButtonText: 'Cancelar',
+      customClass: {
+        popup: 'swal-close-popup',
+        htmlContainer: 'swal-close-html',
+        input: 'swal-close-textarea',
+        confirmButton: 'swal-close-confirm',
+        cancelButton: 'swal-close-cancel',
+        actions: 'swal-close-actions',
+      },
+    });
+    if (motivo === undefined) return;
+
+    const confirmed = await Swal.fire({
+      title: 'Confirmar cierre del chat',
+      text: `Vas a cerrar ${groupLabel}. Se bloqueara el envio para todos sus miembros.`,
       icon: 'warning',
-      confirmButtonText: 'Entendido',
+      showCancelButton: true,
       confirmButtonColor: '#d97706',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: 'Si, cerrar chat',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirmed.isConfirmed) return;
+
+    this.chatService
+      .cerrarChatGrupalAdmin(chatId, { motivo: String(motivo || '').trim() || null })
+      .subscribe({
+        next: (state) => {
+          (group as any).chatCerrado = true;
+          (group as any).closed = true;
+          (group as any).chatCerradoMotivo = String(
+            (state as any)?.reason || (state as any)?.motivo || motivo || ''
+          ).trim();
+          (group as any).reason = (group as any).chatCerradoMotivo || null;
+          void Swal.fire({
+            title: 'Chat cerrado',
+            text: `${groupLabel} se ha cerrado correctamente.`,
+            icon: 'success',
+            confirmButtonColor: '#10b981',
+          });
+        },
+        error: (err) => {
+          console.error('Error cerrando chat grupal', err);
+          const backendMsg = String(
+            err?.error?.mensaje || err?.error?.message || err?.message || ''
+          ).trim();
+          void Swal.fire({
+            title: 'Error',
+            text: backendMsg || 'No se pudo cerrar el chat grupal en el servidor.',
+            icon: 'error',
+          });
+        },
+      });
+  }
+
+  public onGroupReopen(group: AdminGroupListDTO): void {
+    const groupLabel = group?.nombreGrupo?.trim() || `Grupo #${group?.id ?? '-'}`;
+    const chatId = Number(group?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+
+    void Swal.fire({
+      title: 'Reabrir chat',
+      text: `Vas a reabrir ${groupLabel}. Los miembros podran volver a enviar mensajes.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#0ea5e9',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: 'Si, reabrir',
+      cancelButtonText: 'Cancelar',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.chatService.reabrirChatGrupalAdmin(chatId).subscribe({
+        next: () => {
+          (group as any).chatCerrado = false;
+          (group as any).closed = false;
+          (group as any).chatCerradoMotivo = null;
+          (group as any).reason = null;
+          void Swal.fire({
+            title: 'Chat reabierto',
+            text: `${groupLabel} ya permite envio de mensajes.`,
+            icon: 'success',
+            confirmButtonColor: '#10b981',
+          });
+        },
+        error: (err) => {
+          console.error('Error reabriendo chat grupal', err);
+          const backendMsg = String(
+            err?.error?.mensaje || err?.error?.message || err?.message || ''
+          ).trim();
+          void Swal.fire({
+            title: 'Error',
+            text: backendMsg || 'No se pudo reabrir el chat grupal en el servidor.',
+            icon: 'error',
+          });
+        },
+      });
     });
   }
 

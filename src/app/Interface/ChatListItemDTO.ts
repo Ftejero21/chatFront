@@ -35,4 +35,8 @@ export interface ChatListItemDTO {
   ultimaMensajeFileMime?: string | null;
   ultimaMensajeFileNombre?: string | null;
   ultimaMensajeFileSizeBytes?: number | null;
+  chatCerrado?: boolean | null;
+  chatCerradoMotivo?: string | null;
+  closed?: boolean | null;
+  reason?: string | null;
 }

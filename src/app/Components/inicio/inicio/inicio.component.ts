@@ -399,6 +399,10 @@ export class InicioComponent {
   public showEmojiPicker = false;
   public showComposeActionsPopup = false;
   public showTemporaryMessagePopup = false;
+  public showReportChatClosurePopup = false;
+  public reportChatClosureSending = false;
+  public reportChatClosureText = '';
+  public reportChatClosureTarget: any | null = null;
   public showGroupPollComposer = false;
   public showScheduleMessageComposer = false;
   public showChatListHeaderMenu = false;
@@ -791,6 +795,9 @@ export class InicioComponent {
   private draftByChatId = new Map<number, string>();
   private temporarySecondsByChatId = new Map<number, number>();
   private mutedChatUntilByChatId = new Map<number, number | null>();
+  private closedGroupReasonByChatId = new Map<number, string>();
+  private readonly DEFAULT_GROUP_CHAT_CLOSED_REASON =
+    'Este chat ha sido cerrado por administracion.';
   private readonly starredMessageIds = new Set<number>();
   private readonly starredHydratedMessagesById = new Map<number, MensajeDTO>();
   private starredHydrationRequestSeq = 0;
@@ -807,6 +814,7 @@ export class InicioComponent {
   private videoTransceiver?: RTCRtpTransceiver;
   private currentLocalVideoTrack?: MediaStreamTrack;
   private banWsBound = false;
+  private closedChatWsBound = false;
   private profileCodeTimer?: any;
   private chatsRefreshTimer: any = null;
   private chatListAccessForbidden = false;
@@ -947,6 +955,7 @@ export class InicioComponent {
       // 2) Esperar a conexión para inicializar resto
       this.wsService.esperarConexion(() => {
         this.bindBanWsListener();
+        this.bindClosedChatWsListener();
         this.bindE2EWsErrorListener();
         this.wsService.enviarEstadoConectado();
         this.prepararSuscripcionesWebRTC();
@@ -1726,6 +1735,13 @@ export class InicioComponent {
             });
           }
 
+          if (esGrupo) {
+            this.applyClosedStateFromChatListItem(chat);
+          }
+          const closedReason = esGrupo
+            ? this.closedGroupReasonByChatId.get(groupId) || ''
+            : '';
+
           return {
             ...chat,
             usuarios: esGrupo ? normalizedGroupUsers : chat?.usuarios,
@@ -1790,6 +1806,8 @@ export class InicioComponent {
             __ultimaArchivoNombre: '',
             __ultimaArchivoMime: '',
             __ultimaArchivoCaption: '',
+            chatCerrado: esGrupo ? this.closedGroupReasonByChatId.has(groupId) : false,
+            chatCerradoMotivo: closedReason || null,
           };
         });
 
@@ -2024,6 +2042,37 @@ export class InicioComponent {
         });
       });
     });
+  }
+
+  private bindClosedChatWsListener(): void {
+    if (this.closedChatWsBound) return;
+    this.closedChatWsBound = true;
+    this.wsService.suscribirseACierresChatUsuario((payload) => {
+      this.ngZone.run(() => this.handleClosedChatWsPayload(payload));
+    });
+  }
+
+  private handleClosedChatWsPayload(payload: any): void {
+    const chatId = this.resolveClosedChatId(payload);
+    if (!chatId) return;
+
+    const closed = this.resolveClosedChatFlag(payload, true);
+    const reason = this.resolveClosedChatReason(payload, true);
+    this.setGroupChatClosedState(chatId, closed, reason);
+
+    if (
+      closed &&
+      !!this.chatActual?.esGrupo &&
+      Number(this.chatActual?.id) === Number(chatId)
+    ) {
+      this.mensajeNuevo = '';
+      this.closeComposeActionsPopup();
+      this.closeEmojiPicker(true);
+      this.closeTemporaryMessagePopup();
+      this.showToast(reason, 'warning', 'Grupo', 2600);
+    }
+
+    this.cdr.markForCheck();
   }
 
   private bindE2EWsErrorListener(): void {
@@ -2687,6 +2736,8 @@ export class InicioComponent {
     if (chat.esGrupo && leftSet.has(Number(chat.id))) {
       this.haSalidoDelGrupo = true;
       this.mensajeNuevo = this.getGroupExitNoticeForChat(Number(chat.id));
+    } else if (chat.esGrupo && this.isGroupChatClosed(chat)) {
+      this.mensajeNuevo = '';
     } else {
       this.restoreDraftForChat(chat);
     }
@@ -4715,6 +4766,132 @@ private async decryptPreviewString(
     this.setMutedChatState(chatId, untilMs ?? undefined);
   }
 
+  private resolveClosedChatId(source: any): number | null {
+    const candidates = [
+      source?.chatId,
+      source?.id,
+      source?.groupId,
+      source?.grupoId,
+      source?.targetChatId,
+    ];
+    for (const candidate of candidates) {
+      const chatId = Number(candidate);
+      if (Number.isFinite(chatId) && chatId > 0) return Math.round(chatId);
+    }
+    return null;
+  }
+
+  private resolveClosedChatFlag(source: any, defaultValue = false): boolean {
+    const candidates = [
+      source?.closed,
+      source?.cerrado,
+      source?.chatClosed,
+      source?.chatCerrado,
+      source?.activo == null ? undefined : !source?.activo,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'boolean') return candidate;
+      if (typeof candidate === 'number') return candidate !== 0;
+      const text = String(candidate || '').trim().toLowerCase();
+      if (!text) continue;
+      if (['true', '1', 'yes', 'si', 'cerrado', 'closed'].includes(text)) {
+        return true;
+      }
+      if (['false', '0', 'no', 'abierto', 'open', 'activo'].includes(text)) {
+        return false;
+      }
+    }
+    return defaultValue;
+  }
+
+  private resolveClosedChatReason(source: any, fallbackToDefault = false): string {
+    const candidates = [
+      source?.reason,
+      source?.motivo,
+      source?.mensaje,
+      source?.message,
+      source?.chatClosedReason,
+      source?.chatCerradoMotivo,
+      source?.closureReason,
+      source?.cierreMotivo,
+      source?.closedMessage,
+      source?.closedReason,
+    ];
+
+    for (const candidate of candidates) {
+      const text = String(candidate || '').trim();
+      if (text) return text;
+    }
+
+    return fallbackToDefault ? this.DEFAULT_GROUP_CHAT_CLOSED_REASON : '';
+  }
+
+  private setGroupChatClosedState(
+    chatIdRaw: unknown,
+    closed: boolean,
+    reason?: string | null
+  ): void {
+    const chatId = Number(chatIdRaw);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+    const normalizedChatId = Math.round(chatId);
+    const normalizedReason =
+      String(reason || '').trim() || this.DEFAULT_GROUP_CHAT_CLOSED_REASON;
+
+    if (closed) {
+      this.closedGroupReasonByChatId.set(normalizedChatId, normalizedReason);
+    } else {
+      this.closedGroupReasonByChatId.delete(normalizedChatId);
+    }
+
+    const chatItem = (this.chats || []).find(
+      (c: any) => Number(c?.id) === normalizedChatId
+    );
+    if (chatItem) {
+      (chatItem as any).chatCerrado = closed;
+      (chatItem as any).chatCerradoMotivo = closed ? normalizedReason : null;
+    }
+
+    if (Number(this.chatActual?.id) === normalizedChatId) {
+      (this.chatActual as any).chatCerrado = closed;
+      (this.chatActual as any).chatCerradoMotivo = closed ? normalizedReason : null;
+    }
+  }
+
+  private applyClosedStateFromChatListItem(chat: any): void {
+    if (!chat) return;
+    const chatId = this.resolveClosedChatId(chat);
+    if (!chatId) return;
+    const esGrupo = !!chat?.esGrupo || !chat?.receptor;
+    if (!esGrupo) return;
+    const closed = this.resolveClosedChatFlag(chat);
+    const reason = this.resolveClosedChatReason(chat, closed);
+    this.setGroupChatClosedState(chatId, closed, reason);
+  }
+
+  public isGroupChatClosed(chat: any): boolean {
+    if (!chat || !chat?.esGrupo) return false;
+    const chatId = Number(chat?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return false;
+    return this.closedGroupReasonByChatId.has(Math.round(chatId));
+  }
+
+  public get chatGrupalCerradoPorAdmin(): boolean {
+    return this.isGroupChatClosed(this.chatActual);
+  }
+
+  public get chatGrupalCerradoMotivo(): string {
+    if (!this.chatGrupalCerradoPorAdmin) return '';
+    const chatId = Number(this.chatActual?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) {
+      return this.DEFAULT_GROUP_CHAT_CLOSED_REASON;
+    }
+    return (
+      this.closedGroupReasonByChatId.get(Math.round(chatId)) ||
+      this.DEFAULT_GROUP_CHAT_CLOSED_REASON
+    );
+  }
+
   public isChatPinned(chat: any): boolean {
     const pinnedId = Number(this.pinnedChatId);
     const chatId = Number(chat?.id);
@@ -5013,6 +5190,7 @@ private async decryptPreviewString(
       this.persistTemporarySettingsToStorage();
     }
     this.setMutedChatState(normalizedChatId, undefined);
+    this.closedGroupReasonByChatId.delete(normalizedChatId);
     this.groupRecipientSeedByChatId.delete(normalizedChatId);
     this.groupHistoryHiddenByChatId.delete(normalizedChatId);
     this.pendingGroupTextSendByChatId.delete(normalizedChatId);
@@ -7144,6 +7322,7 @@ private async decryptPreviewString(
   public async enviarMensaje(): Promise<void> {
     if (!this.mensajeNuevo?.trim() || !this.chatActual) return;
     if (this.haSalidoDelGrupo) return; // Bloquea si estas fuera
+    if (this.chatGrupalCerradoPorAdmin) return;
 
     const contenido = this.mensajeNuevo.trim();
     const myId = this.getMyUserId ? this.getMyUserId() : this.usuarioActualId;
@@ -14240,6 +14419,9 @@ private async decryptPreviewString(
    * Activa el micrófono en directo tras un permiso del usuario, y comienza cronómetro de grabación de la nota de voz.
    */
   public async startRecording(): Promise<void> {
+    if (this.haSalidoDelGrupo || this.chatEstaBloqueado || this.chatGrupalCerradoPorAdmin) {
+      return;
+    }
     if (!this.recorderSupported) {
       alert('Tu navegador no soporta grabación de audio.');
       return;
@@ -14429,6 +14611,7 @@ private async decryptPreviewString(
     durMs: number
   ): Promise<void> {
     if (!this.chatActual) return;
+    if (this.chatGrupalCerradoPorAdmin) return;
 
     const esGrupo = !!this.chatActual.esGrupo;
     const chatId = Number(this.chatActual.id);
@@ -14702,6 +14885,98 @@ private async decryptPreviewString(
     });
   }
 
+  public async reportarCierreChatActual(event?: MouseEvent): Promise<void> {
+    await this.reportarCierreChat(this.chatActual, event);
+  }
+
+  public async reportarCierreChatDesdeListado(
+    chat: any,
+    event?: MouseEvent
+  ): Promise<void> {
+    await this.reportarCierreChat(chat, event);
+  }
+
+  private async reportarCierreChat(chatTarget: any, event?: MouseEvent): Promise<void> {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (!chatTarget?.esGrupo) return;
+    if (!this.isGroupChatClosed(chatTarget)) return;
+
+    const chatId = Number(chatTarget?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+    this.openChatPinMenuChatId = null;
+    this.cerrarMenuOpciones();
+    this.reportChatClosureTarget = chatTarget;
+    this.reportChatClosureText = '';
+    this.reportChatClosureSending = false;
+    this.showReportChatClosurePopup = true;
+  }
+
+  public get reportChatClosureTargetName(): string {
+    const chat = this.reportChatClosureTarget;
+    if (!chat) return 'este chat';
+    const chatId = Number(chat?.id);
+    return (
+      String(chat?.nombreGrupo || chat?.nombre || '').trim() ||
+      (Number.isFinite(chatId) && chatId > 0 ? `Grupo #${chatId}` : 'este chat')
+    );
+  }
+
+  public closeReportChatClosurePopup(): void {
+    if (this.reportChatClosureSending) return;
+    this.showReportChatClosurePopup = false;
+    this.reportChatClosureTarget = null;
+    this.reportChatClosureText = '';
+  }
+
+  public onReportChatClosureValueChange(next: string): void {
+    this.reportChatClosureText = String(next || '');
+  }
+
+  public submitReportChatClosure(): void {
+    if (this.reportChatClosureSending) return;
+    const chatId = Number(this.reportChatClosureTarget?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+
+    this.reportChatClosureSending = true;
+    this.chatService
+      .reportarCierreChatGrupal(chatId, {
+        motivo: String(this.reportChatClosureText || '').trim() || null,
+      })
+      .subscribe({
+        next: () => {
+          this.reportChatClosureSending = false;
+          this.showReportChatClosurePopup = false;
+          this.reportChatClosureTarget = null;
+          this.reportChatClosureText = '';
+          this.showToast(
+            'Reporte enviado. Administracion lo revisará en breve.',
+            'success',
+            'Reportes',
+            2200
+          );
+        },
+        error: (err) => {
+          this.reportChatClosureSending = false;
+          const status = Number(err?.status || 0);
+          const backendMsg = String(
+            err?.error?.mensaje || err?.error?.message || err?.message || ''
+          ).trim();
+          const msg =
+            status === 409
+              ? 'Ya tienes un reporte abierto para este chat.'
+              : status === 423
+              ? 'Este chat ya no está cerrado; no se puede reportar este motivo.'
+              : status === 404
+              ? 'La API de reportes de cierre aún no está disponible en backend.'
+              : status === 403
+              ? 'No tienes permisos para reportar este chat.'
+              : backendMsg || 'No se pudo enviar el reporte.';
+          this.showToast(msg, 'warning', 'Reportes', 2600);
+        },
+      });
+  }
+
   /**
    * Rescata los IDs marcados permanentemente de localstorage de las invitaciones ya pasadas con botones declinar o aceptar.
    */
@@ -14813,7 +15088,13 @@ private async decryptPreviewString(
 
   public openGroupPollComposer(event?: MouseEvent): void {
     event?.stopPropagation();
-    if (this.haSalidoDelGrupo || this.chatEstaBloqueado) return;
+    if (
+      this.haSalidoDelGrupo ||
+      this.chatEstaBloqueado ||
+      this.chatGrupalCerradoPorAdmin
+    ) {
+      return;
+    }
     if (!this.chatActual?.esGrupo) {
       this.closeComposeActionsPopup();
       return;
@@ -15164,7 +15445,13 @@ private async decryptPreviewString(
 
   public async onGroupPollDraftSubmit(payload: PollDraftPayload): Promise<void> {
     if (!this.chatActual?.esGrupo) return;
-    if (this.haSalidoDelGrupo || this.chatEstaBloqueado) return;
+    if (
+      this.haSalidoDelGrupo ||
+      this.chatEstaBloqueado ||
+      this.chatGrupalCerradoPorAdmin
+    ) {
+      return;
+    }
     if (this.noGroupRecipientsForSend) {
       this.showToast('Todavia no ha aceptado nadie.', 'warning', 'Grupo');
       return;
@@ -15296,7 +15583,13 @@ private async decryptPreviewString(
 
   public toggleTemporaryMessagePopup(event: MouseEvent): void {
     event.stopPropagation();
-    if (this.haSalidoDelGrupo || this.chatEstaBloqueado) return;
+    if (
+      this.haSalidoDelGrupo ||
+      this.chatEstaBloqueado ||
+      this.chatGrupalCerradoPorAdmin
+    ) {
+      return;
+    }
     if (this.showTemporaryMessagePopup) {
       this.closeTemporaryMessagePopup();
       return;
@@ -15345,7 +15638,13 @@ private async decryptPreviewString(
 
   public toggleEmojiPicker(event: MouseEvent): void {
     event.stopPropagation();
-    if (this.haSalidoDelGrupo || this.chatEstaBloqueado) return;
+    if (
+      this.haSalidoDelGrupo ||
+      this.chatEstaBloqueado ||
+      this.chatGrupalCerradoPorAdmin
+    ) {
+      return;
+    }
     this.onMessageInputSelectionChange();
     this.closeComposeActionsPopup();
     this.closeTemporaryMessagePopup();
@@ -15357,7 +15656,14 @@ private async decryptPreviewString(
   }
 
   public onEmojiSelected(emoji: string): void {
-    if (!emoji || this.haSalidoDelGrupo || this.chatEstaBloqueado) return;
+    if (
+      !emoji ||
+      this.haSalidoDelGrupo ||
+      this.chatEstaBloqueado ||
+      this.chatGrupalCerradoPorAdmin
+    ) {
+      return;
+    }
     this.insertEmojiAtCursor(emoji);
   }
 
@@ -15643,7 +15949,13 @@ private async decryptPreviewString(
   }
 
   public async enviarMensajeDesdeComposer(): Promise<void> {
-    if (this.haSalidoDelGrupo || this.noGroupRecipientsForSend) return;
+    if (
+      this.haSalidoDelGrupo ||
+      this.noGroupRecipientsForSend ||
+      this.chatGrupalCerradoPorAdmin
+    ) {
+      return;
+    }
     if (this.attachmentUploading) return;
     this.closeComposeActionsPopup();
     this.closeEmojiPicker();
@@ -15734,6 +16046,7 @@ private async decryptPreviewString(
       this.attachmentUploading ||
       this.haSalidoDelGrupo ||
       this.chatEstaBloqueado ||
+      this.chatGrupalCerradoPorAdmin ||
       this.noGroupRecipientsForSend
     );
   }
@@ -16212,7 +16525,7 @@ private async decryptPreviewString(
    * Evento nativo de escritura dentro del campo `textarea`. Envía a webSockets avisos de que un individuo teclea.
    */
   public onKeydown(evt: any): void {
-    if (this.haSalidoDelGrupo) {
+    if (this.haSalidoDelGrupo || this.chatGrupalCerradoPorAdmin) {
       evt.preventDefault();
       return;
     }
@@ -16224,7 +16537,11 @@ private async decryptPreviewString(
    * Evento enter sin shift, hace override global sobre envio visual de un salto y simula clicks del enviar forma.
    */
   public onEnter(evt: any): void {
-    if (this.haSalidoDelGrupo || this.noGroupRecipientsForSend) {
+    if (
+      this.haSalidoDelGrupo ||
+      this.noGroupRecipientsForSend ||
+      this.chatGrupalCerradoPorAdmin
+    ) {
       evt.preventDefault();
       return;
     }
