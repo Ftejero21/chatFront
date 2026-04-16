@@ -987,6 +987,7 @@
         [hasMoreUsers]="adminMessageUsersHasMore"
         [loadingMoreUsers]="adminMessageUsersLoading"
         (sendRequested)="onAdminMessageSend($event)"
+        (scheduleRequested)="onAdminMessageSchedule($event)"
         (loadMoreRequested)="onAdminMessageUsersLoadMore()"
       ></app-admin-message-composer>
   </section>

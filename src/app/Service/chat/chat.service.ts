@@ -100,6 +100,60 @@ export interface AdminDirectMessageResponseDTO {
   mensaje?: string | null;
 }
 
+export interface AdminBulkEmailAttachmentMetaDTO {
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export interface AdminBulkEmailRequestDTO {
+  audienceMode: 'all' | 'selected' | string;
+  userIds: number[];
+  recipientEmails: string[];
+  subject: string;
+  body: string;
+  attachmentCount: number;
+  attachmentsMeta: AdminBulkEmailAttachmentMetaDTO[];
+}
+
+export interface AdminScheduleDirectMessageRequestDTO {
+  audienceMode: 'all' | 'selected' | string;
+  userIds: number[];
+  contenido?: string;
+  message?: string;
+  scheduledAt: string;
+  scheduledAtLocal?: string;
+}
+
+export interface AdminScheduleBulkEmailRequestDTO {
+  audienceMode: 'all' | 'selected' | string;
+  userIds: number[];
+  recipientEmails: string[];
+  subject: string;
+  body: string;
+  attachmentCount: number;
+  attachmentsMeta: AdminBulkEmailAttachmentMetaDTO[];
+  scheduledAt: string;
+  scheduledAtLocal?: string;
+}
+
+export interface AdminBulkEmailResponseItemDTO {
+  userId?: number;
+  email?: string | null;
+  ok?: boolean;
+  status?: string;
+  error?: string | null;
+}
+
+export interface AdminBulkEmailResponseDTO {
+  ok?: boolean;
+  sentCount?: number;
+  failedCount?: number;
+  items?: AdminBulkEmailResponseItemDTO[] | null;
+  message?: string | null;
+  mensaje?: string | null;
+}
+
 export interface MensajeProgramadoDTO {
   id?: number;
   chatId?: number;
@@ -659,6 +713,55 @@ export class ChatService {
     return this.http.post<AdminDirectMessageResponseDTO>(
       `${this.baseUrl}/admin/direct-messages`,
       payload
+    );
+  }
+
+  enviarCorreoMasivoAdmin(
+    payload: AdminBulkEmailRequestDTO,
+    attachments: File[] = []
+  ): Observable<AdminBulkEmailResponseDTO> {
+    const formData = new FormData();
+    formData.append(
+      'payload',
+      new Blob([JSON.stringify(payload)], { type: 'application/json' })
+    );
+
+    for (const file of attachments || []) {
+      if (!(file instanceof File)) continue;
+      formData.append('attachments', file, file.name);
+    }
+
+    return this.http.post<AdminBulkEmailResponseDTO>(
+      `${this.baseUrl}/admin/bulk-email`,
+      formData
+    );
+  }
+
+  programarMensajesDirectosAdmin(
+    payload: AdminScheduleDirectMessageRequestDTO
+  ): Observable<ProgramarMensajeResponseDTO> {
+    return this.http.post<ProgramarMensajeResponseDTO>(
+      `${this.baseUrl}/admin/direct-messages/scheduled`,
+      payload
+    );
+  }
+
+  programarCorreoMasivoAdmin(
+    payload: AdminScheduleBulkEmailRequestDTO,
+    attachments: File[] = []
+  ): Observable<ProgramarMensajeResponseDTO> {
+    const formData = new FormData();
+    formData.append(
+      'payload',
+      new Blob([JSON.stringify(payload)], { type: 'application/json' })
+    );
+    for (const file of attachments || []) {
+      if (!(file instanceof File)) continue;
+      formData.append('attachments', file, file.name);
+    }
+    return this.http.post<ProgramarMensajeResponseDTO>(
+      `${this.baseUrl}/admin/bulk-email/scheduled`,
+      formData
     );
   }
 }

@@ -1,0 +1,82 @@
+<div
+  *ngIf="open"
+  class="email-preview-overlay"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Vista previa del email"
+  (click)="onBackdropClick()"
+>
+  <div class="email-preview-modal" (click)="$event.stopPropagation()">
+    <button
+      type="button"
+      class="email-preview-close"
+      aria-label="Cerrar vista previa"
+      (click)="onClose()"
+    >
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M18 6 6 18" />
+        <path d="m6 6 12 12" />
+      </svg>
+    </button>
+
+    <div class="email-wrapper">
+      <div class="email-card">
+        <div class="header">
+          <div class="header-pattern"></div>
+          <div class="chat-icon-container">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C7.02944 3 3 7.02944 3 12C3 13.4876 3.36093 14.891 4 16.1272L3 21L7.8728 20C9.10897 20.6391 10.5124 21 12 21Z" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h1 class="brand-name">TejeChat</h1>
+        </div>
+
+        <div class="content">
+          <div class="admin-badge">Comunicado Administrativo</div>
+          <h2>{{ resolvedSubject }}</h2>
+          <p class="intro-text">
+            Te compartimos un mensaje oficial enviado por el equipo administrativo de <strong>TejeChat</strong>.
+          </p>
+
+          <div class="message-box">
+            <span class="message-label">Contenido del mensaje</span>
+            <p class="message-body">{{ resolvedBody }}</p>
+          </div>
+
+          <div class="attachments-box" *ngIf="resolvedAttachmentNames.length > 0">
+            <span class="message-label">Archivos adjuntos</span>
+            <div class="attachments-list">
+              <div class="attachment-chip" *ngFor="let name of resolvedAttachmentNames">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 2v6h6" />
+                </svg>
+                <span>{{ name }}</span>
+              </div>
+            </div>
+          </div>
+
+          <p class="attachment-note" *ngIf="attachmentCount > 0; else noAttachmentNote">
+            Este correo incluye {{ attachmentCount }} archivo(s) adjunto(s) como parte de la comunicacion administrativa.
+          </p>
+
+          <ng-template #noAttachmentNote>
+            <p class="attachment-note">
+              Este correo no incluye archivos adjuntos.
+            </p>
+          </ng-template>
+        </div>
+
+        <div class="footer">
+          <p class="footer-text">
+            2026 <strong>TejeChat Inc.</strong><br>
+            Enviado de forma segura a traves del panel de administracion.
+          </p>
+          <p class="footer-note">
+            Este mensaje es informativo y no requiere respuesta.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

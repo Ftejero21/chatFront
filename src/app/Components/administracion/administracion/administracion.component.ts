@@ -8,10 +8,15 @@ import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import Swal from 'sweetalert2';
 import { StompSubscription } from '@stomp/stompjs';
 import {
+  AdminBulkEmailRequestDTO,
+  AdminBulkEmailResponseDTO,
+  AdminScheduleBulkEmailRequestDTO,
+  AdminScheduleDirectMessageRequestDTO,
   AdminDirectMessageEncryptedItemDTO,
   AdminDirectMessageResponseDTO,
   AdminGroupListDTO,
   ChatService,
+  ProgramarMensajeResponseDTO,
 } from '../../../Service/chat/chat.service';
 import {
   decryptPreviewStringE2E,
@@ -3817,6 +3822,11 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   public async onAdminMessageSend(
     event: AdminMessageComposerSubmitEvent
   ): Promise<void> {
+    if (event?.deliveryType === 'email') {
+      await this.onAdminEmailSend(event);
+      return;
+    }
+
     const message = String(event?.message || '').trim();
     if (!message || this.isSendingAdminMessage) return;
 
@@ -3934,6 +3944,223 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         'Envio fallido',
         'No se pudo enviar el comunicado a ningun destinatario.',
         'error'
+      );
+    } finally {
+      this.isSendingAdminMessage = false;
+    }
+  }
+
+  public async onAdminMessageSchedule(
+    event: AdminMessageComposerSubmitEvent
+  ): Promise<void> {
+    const scheduledAt = String(event?.scheduledAt || '').trim();
+    if (!scheduledAt || this.isSendingAdminMessage) return;
+
+    if (event?.deliveryType === 'email') {
+      await this.onAdminEmailSchedule(event);
+      return;
+    }
+
+    const message = String(event?.message || '').trim();
+    if (!message) return;
+
+    this.isSendingAdminMessage = true;
+    try {
+      const recipients = await this.resolveAdminMessageRecipients(event);
+      if (recipients.length === 0) {
+        await Swal.fire('Sin destinatarios', 'No hay usuarios validos para programar el mensaje.', 'warning');
+        return;
+      }
+
+      const request: AdminScheduleDirectMessageRequestDTO = {
+        audienceMode: String(event?.mode || 'selected'),
+        userIds: recipients
+          .map((user) => Number(user.id))
+          .filter((id) => Number.isFinite(id) && id > 0),
+        contenido: message,
+        message,
+        scheduledAt,
+        scheduledAtLocal: String(event?.scheduledAtLocal || '').trim() || undefined,
+      };
+
+      const response: ProgramarMensajeResponseDTO = await firstValueFrom(
+        this.chatService.programarMensajesDirectosAdmin(request)
+      );
+
+      await Swal.fire(
+        'Mensaje programado',
+        String(response?.message || response?.mensaje || 'El envio ha quedado programado.'),
+        'success'
+      );
+    } finally {
+      this.isSendingAdminMessage = false;
+    }
+  }
+
+  private async onAdminEmailSend(
+    event: AdminMessageComposerSubmitEvent
+  ): Promise<void> {
+    const subject = String(event?.subject || '').trim();
+    const body = String(event?.message || '').trim();
+    const attachments = Array.isArray(event?.attachments) ? event.attachments : [];
+    if (!subject || !body || this.isSendingAdminMessage) return;
+
+    this.isSendingAdminMessage = true;
+    try {
+      const recipients = await this.resolveAdminMessageRecipients(event);
+      const normalizedRecipients = recipients
+        .map((user) => ({
+          userId: Number(user?.id || 0),
+          email: String(user?.email || '').trim().toLowerCase(),
+          raw: user,
+        }))
+        .filter((item) => item.userId > 0 && !!item.email);
+
+      if (normalizedRecipients.length === 0) {
+        await Swal.fire(
+          'Sin destinatarios',
+          'No hay usuarios validos con email para enviar el correo.',
+          'warning'
+        );
+        return;
+      }
+
+      const deduped = normalizedRecipients.filter(
+        (item, index, arr) =>
+          arr.findIndex((candidate) => candidate.email === item.email) === index
+      );
+
+      const payload: AdminBulkEmailRequestDTO = {
+        audienceMode: String(event?.mode || 'selected'),
+        userIds: deduped.map((item) => item.userId),
+        recipientEmails: deduped.map((item) => item.email),
+        subject,
+        body,
+        attachmentCount: attachments.length,
+        attachmentsMeta: attachments.map((file) => ({
+          fileName: String(file?.name || 'archivo'),
+          mimeType: String(file?.type || 'application/octet-stream'),
+          sizeBytes: Math.max(0, Number(file?.size || 0)),
+        })),
+      };
+
+      const response: AdminBulkEmailResponseDTO = await firstValueFrom(
+        this.chatService.enviarCorreoMasivoAdmin(payload, attachments)
+      );
+
+      const responseItems = Array.isArray(response?.items) ? response.items : [];
+      const responseSuccessCount = responseItems.filter((item) => {
+        if (item?.ok === true) return true;
+        const status = String(item?.status || '').trim().toUpperCase();
+        return status === 'SENT' || status === 'SUCCESS' || status === 'OK';
+      }).length;
+      const responseFailureItems = responseItems.filter((item) => {
+        if (item?.ok === false) return true;
+        const status = String(item?.status || '').trim().toUpperCase();
+        return status === 'FAILED' || status === 'ERROR';
+      });
+
+      const explicitSentCount = Number(response?.sentCount || 0);
+      const explicitFailedCount = Number(response?.failedCount || 0);
+      const fallbackSentCount =
+        responseItems.length > 0
+          ? Math.max(0, responseItems.length - responseFailureItems.length)
+          : deduped.length;
+      const sentCount = Math.max(
+        explicitSentCount,
+        responseSuccessCount,
+        response?.ok === false ? 0 : fallbackSentCount
+      );
+      const failedCount = Math.max(
+        explicitFailedCount,
+        responseFailureItems.length
+      );
+
+      if (sentCount > 0 && failedCount === 0) {
+        await Swal.fire(
+          'Correo enviado',
+          `Se enviaron ${sentCount} correos${attachments.length ? ` con ${attachments.length} adjunto(s)` : ''}.`,
+          'success'
+        );
+        return;
+      }
+
+      if (sentCount > 0) {
+        await Swal.fire(
+          'Envio parcial',
+          `Se enviaron ${sentCount} correos. Fallaron ${failedCount}.`,
+          'warning'
+        );
+        return;
+      }
+
+      await Swal.fire(
+        'Envio fallido',
+        'No se pudo enviar el correo a ningun destinatario.',
+        'error'
+      );
+    } finally {
+      this.isSendingAdminMessage = false;
+    }
+  }
+
+  private async onAdminEmailSchedule(
+    event: AdminMessageComposerSubmitEvent
+  ): Promise<void> {
+    const subject = String(event?.subject || '').trim();
+    const body = String(event?.message || '').trim();
+    const scheduledAt = String(event?.scheduledAt || '').trim();
+    const attachments = Array.isArray(event?.attachments) ? event.attachments : [];
+    if (!subject || !body || !scheduledAt || this.isSendingAdminMessage) return;
+
+    this.isSendingAdminMessage = true;
+    try {
+      const recipients = await this.resolveAdminMessageRecipients(event);
+      const normalizedRecipients = recipients
+        .map((user) => ({
+          userId: Number(user?.id || 0),
+          email: String(user?.email || '').trim().toLowerCase(),
+        }))
+        .filter((item) => item.userId > 0 && !!item.email);
+
+      if (normalizedRecipients.length === 0) {
+        await Swal.fire(
+          'Sin destinatarios',
+          'No hay usuarios validos con email para programar el correo.',
+          'warning'
+        );
+        return;
+      }
+
+      const deduped = normalizedRecipients.filter(
+        (item, index, arr) =>
+          arr.findIndex((candidate) => candidate.email === item.email) === index
+      );
+
+      const payload: AdminScheduleBulkEmailRequestDTO = {
+        audienceMode: String(event?.mode || 'selected'),
+        userIds: deduped.map((item) => item.userId),
+        recipientEmails: deduped.map((item) => item.email),
+        subject,
+        body,
+        attachmentCount: attachments.length,
+        attachmentsMeta: attachments.map((file) => ({
+          fileName: String(file?.name || 'archivo'),
+          mimeType: String(file?.type || 'application/octet-stream'),
+          sizeBytes: Math.max(0, Number(file?.size || 0)),
+        })),
+        scheduledAt,
+        scheduledAtLocal: String(event?.scheduledAtLocal || '').trim() || undefined,
+      };
+
+      const response: ProgramarMensajeResponseDTO = await firstValueFrom(
+        this.chatService.programarCorreoMasivoAdmin(payload, attachments)
+      );
+
+      await Swal.fire(
+        'Email programado',
+        String(response?.message || response?.mensaje || 'El correo ha quedado programado.'),
+        'success'
       );
     } finally {
       this.isSendingAdminMessage = false;

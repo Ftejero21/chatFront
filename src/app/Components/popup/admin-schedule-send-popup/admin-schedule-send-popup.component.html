@@ -1,0 +1,49 @@
+<div
+  *ngIf="open"
+  class="admin-schedule-overlay"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Programar envio"
+  (click)="onBackdropClick()"
+>
+  <div class="admin-schedule-card" (click)="$event.stopPropagation()">
+    <div class="admin-schedule-head">
+      <h3>
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 7v5l3 2"></path>
+        </svg>
+        {{ title }}
+      </h3>
+      <button type="button" class="admin-schedule-close" aria-label="Cerrar" (click)="onClose()">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+
+    <div class="admin-schedule-body">
+      <div class="admin-schedule-fields">
+        <label class="admin-schedule-field">
+          <span>Fecha de envío</span>
+          <input type="date" [min]="minDate" [(ngModel)]="scheduledDate" />
+        </label>
+
+        <label class="admin-schedule-field">
+          <span>Hora de envío</span>
+          <input type="time" [(ngModel)]="scheduledTime" />
+        </label>
+      </div>
+
+      <div class="admin-schedule-note">
+        <i class="bi bi-info-circle-fill"></i>
+        <span>{{ subtitle }}</span>
+      </div>
+
+      <p *ngIf="errorMessage" class="admin-schedule-error">{{ errorMessage }}</p>
+    </div>
+
+    <div class="admin-schedule-actions">
+      <button type="button" class="admin-schedule-cancel" (click)="onClose()">Cancelar</button>
+      <button type="button" class="admin-schedule-submit" (click)="onSubmit()">Confirmar</button>
+    </div>
+  </div>
+</div>

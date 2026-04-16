@@ -24,6 +24,8 @@ import { VideoCallOverlayComponent } from './Components/inicio/video-call-overla
 import { StarredMessagesPanelComponent } from './Components/inicio/starred-messages-panel/starred-messages-panel.component';
 import { ReportChatClosurePopupComponent } from './Components/popup/report-chat-closure-popup/report-chat-closure-popup.component';
 import { AdminMessageComposerComponent } from './Components/administracion/admin-message-composer/admin-message-composer.component';
+import { AdminEmailPreviewPopupComponent } from './Components/popup/admin-email-preview-popup/admin-email-preview-popup.component';
+import { AdminScheduleSendPopupComponent } from './Components/popup/admin-schedule-send-popup/admin-schedule-send-popup.component';
 
 @NgModule({
   declarations: [
@@ -45,7 +47,9 @@ import { AdminMessageComposerComponent } from './Components/administracion/admin
     VideoCallOverlayComponent,
     StarredMessagesPanelComponent,
     ReportChatClosurePopupComponent,
-    AdminMessageComposerComponent
+    AdminMessageComposerComponent,
+    AdminEmailPreviewPopupComponent,
+    AdminScheduleSendPopupComponent
   ],
   imports: [
     BrowserModule,

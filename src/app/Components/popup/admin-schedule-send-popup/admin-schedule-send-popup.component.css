@@ -1,0 +1,165 @@
+.admin-schedule-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.admin-schedule-card {
+  width: min(100%, 420px);
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+}
+
+.admin-schedule-head {
+  padding: 22px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.admin-schedule-head h3 {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 19px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.admin-schedule-head h3 svg {
+  color: #0d9488;
+}
+
+.admin-schedule-close {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #64748b;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.admin-schedule-close:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.admin-schedule-body {
+  padding: 24px;
+}
+
+.admin-schedule-fields {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-schedule-field {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-schedule-field span {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.admin-schedule-field input {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  background: rgba(248, 250, 252, 0.6);
+  border-radius: 16px;
+  padding: 13px 14px;
+  font-size: 14px;
+  color: #0f172a;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.admin-schedule-field input:focus {
+  outline: none;
+  border-color: #14b8a6;
+  box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.12);
+  background: #ffffff;
+}
+
+.admin-schedule-note {
+  margin-top: 18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: #f0fdfa;
+  color: #115e59;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.admin-schedule-note i {
+  margin-top: 1px;
+  flex: 0 0 auto;
+}
+
+.admin-schedule-error {
+  margin: 12px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #dc2626;
+}
+
+.admin-schedule-actions {
+  padding: 20px 24px;
+  background: #f8fafc;
+  display: flex;
+  gap: 10px;
+}
+
+.admin-schedule-cancel,
+.admin-schedule-submit {
+  flex: 1 1 0;
+  border: 0;
+  border-radius: 16px;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.admin-schedule-cancel {
+  background: transparent;
+  color: #64748b;
+}
+
+.admin-schedule-submit {
+  background: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(13, 148, 136, 0.22);
+}
+
+.admin-schedule-submit:hover {
+  transform: translateY(-1px);
+}
+
+@media (max-width: 640px) {
+  .admin-schedule-actions {
+    flex-direction: column;
+  }
+}

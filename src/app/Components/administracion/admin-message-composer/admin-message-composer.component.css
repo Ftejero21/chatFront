@@ -10,6 +10,43 @@
   box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
 }
 
+.admin-message-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.admin-message-tab {
+  flex: 1 1 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #64748b;
+  border-radius: 16px;
+  padding: 14px 16px;
+  font-size: 13px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.admin-message-tab:hover {
+  background: #f8fafc;
+  color: #0f766e;
+}
+
+.admin-message-tab.is-active {
+  background: linear-gradient(135deg, #ecfeff 0%, #f0fdfa 100%);
+  color: #0f766e;
+  border-color: #99f6e4;
+  box-shadow: inset 0 0 0 1px rgba(20, 184, 166, 0.08);
+}
+
 .admin-message-header {
   display: flex;
   align-items: center;
@@ -91,6 +128,151 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #475569;
+}
+
+.admin-message-field {
+  margin-bottom: 20px;
+}
+
+.admin-message-input {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 2px solid #eef2f7;
+  background: #f8fafc;
+  color: #1e293b;
+  font-size: 14px;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.admin-message-input:focus {
+  background: #ffffff;
+  border-color: #14b8a6;
+  box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.12);
+}
+
+.admin-message-editor {
+  position: relative;
+  border-radius: 18px;
+}
+
+.admin-message-editor.is-email::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px dashed transparent;
+  border-radius: 18px;
+  pointer-events: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.admin-message-editor.is-email.is-drag-active::after {
+  border-color: #14b8a6;
+  background: rgba(20, 184, 166, 0.06);
+  box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.1);
+}
+
+.admin-email-dropzone__input {
+  display: none;
+}
+
+.admin-message-editor__drop-hint {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  pointer-events: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-message-textarea--email {
+  padding-right: 66px;
+  padding-right: 66px;
+}
+
+.admin-message-editor__attach-btn {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #99f6e4;
+  border-radius: 12px;
+  background: #f0fdfa;
+  color: #0f766e;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.admin-message-editor__attach-btn:hover {
+  transform: translateY(-1px);
+  background: #ccfbf1;
+  box-shadow: 0 8px 20px rgba(15, 118, 110, 0.14);
+}
+
+.admin-message-editor__attachments-below {
+  margin-top: 12px;
+}
+
+.admin-message-editor__attachments-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.admin-message-editor__attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  border: 1px solid #99f6e4;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(240, 253, 250, 0.98) 0%, rgba(204, 251, 241, 0.92) 100%);
+  padding: 7px 10px 7px 12px;
+  flex: 0 0 auto;
+  box-shadow: 0 6px 16px rgba(15, 118, 110, 0.12);
+}
+
+.admin-message-editor__attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.admin-message-editor__attachment-remove {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #0f766e;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.admin-message-editor__attachment-remove:hover {
+  background: #ccfbf1;
+  color: #115e59;
 }
 
 .admin-message-users {
@@ -254,9 +436,10 @@
 .admin-message-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   margin-top: 22px;
+  flex-wrap: wrap;
 }
 
 .admin-message-preview-btn {
@@ -269,6 +452,35 @@
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+  margin-right: auto;
+}
+
+.admin-message-actions__send-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.admin-message-schedule-btn {
+  border: 1px solid #99f6e4;
+  color: #0f766e;
+  background: #f0fdfa;
+  border-radius: 14px;
+  padding: 14px 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.admin-message-schedule-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .admin-message-send-btn {
@@ -343,8 +555,21 @@
     align-items: stretch;
   }
 
+  .admin-email-attachments-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .admin-message-send-btn,
-  .admin-message-preview-btn {
+  .admin-message-preview-btn,
+  .admin-message-schedule-btn {
     justify-content: center;
+  }
+
+  .admin-message-preview-btn,
+  .admin-message-actions__send-group {
+    margin-right: 0;
+    margin-left: 0;
+    width: 100%;
   }
 }

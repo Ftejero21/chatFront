@@ -1,14 +1,46 @@
 <section class="admin-message-shell">
+  <div class="admin-message-tabs" role="tablist" aria-label="Tipo de envio">
+    <button
+      type="button"
+      class="admin-message-tab"
+      [class.is-active]="deliveryType === 'message'"
+      [attr.aria-selected]="deliveryType === 'message'"
+      (click)="setDeliveryType('message')"
+    >
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+      </svg>
+      Mensaje
+    </button>
+    <button
+      type="button"
+      class="admin-message-tab"
+      [class.is-active]="deliveryType === 'email'"
+      [attr.aria-selected]="deliveryType === 'email'"
+      (click)="setDeliveryType('email')"
+    >
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 6h16v12H4z" />
+        <path d="m4 7 8 6 8-6" />
+      </svg>
+      Email
+    </button>
+  </div>
+
   <header class="admin-message-header">
     <div class="admin-message-header__info">
       <div class="admin-message-header__icon" aria-hidden="true">
-        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <svg *ngIf="deliveryType === 'message'" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+        <svg *ngIf="deliveryType === 'email'" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M4 6h16v12H4z" />
+          <path d="m4 7 8 6 8-6" />
         </svg>
       </div>
 
       <div>
-        <h3 class="admin-message-header__title">Redactar comunicado</h3>
+        <h3 class="admin-message-header__title">{{ composerTitle }}</h3>
         <p class="admin-message-header__subtitle">{{ audienceText }}</p>
       </div>
     </div>
@@ -96,15 +128,86 @@
       </div>
     </div>
 
-    <label class="admin-message-label">Mensaje</label>
-    <textarea
-      [(ngModel)]="messageText"
-      class="admin-message-textarea"
-      placeholder="Escribe el contenido del mensaje..."
-    ></textarea>
+    <div *ngIf="deliveryType === 'email'" class="admin-message-field">
+      <label class="admin-message-label">Asunto</label>
+      <input
+        [(ngModel)]="subjectText"
+        type="text"
+        class="admin-message-input"
+        placeholder="Escribe el asunto del email..."
+      />
+    </div>
+
+    <label class="admin-message-label">{{ messageLabel }}</label>
+    <div
+      class="admin-message-editor"
+      [class.is-email]="deliveryType === 'email'"
+      [class.is-drag-active]="deliveryType === 'email' && emailDropActive"
+      (dragenter)="onEmailDragEnter($event)"
+      (dragover)="onEmailDragOver($event)"
+      (dragleave)="onEmailDragLeave($event)"
+      (drop)="onEmailDrop($event)"
+    >
+      <input
+        #emailAttachmentInput
+        type="file"
+        class="admin-email-dropzone__input"
+        multiple
+        (change)="onEmailAttachmentSelected($event)"
+      />
+
+      <div
+        *ngIf="deliveryType === 'email' && emailDropActive"
+        class="admin-message-editor__drop-hint"
+      >
+        Suelta los archivos para adjuntarlos
+      </div>
+
+      <textarea
+        [(ngModel)]="messageText"
+        class="admin-message-textarea"
+        [class.admin-message-textarea--email]="deliveryType === 'email'"
+        [placeholder]="messagePlaceholder"
+      ></textarea>
+
+      <button
+        *ngIf="deliveryType === 'email'"
+        type="button"
+        class="admin-message-editor__attach-btn"
+        (click)="openEmailAttachmentPicker()"
+        title="Adjuntar archivos"
+        aria-label="Adjuntar archivos"
+      >
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 1 1-2.82-2.82l8.49-8.48" />
+        </svg>
+      </button>
+    </div>
+
+    <div *ngIf="deliveryType === 'email' && emailAttachments.length > 0" class="admin-message-editor__attachments-below">
+      <div class="admin-message-editor__attachments-chips">
+        <div
+          *ngFor="let file of emailAttachments; trackBy: trackByAttachment; let i = index"
+          class="admin-message-editor__attachment-chip"
+        >
+          <span class="admin-message-editor__attachment-name">{{ file.name }}</span>
+          <button
+            type="button"
+            class="admin-message-editor__attachment-remove"
+            aria-label="Quitar adjunto"
+            (click)="removeEmailAttachment(i)"
+          >
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div class="admin-message-actions">
-      <button type="button" class="admin-message-preview-btn">
+      <button *ngIf="deliveryType === 'email'" type="button" class="admin-message-preview-btn" (click)="openPreview()">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -112,18 +215,49 @@
         Vista previa
       </button>
 
-      <button
-        type="button"
-        class="admin-message-send-btn"
-        [disabled]="sending || !messageText.trim() || (audienceMode === 'selected' && !selectedUsersCount)"
-        (click)="submit()"
-      >
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-        </svg>
-        <span>{{ sending ? 'Enviando...' : sendLabel }}</span>
-      </button>
+      <div class="admin-message-actions__send-group">
+        <button
+          type="button"
+          class="admin-message-schedule-btn"
+          [disabled]="!canSubmit || sending"
+          (click)="openSchedulePopup()"
+        >
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M12 7v5l3 2"></path>
+          </svg>
+          <span>{{ scheduleLabel }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="admin-message-send-btn"
+          [disabled]="!canSubmit"
+          (click)="submit()"
+        >
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+          </svg>
+          <span>{{ sending ? 'Enviando...' : sendLabel }}</span>
+        </button>
+      </div>
     </div>
   </div>
+
+  <app-admin-email-preview-popup
+    [open]="showEmailPreview"
+    [subject]="subjectText"
+    [body]="messageText"
+    [attachmentCount]="emailAttachments.length"
+    [attachmentNames]="emailAttachmentNames"
+    (closed)="closePreview()"
+  ></app-admin-email-preview-popup>
+
+  <app-admin-schedule-send-popup
+    [open]="showSchedulePopup"
+    [mode]="deliveryType"
+    (closed)="closeSchedulePopup()"
+    (submitted)="confirmSchedule($event)"
+  ></app-admin-schedule-send-popup>
 
 </section>

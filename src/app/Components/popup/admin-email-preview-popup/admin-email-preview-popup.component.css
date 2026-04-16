@@ -1,0 +1,251 @@
+.email-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 20px 20px;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.email-preview-modal {
+  position: relative;
+  width: min(100%, 760px);
+  margin: 0 auto;
+  max-height: none;
+  overflow: visible;
+  border-radius: 32px;
+}
+
+.email-preview-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  margin-left: auto;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.email-wrapper {
+  width: 100%;
+  background-color: #f1f5f9;
+  padding: 0;
+}
+
+.email-card {
+  max-width: 580px;
+  margin: 0 auto;
+  background-color: #ffffff;
+  border-radius: 32px;
+  overflow: hidden;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.04);
+}
+
+.header {
+  background: #0d9488 linear-gradient(135deg, #0d9488 0%, #2dd4bf 100%);
+  padding: 60px 40px;
+  text-align: center;
+  position: relative;
+}
+
+.header-pattern {
+  position: absolute;
+  inset: 0;
+  opacity: 0.12;
+  background-image: radial-gradient(#ffffff 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.chat-icon-container {
+  width: 56px;
+  height: 56px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 18px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.brand-name {
+  font-size: 34px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -1.5px;
+  margin: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.content {
+  padding: 45px 40px;
+  text-align: center;
+}
+
+.admin-badge {
+  display: inline-block;
+  background-color: #f0fdfa;
+  color: #0d9488;
+  padding: 8px 18px;
+  border-radius: 100px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 24px;
+}
+
+.content h2 {
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 16px 0;
+  letter-spacing: -0.5px;
+}
+
+.intro-text {
+  font-size: 15px;
+  line-height: 1.6;
+  color: #64748b;
+  margin-bottom: 35px;
+}
+
+.message-box {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 24px;
+  text-align: left;
+  margin-bottom: 35px;
+}
+
+.message-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #94a3b8;
+  font-weight: 700;
+  margin-bottom: 12px;
+  display: block;
+}
+
+.message-body {
+  font-size: 16px;
+  line-height: 1.7;
+  color: #334155;
+  border-left: 3px solid #0d9488;
+  padding-left: 15px;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.attachments-box {
+  background-color: #f0fdfa;
+  border: 1px solid #ccfbf1;
+  border-radius: 20px;
+  padding: 20px;
+  text-align: left;
+  margin-bottom: 22px;
+}
+
+.attachments-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #99f6e4;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.attachment-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-note {
+  font-size: 13px;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.footer {
+  background-color: #f8fafc;
+  padding: 40px;
+  text-align: center;
+  border-top: 1px solid #f1f5f9;
+}
+
+.footer-text {
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.8;
+  margin: 0;
+}
+
+.footer-note {
+  font-size: 12px;
+  color: #cbd5e1;
+  margin-top: 15px;
+}
+
+@media (max-width: 600px) {
+  .email-preview-overlay {
+    padding: 0;
+  }
+
+  .email-preview-modal {
+    width: 100%;
+    min-height: 100vh;
+    border-radius: 0;
+  }
+
+  .email-preview-close {
+    top: 12px;
+    right: 12px;
+  }
+
+  .email-wrapper {
+    padding: 0;
+  }
+
+  .email-card {
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .content {
+    padding: 40px 25px;
+  }
+
+  .brand-name {
+    font-size: 28px;
+  }
+}

@@ -1,9 +1,14 @@
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Input, OnChanges, Output, SimpleChanges, ViewChild } from '@angular/core';
 import { UsuarioDTO } from '../../../Interface/UsuarioDTO';
 
 export type AdminMessageComposerSubmitEvent = {
   mode: 'all' | 'selected';
+  deliveryType: 'message' | 'email';
   message: string;
+  subject?: string;
+  attachments: File[];
+  scheduledAt?: string;
+  scheduledAtLocal?: string;
   selectedUserIds: number[];
 };
 
@@ -19,12 +24,22 @@ export class AdminMessageComposerComponent implements OnChanges {
   @Input() hasMoreUsers: boolean = false;
   @Input() loadingMoreUsers: boolean = false;
   @Output() sendRequested = new EventEmitter<AdminMessageComposerSubmitEvent>();
+  @Output() scheduleRequested = new EventEmitter<AdminMessageComposerSubmitEvent>();
   @Output() loadMoreRequested = new EventEmitter<void>();
+  @ViewChild('emailAttachmentInput')
+  private emailAttachmentInputRef?: ElementRef<HTMLInputElement>;
 
   audienceMode: 'all' | 'selected' = 'all';
+  deliveryType: 'message' | 'email' = 'message';
   selectedUserIds = new Set<number>();
   messageText: string = '';
+  subjectText: string = '';
+  emailAttachments: File[] = [];
+  emailDropActive: boolean = false;
+  showEmailPreview: boolean = false;
+  showSchedulePopup: boolean = false;
   searchTerm: string = '';
+  private emailDragDepth = 0;
   private usersSelectionInitialized = false;
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -41,6 +56,10 @@ export class AdminMessageComposerComponent implements OnChanges {
 
   setAudience(mode: 'all' | 'selected'): void {
     this.audienceMode = mode;
+  }
+
+  setDeliveryType(type: 'message' | 'email'): void {
+    this.deliveryType = type;
   }
 
   toggleUserSelection(userId: number | undefined): void {
@@ -67,6 +86,24 @@ export class AdminMessageComposerComponent implements OnChanges {
       : 'Mensajeria segmentada activa';
   }
 
+  get composerTitle(): string {
+    return this.deliveryType === 'email'
+      ? 'Redactar correo'
+      : 'Redactar mensaje';
+  }
+
+  get messageLabel(): string {
+    return this.deliveryType === 'email'
+      ? 'Cuerpo del email'
+      : 'Mensaje';
+  }
+
+  get messagePlaceholder(): string {
+    return this.deliveryType === 'email'
+      ? 'Escribe el contenido del email...'
+      : 'Escribe el contenido del mensaje...';
+  }
+
   get selectedUsersCount(): number {
     return this.selectedUserIds.size;
   }
@@ -79,7 +116,125 @@ export class AdminMessageComposerComponent implements OnChanges {
   }
 
   get sendLabel(): string {
-    return `Enviar a ${this.sendCount} usuarios`;
+    return this.deliveryType === 'email'
+      ? `Enviar email a ${this.sendCount} usuarios`
+      : `Enviar mensaje a ${this.sendCount} usuarios`;
+  }
+
+  get canSubmit(): boolean {
+    const hasMessage = !!String(this.messageText || '').trim();
+    const hasSubject = this.deliveryType === 'email'
+      ? !!String(this.subjectText || '').trim()
+      : true;
+    const hasRecipients = this.audienceMode === 'selected'
+      ? this.selectedUsersCount > 0
+      : true;
+    return !this.sending && hasMessage && hasSubject && hasRecipients;
+  }
+
+  get emailAttachmentCountLabel(): string {
+    const count = this.emailAttachments.length;
+    if (count === 0) return 'Sin archivos adjuntos';
+    if (count === 1) return '1 archivo adjunto';
+    return `${count} archivos adjuntos`;
+  }
+
+  openEmailAttachmentPicker(): void {
+    this.emailAttachmentInputRef?.nativeElement?.click();
+  }
+
+  openPreview(): void {
+    this.showEmailPreview = true;
+  }
+
+  closePreview(): void {
+    this.showEmailPreview = false;
+  }
+
+  openSchedulePopup(): void {
+    this.showSchedulePopup = true;
+  }
+
+  closeSchedulePopup(): void {
+    this.showSchedulePopup = false;
+  }
+
+  confirmSchedule(event: { scheduledAtIso: string; scheduledAtLocal: string }): void {
+    this.showSchedulePopup = false;
+    this.emitComposeEvent(this.scheduleRequested, {
+      scheduledAt: String(event?.scheduledAtIso || '').trim(),
+      scheduledAtLocal: String(event?.scheduledAtLocal || '').trim(),
+    });
+  }
+
+  get emailAttachmentNames(): string[] {
+    return (this.emailAttachments || []).map((file) => String(file?.name || '').trim()).filter(Boolean);
+  }
+
+  get scheduleLabel(): string {
+    return this.deliveryType === 'email' ? 'Programar email' : 'Programar mensaje';
+  }
+
+  onEmailAttachmentSelected(event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    const files = input?.files ? Array.from(input.files) : [];
+    if (input) input.value = '';
+    this.addEmailAttachments(files);
+  }
+
+  onEmailDragEnter(event: DragEvent): void {
+    if (!this.isFileDragEvent(event) || this.deliveryType !== 'email') return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.emailDragDepth++;
+    this.emailDropActive = true;
+  }
+
+  onEmailDragOver(event: DragEvent): void {
+    if (!this.isFileDragEvent(event) || this.deliveryType !== 'email') return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    this.emailDropActive = true;
+  }
+
+  onEmailDragLeave(event: DragEvent): void {
+    if (!this.isFileDragEvent(event) || this.deliveryType !== 'email') return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.emailDragDepth = Math.max(0, this.emailDragDepth - 1);
+    if (this.emailDragDepth === 0) {
+      this.emailDropActive = false;
+    }
+  }
+
+  onEmailDrop(event: DragEvent): void {
+    if (!this.isFileDragEvent(event) || this.deliveryType !== 'email') return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.emailDragDepth = 0;
+    this.emailDropActive = false;
+    this.addEmailAttachments(Array.from(event.dataTransfer?.files || []));
+  }
+
+  removeEmailAttachment(index: number): void {
+    if (index < 0 || index >= this.emailAttachments.length) return;
+    this.emailAttachments = this.emailAttachments.filter((_, idx) => idx !== index);
+  }
+
+  clearEmailAttachments(): void {
+    this.emailAttachments = [];
+    const input = this.emailAttachmentInputRef?.nativeElement;
+    if (input) input.value = '';
+  }
+
+  formatAttachmentSize(size: number | undefined): string {
+    const bytes = Number(size || 0);
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   }
 
   get filteredUsers(): UsuarioDTO[] {
@@ -126,14 +281,27 @@ export class AdminMessageComposerComponent implements OnChanges {
   }
 
   submit(): void {
+    this.emitComposeEvent(this.sendRequested);
+  }
+
+  private emitComposeEvent(
+    emitter: EventEmitter<AdminMessageComposerSubmitEvent>,
+    extra: Partial<AdminMessageComposerSubmitEvent> = {}
+  ): void {
     const message = String(this.messageText || '').trim();
+    const subject = String(this.subjectText || '').trim();
     if (!message || this.sending) return;
+    if (this.deliveryType === 'email' && !subject) return;
     if (this.audienceMode === 'selected' && this.selectedUserIds.size === 0) return;
 
-    this.sendRequested.emit({
+    emitter.emit({
       mode: this.audienceMode,
+      deliveryType: this.deliveryType,
       message,
+      subject: subject || undefined,
+      attachments: [...this.emailAttachments],
       selectedUserIds: Array.from(this.selectedUserIds),
+      ...extra,
     });
   }
 
@@ -153,11 +321,37 @@ export class AdminMessageComposerComponent implements OnChanges {
     return Number(user?.id || 0) || user?.email || this.getUserDisplayName(user);
   }
 
+  trackByAttachment(index: number, file: File): string {
+    return `${file.name}-${file.size}-${index}`;
+  }
+
   private resetSelectedUsers(): void {
     this.selectedUserIds = new Set(
       (this.users || [])
         .map((user) => Number(user?.id || 0))
         .filter((id) => Number.isFinite(id) && id > 0)
     );
+  }
+
+  private isFileDragEvent(event: DragEvent): boolean {
+    const types = Array.from(event.dataTransfer?.types || []);
+    return types.includes('Files');
+  }
+
+  private addEmailAttachments(files: File[]): void {
+    if (!Array.isArray(files) || files.length === 0) return;
+
+    const next = [...this.emailAttachments];
+    for (const file of files) {
+      if (!(file instanceof File)) continue;
+      const duplicate = next.some(
+        (item) =>
+          item.name === file.name &&
+          item.size === file.size &&
+          item.lastModified === file.lastModified
+      );
+      if (!duplicate) next.push(file);
+    }
+    this.emailAttachments = next;
   }
 }
