@@ -1199,6 +1199,24 @@ export class InicioComponent {
               );
               return;
             }
+            if (this.isAdminDirectChatExpiredEvent(mensajeRaw)) {
+              this.ngZone.run(() => {
+                this.handleAdminDirectChatExpiredEvent(mensajeRaw);
+              });
+              return;
+            }
+            if (this.isAdminDirectChatListUpdatedEvent(mensajeRaw)) {
+              this.ngZone.run(() => {
+                this.handleAdminDirectChatListUpdatedEvent(mensajeRaw);
+              });
+              return;
+            }
+            if (this.isAdminDirectChatRemovedEvent(mensajeRaw)) {
+              this.ngZone.run(() => {
+                this.handleAdminDirectChatRemovedEvent(mensajeRaw);
+              });
+              return;
+            }
             let mensaje = mensajeRaw as MensajeDTO;
             const wsEmisorId = Number(
               (mensaje as any)?.emisorId ?? (mensaje as any)?.emisor?.id ?? 0
@@ -1667,7 +1685,9 @@ export class InicioComponent {
     this.chatService.listarTodosLosChats().subscribe({
       next: (chats: ChatListItemDTO[]) => {
         const dedupedChats = dedupeChatListItemsById(chats || []);
-        this.chats = dedupedChats.map((chat) => {
+        this.chats = dedupedChats
+          .filter((chat) => !this.shouldHideChatFromListBecauseLastMessageExpiredAdmin(chat))
+          .map((chat) => {
           const esGrupo = !chat.receptor;
           const groupId = Number(chat?.id);
           const seedIds = this.groupRecipientSeedByChatId.get(groupId) || [];
@@ -1741,8 +1761,13 @@ export class InicioComponent {
           const closedReason = esGrupo
             ? this.closedGroupReasonByChatId.get(groupId) || ''
             : '';
+          const lastMsgSnapshot =
+            (chat as any)?.ultimoMensajeDto ??
+            (chat as any)?.ultimoMensajeData ??
+            (chat as any)?.ultimoMensajePayload ??
+            null;
 
-          return {
+            return {
             ...chat,
             usuarios: esGrupo ? normalizedGroupUsers : chat?.usuarios,
             esGrupo,
@@ -1806,10 +1831,44 @@ export class InicioComponent {
             __ultimaArchivoNombre: '',
             __ultimaArchivoMime: '',
             __ultimaArchivoCaption: '',
+            __ultimoAdminMessage:
+              lastMsgSnapshot?.adminMessage ??
+              (chat as any)?.ultimoMensajeAdminMessage ??
+              (chat as any)?.ultimaMensajeAdminMessage ??
+              (chat as any)?.adminMessage ??
+              false,
+            __ultimoTemporalEnabled:
+              lastMsgSnapshot?.mensajeTemporal ??
+              (chat as any)?.ultimoMensajeTemporal ??
+              (chat as any)?.ultimaMensajeTemporal ??
+              (chat as any)?.mensajeTemporal ??
+              false,
+            __ultimoTemporalStatus:
+              lastMsgSnapshot?.estadoTemporal ??
+              (chat as any)?.ultimoMensajeEstadoTemporal ??
+              (chat as any)?.ultimaMensajeEstadoTemporal ??
+              (chat as any)?.estadoTemporal ??
+              null,
+            __ultimoTemporalExpired:
+              lastMsgSnapshot?.expiredByPolicy ??
+              (chat as any)?.ultimoMensajeExpiredByPolicy ??
+              (chat as any)?.expiredByPolicy ??
+              false,
+            __ultimoTemporalExpiresAt:
+              lastMsgSnapshot?.expiraEn ??
+              lastMsgSnapshot?.expiresAt ??
+              (chat as any)?.ultimoMensajeExpiraEn ??
+              (chat as any)?.ultimaMensajeExpiraEn ??
+              null,
+            __ultimoEmisorNombre:
+              lastMsgSnapshot?.emisorNombre ??
+              (chat as any)?.ultimoMensajeEmisorNombre ??
+              (chat as any)?.ultimaMensajeEmisorNombre ??
+              null,
             chatCerrado: esGrupo ? this.closedGroupReasonByChatId.has(groupId) : false,
             chatCerradoMotivo: closedReason || null,
-          };
-        });
+            };
+          });
 
         const activeChatId = Number(this.chatSeleccionadoId ?? this.chatActual?.id ?? 0);
         if (
@@ -4273,12 +4332,241 @@ private async decryptPreviewString(
     return isSystemMessageLike(mensaje);
   }
 
+  private isAdminDirectChatExpiredEvent(payload: any): boolean {
+    const eventCode = String(payload?.systemEvent || payload?.evento || '')
+      .trim()
+      .toUpperCase();
+    return eventCode === 'ADMIN_DIRECT_CHAT_EXPIRED';
+  }
+
+  private isAdminDirectChatListUpdatedEvent(payload: any): boolean {
+    const eventCode = String(payload?.systemEvent || payload?.evento || '')
+      .trim()
+      .toUpperCase();
+    return eventCode === 'ADMIN_DIRECT_CHAT_LIST_UPDATED';
+  }
+
+  private isAdminDirectChatRemovedEvent(payload: any): boolean {
+    const eventCode = String(payload?.systemEvent || payload?.evento || '')
+      .trim()
+      .toUpperCase();
+    return eventCode === 'ADMIN_DIRECT_CHAT_REMOVED';
+  }
+
+  private handleAdminDirectChatExpiredEvent(payload: any): void {
+    const chatId = Number(payload?.chatId || 0);
+    const expiredIds = Array.isArray(payload?.expiredMessageIds)
+      ? payload.expiredMessageIds
+      : payload?.id != null
+        ? [payload.id]
+        : [];
+    for (const rawId of expiredIds) {
+      const id = Number(rawId);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      this.aplicarEliminacionEnUI({
+        ...(payload || {}),
+        id,
+        chatId,
+        activo: false,
+        adminMessage: true,
+        mensajeTemporal: true,
+        estadoTemporal: 'EXPIRADO',
+        motivoEliminacion:
+          String(payload?.motivoEliminacion || '').trim() || 'TEMPORAL_EXPIRADO',
+        expiredByPolicy:
+          payload?.expiredByPolicy === true || payload?.expiredByPolicy === 'true',
+        systemEvent:
+          String(payload?.systemEvent || '').trim() || 'ADMIN_DIRECT_CHAT_EXPIRED',
+      } as MensajeDTO);
+    }
+    if (Number.isFinite(chatId) && chatId > 0) {
+      const activeChatId = Number(this.chatActual?.id ?? this.chatSeleccionadoId ?? 0);
+      if (activeChatId === chatId && this.mensajesSeleccionados.length === 0) {
+        this.chatActual = null;
+        this.chatSeleccionadoId = null;
+      }
+    }
+    this.cdr.markForCheck();
+  }
+
+  private handleAdminDirectChatListUpdatedEvent(payload: any): void {
+    const chatId = Number(payload?.chatId || 0);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+    const item = this.chats.find((c) => Number(c?.id) === chatId);
+    if (!item) {
+      this.scheduleChatsRefresh(0);
+      return;
+    }
+
+    const preview = String(payload?.ultimoMensaje ?? '').trim() || 'Sin mensajes aún';
+    item.ultimaMensaje = this.normalizeOwnPreviewPrefix(preview, item);
+    item.ultimaFecha = String(payload?.ultimaFecha ?? '').trim() || item.ultimaFecha || null;
+
+    const lastVisibleMessageId = Number(payload?.lastVisibleMessageId ?? payload?.ultimoMensajeId);
+    if (Number.isFinite(lastVisibleMessageId) && lastVisibleMessageId > 0) {
+      item.lastPreviewId = lastVisibleMessageId;
+      item.ultimaMensajeId = lastVisibleMessageId;
+    } else {
+      item.lastPreviewId = null;
+      item.ultimaMensajeId = null;
+    }
+
+    const lastTipo = this.toLastMessageTipoDTO(payload?.ultimoMensajeTipo);
+    item.ultimaMensajeTipo = lastTipo;
+    item.__ultimaTipo = lastTipo;
+    item.ultimaMensajeEmisorId = Number(payload?.ultimoMensajeEmisorId || 0) || null;
+    item.ultimaMensajeRaw = String(payload?.ultimoMensaje ?? '').trim() || null;
+    item.__ultimaMensajeRaw = String(payload?.ultimoMensaje ?? '').trim() || '';
+    item.__ultimoAdminMessage = false;
+    item.__ultimoTemporalEnabled = false;
+    item.__ultimoTemporalStatus = null;
+    item.__ultimoTemporalExpired = false;
+    item.__ultimoTemporalExpiresAt = null;
+
+    this.chats = updateChatPreview(
+      this.chats,
+      chatId,
+      item.ultimaMensaje,
+      item.lastPreviewId
+    );
+    this.cdr.markForCheck();
+  }
+
+  private handleAdminDirectChatRemovedEvent(payload: any): void {
+    const chatId = Number(payload?.chatId || 0);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+    this.removeChatFromLocalState(chatId);
+    this.cdr.markForCheck();
+  }
+
   public isTemporalExpiredMessage(mensaje: any): boolean {
     return isTemporalExpiredMessageLike(mensaje);
   }
 
   public temporalExpiredPlaceholderText(mensaje: any): string {
     return resolveTemporalExpiredPlaceholderText(mensaje);
+  }
+
+  private isTruthyFlag(value: unknown): boolean {
+    return value === true || value === 1 || value === '1' || value === 'true';
+  }
+
+  private isExpiredAdminBroadcastMessage(mensaje: any): boolean {
+    if (!mensaje || !this.isTemporalExpiredMessage(mensaje)) return false;
+
+    const adminFlag = [
+      mensaje?.adminMessage,
+      mensaje?.admin_message,
+      mensaje?.fromAdmin,
+      mensaje?.from_admin,
+    ].some((value) => this.isTruthyFlag(value));
+
+    const temporalFlag = [
+      mensaje?.mensajeTemporal,
+      mensaje?.mensaje_temporal,
+      mensaje?.temporal,
+      mensaje?.isTemporal,
+    ].some((value) => this.isTruthyFlag(value));
+
+    const senderName = String(
+      mensaje?.emisorNombre ?? mensaje?.senderName ?? ''
+    )
+      .trim()
+      .toLowerCase();
+
+    return (adminFlag || senderName === 'admin') && temporalFlag;
+  }
+
+  private shouldHideMessageFromTimeline(mensaje: any): boolean {
+    if (!mensaje) return false;
+    if (this.isExpiredAdminBroadcastMessage(mensaje)) return true;
+    return this.shouldPurgeDeletedMessageFromTimeline(mensaje);
+  }
+
+  private canMessageBeUsedAsChatPreview(mensaje: any): boolean {
+    if (!mensaje) return false;
+    if (this.isExpiredAdminBroadcastMessage(mensaje)) return false;
+    return mensaje.activo !== false || this.isTemporalExpiredMessage(mensaje);
+  }
+
+  private shouldHideChatFromListBecauseLastMessageExpiredAdmin(chat: any): boolean {
+    if (!chat) return false;
+    const lastMsg =
+      chat?.ultimoMensajeDto ??
+      chat?.ultimoMensajeData ??
+      chat?.ultimoMensajePayload ??
+      chat?.ultimaMensajeDto ??
+      chat?.ultimaMensajeData ??
+      chat?.ultimaMensajePayload ??
+      null;
+
+    const candidate = lastMsg || {
+      adminMessage:
+        chat?.ultimoMensajeAdminMessage ??
+        chat?.ultimaMensajeAdminMessage ??
+        chat?.adminMessage,
+      mensajeTemporal:
+        chat?.ultimoMensajeTemporal ??
+        chat?.ultimaMensajeTemporal ??
+        chat?.mensajeTemporal,
+      estadoTemporal:
+        chat?.ultimoMensajeEstadoTemporal ??
+        chat?.ultimaMensajeEstadoTemporal ??
+        chat?.estadoTemporal,
+      motivoEliminacion:
+        chat?.ultimoMensajeMotivoEliminacion ??
+        chat?.ultimaMensajeMotivoEliminacion ??
+        chat?.motivoEliminacion,
+      emisorNombre:
+        chat?.ultimoMensajeEmisorNombre ??
+        chat?.ultimaMensajeEmisorNombre ??
+        chat?.emisorNombre,
+      contenido: chat?.ultimaMensaje,
+      placeholderTexto: chat?.ultimaMensaje,
+    };
+
+    return this.isExpiredAdminBroadcastMessage(candidate);
+  }
+
+  private mergeDeletionPayloadWithLocalContext(mensaje: MensajeDTO): MensajeDTO {
+    const chatId = Number((mensaje as any)?.chatId);
+    const messageId = Number(mensaje?.id);
+    const loadedMessage =
+      Number.isFinite(messageId) && messageId > 0
+        ? this.findLoadedMessageById(messageId)
+        : null;
+    const chatItem =
+      Number.isFinite(chatId) && chatId > 0
+        ? this.chats.find((c) => Number(c?.id) === chatId) || null
+        : null;
+    const chatLastMatchesMessage =
+      !!chatItem &&
+      Number.isFinite(messageId) &&
+      messageId > 0 &&
+      Number(chatItem?.lastPreviewId ?? chatItem?.ultimaMensajeId ?? 0) === messageId;
+
+    const chatSnapshotContext = chatLastMatchesMessage
+      ? {
+          adminMessage:
+            chatItem?.__ultimoAdminMessage ?? chatItem?.ultimoMensajeAdminMessage,
+          mensajeTemporal:
+            chatItem?.__ultimoTemporalEnabled ?? chatItem?.ultimoMensajeTemporal,
+          estadoTemporal:
+            chatItem?.__ultimoTemporalStatus ?? chatItem?.ultimoMensajeEstadoTemporal,
+          expiredByPolicy:
+            chatItem?.__ultimoTemporalExpired ?? chatItem?.expiredByPolicy,
+          emisorNombre:
+            chatItem?.__ultimoEmisorNombre ?? chatItem?.ultimoMensajeEmisorNombre,
+          expiraEn:
+            chatItem?.__ultimoTemporalExpiresAt ?? chatItem?.ultimoMensajeExpiraEn,
+        }
+      : null;
+
+    return {
+      ...(chatSnapshotContext || {}),
+      ...(loadedMessage || {}),
+      ...(mensaje || {}),
+    } as MensajeDTO;
   }
 
   private parseTimestampToMs(raw: unknown): number | null {
@@ -6384,6 +6672,10 @@ private async decryptPreviewString(
         } else {
           m.contenido = String(m?.contenido ?? '').trim();
         }
+        continue;
+      }
+      if (this.isExpiredAdminBroadcastMessage(m)) {
+        (m as any).__hideFromTimeline = true;
         continue;
       }
       const decryptInput = this.resolveDecryptInputFromMessageLike(m);
@@ -10439,32 +10731,10 @@ private async decryptPreviewString(
     if (chat?.esGrupo && this.containsEncryptedHiddenPlaceholder(chat?.ultimaMensaje)) {
       return this.GROUP_HISTORY_UNAVAILABLE_TEXT;
     }
-    const pollRawCandidate =
-      chat?.ultimaMensajeRaw ?? chat?.__ultimaMensajeRaw ?? chat?.ultimaMensaje;
-    const pollPreviewPayload = parsePollPayload(pollRawCandidate);
-    const pollType = this.normalizeLastMessageTipo(
-      chat?.ultimaMensajeTipo ??
-        chat?.__ultimaTipo ??
-        this.inferLastMessageTipoFromRaw(String(pollRawCandidate || ''))
-    );
-    const pollQuestionFallback = this.extractPollQuestionFromPreviewRaw(
-      pollRawCandidate,
-      chat?.ultimaMensaje
-    );
-    if (pollPreviewPayload || pollType === 'POLL' || pollQuestionFallback) {
-      const senderId = Number(
-        chat?.ultimaMensajeEmisorId ?? chat?.ultimoMensajeEmisorId ?? 0
-      );
-      const previewRaw = String(chat?.ultimaMensaje || '').trim();
-      const senderLabel = this.resolvePollPreviewSenderLabel(
-        chat,
-        senderId,
-        previewRaw
-      );
-      const question = String(
-        pollPreviewPayload?.question || pollQuestionFallback || 'Encuesta'
-      ).trim();
-      return `${senderLabel}: ?? ${question}`.trim();
+    if (this.isPollPreviewChat(chat)) {
+      const senderLabel = this.pollPreviewSenderLabel(chat);
+      const question = this.pollPreviewQuestion(chat);
+      return senderLabel ? `${senderLabel}: Encuesta: ${question}` : `Encuesta: ${question}`;
     }
     const normalized = this.normalizeOwnPreviewPrefix(
       chat?.ultimaMensaje || '',
@@ -10549,6 +10819,22 @@ private async decryptPreviewString(
     if (Number.isFinite(emisorId) && emisorId > 0) {
       chat.ultimaMensajeEmisorId = emisorId;
     }
+    chat.__ultimoAdminMessage = !!this.isTruthyFlag(
+      mensaje?.adminMessage ?? mensaje?.admin_message
+    );
+    chat.__ultimoTemporalEnabled = !!this.isTruthyFlag(
+      mensaje?.mensajeTemporal ??
+        mensaje?.mensaje_temporal ??
+        mensaje?.temporal ??
+        mensaje?.isTemporal
+    );
+    chat.__ultimoTemporalStatus =
+      String(mensaje?.estadoTemporal ?? mensaje?.estado_temporal ?? '').trim() || null;
+    chat.__ultimoTemporalExpired = !!this.isTruthyFlag(mensaje?.expiredByPolicy);
+    chat.__ultimoTemporalExpiresAt =
+      String(mensaje?.expiraEn ?? mensaje?.expiresAt ?? '').trim() || null;
+    chat.__ultimoEmisorNombre =
+      String(mensaje?.emisorNombre ?? mensaje?.senderName ?? '').trim() || null;
 
     if (typeof mensaje?.contenido === 'string') {
       chat.ultimaMensajeRaw = mensaje.contenido;
@@ -10749,6 +11035,47 @@ private async decryptPreviewString(
       chat?.__ultimaArchivoMime || chat?.ultimaMensajeFileMime || ''
     ).trim();
     return this.getFileIconClass(mime);
+  }
+
+  public isPollPreviewChat(chat: any): boolean {
+    const pollRawCandidate =
+      chat?.ultimaMensajeRaw ?? chat?.__ultimaMensajeRaw ?? chat?.ultimaMensaje;
+    const pollPayload = parsePollPayload(pollRawCandidate);
+    if (pollPayload) return true;
+
+    const pollType = this.normalizeLastMessageTipo(
+      chat?.ultimaMensajeTipo ??
+        chat?.__ultimaTipo ??
+        this.inferLastMessageTipoFromRaw(String(pollRawCandidate || ''))
+    );
+    if (pollType === 'POLL') return true;
+
+    return !!this.extractPollQuestionFromPreviewRaw(
+      pollRawCandidate,
+      chat?.ultimaMensaje
+    );
+  }
+
+  public pollPreviewSenderLabel(chat: any): string {
+    const senderId = Number(
+      chat?.ultimaMensajeEmisorId ??
+        chat?.ultimoMensajeEmisorId ??
+        this.getChatLastPreviewSenderId(chat) ??
+        0
+    );
+    const previewRaw = String(chat?.ultimaMensaje || '').trim();
+    return this.resolvePollPreviewSenderLabel(chat, senderId, previewRaw);
+  }
+
+  public pollPreviewQuestion(chat: any): string {
+    const pollRawCandidate =
+      chat?.ultimaMensajeRaw ?? chat?.__ultimaMensajeRaw ?? chat?.ultimaMensaje;
+    const pollPayload = parsePollPayload(pollRawCandidate);
+    const fallback = this.extractPollQuestionFromPreviewRaw(
+      pollRawCandidate,
+      chat?.ultimaMensaje
+    );
+    return String(pollPayload?.question || fallback || 'Encuesta').trim();
   }
 
   private normalizeOwnPreviewPrefix(preview: string, chat: any): string {
@@ -13885,27 +14212,33 @@ private async decryptPreviewString(
    * Actualiza tu interfaz individual quitando el mensaje "x" (pasando a activo: false) sin recargar toda la página desde 0.
    */
   private aplicarEliminacionEnUI(mensaje: MensajeDTO): void {
-    const deletedId = Number(mensaje.id);
-    const chatId = (mensaje as any).chatId;
+    const enrichedMessage = this.mergeDeletionPayloadWithLocalContext(mensaje);
+    const deletedId = Number(enrichedMessage.id);
+    const chatId = (enrichedMessage as any).chatId;
     const normalizedDeleted = this.normalizeDeletedMessageForRetention(
-      { ...(mensaje || {}) },
+      { ...(enrichedMessage || {}) },
       Date.now()
     );
     const isTemporalExpired = this.isTemporalExpiredMessage(normalizedDeleted);
+    const hideExpiredAdminBroadcast =
+      this.isExpiredAdminBroadcastMessage(normalizedDeleted);
     const mergedPayload: MensajeDTO = isTemporalExpired
-      ? {
-          ...(normalizedDeleted || {}),
-          activo: false,
-          contenido: this.temporalExpiredPlaceholderText(normalizedDeleted),
-          placeholderTexto: this.temporalExpiredPlaceholderText(normalizedDeleted),
-        }
+      ? hideExpiredAdminBroadcast
+        ? {
+            ...(normalizedDeleted || {}),
+            activo: false,
+          }
+        : {
+            ...(normalizedDeleted || {}),
+            activo: false,
+            contenido: this.temporalExpiredPlaceholderText(normalizedDeleted),
+            placeholderTexto: this.temporalExpiredPlaceholderText(normalizedDeleted),
+          }
       : {
           ...(normalizedDeleted || {}),
           activo: false,
         };
-    const shouldHideFromTimeline = this.shouldPurgeDeletedMessageFromTimeline(
-      mergedPayload
-    );
+    const shouldHideFromTimeline = this.shouldHideMessageFromTimeline(mergedPayload);
 
     // 1) Marca en hilo abierto
     const idxMsg = this.mensajesSeleccionados.findIndex(
@@ -13944,27 +14277,6 @@ private async decryptPreviewString(
       return;
     }
 
-    if (isTemporalExpired) {
-      const idxTemporal = this.mensajesSeleccionados.findIndex(
-        (m) => Number(m.id) === deletedId
-      );
-      const temporalMsg =
-        idxTemporal >= 0 ? this.mensajesSeleccionados[idxTemporal] : mergedPayload;
-      const preview = buildPreviewFromMessage(
-        { ...temporalMsg, chatId },
-        chatItem,
-        this.usuarioActualId
-      );
-      this.chats = updateChatPreview(
-        this.chats,
-        Number(chatId),
-        preview,
-        deletedId
-      );
-      this.cdr.markForCheck();
-      return;
-    }
-
     // Si el chat está abierto: busca nuevo último activo
     if (
       this.chatActual?.id === chatId &&
@@ -13973,7 +14285,7 @@ private async decryptPreviewString(
       const copia = [...this.mensajesSeleccionados];
       const newLast = [...copia]
         .reverse()
-        .find((m) => m.activo !== false || this.isTemporalExpiredMessage(m));
+        .find((m) => this.canMessageBeUsedAsChatPreview(m));
 
       if (newLast) {
         const preview = buildPreviewFromMessage(
@@ -13988,12 +14300,16 @@ private async decryptPreviewString(
           Number(newLast.id)
         );
       } else {
-        this.chats = updateChatPreview(
-          this.chats,
-          Number(chatId),
-          'Sin mensajes aún',
-          null
-        );
+        if (hideExpiredAdminBroadcast) {
+          this.handleChatNoLongerVisible(chatId, false);
+        } else {
+          this.chats = updateChatPreview(
+            this.chats,
+            Number(chatId),
+            'Sin mensajes aún',
+            null
+          );
+        }
       }
 
       this.cdr.markForCheck();
@@ -14012,10 +14328,13 @@ private async decryptPreviewString(
       next: (mensajes) => {
         const lastActivo = [...mensajes]
           .reverse()
-          .find(
-            (m: any) =>
-              m.activo !== false || this.isTemporalExpiredMessage(m)
-          );
+          .find((m: any) => this.canMessageBeUsedAsChatPreview(m));
+        const hasVisibleTimelineMessage = [...mensajes].some(
+          (m: any) => !this.shouldHideMessageFromTimeline(m)
+        );
+        const hasExpiredAdminBroadcast = [...mensajes].some((m: any) =>
+          this.isExpiredAdminBroadcastMessage(m)
+        );
 
         const chatItem = this.chats.find(
           (c) => Number(c.id) === Number(chatId)
@@ -14030,6 +14349,9 @@ private async decryptPreviewString(
             this.usuarioActualId
           );
           lastId = Number(lastActivo.id);
+        } else if (hasExpiredAdminBroadcast && !hasVisibleTimelineMessage) {
+          this.handleChatNoLongerVisible(chatId, false);
+          return;
         }
 
         this.chats = updateChatPreview(this.chats, chatId, preview, lastId);

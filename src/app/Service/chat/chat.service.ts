@@ -68,6 +68,38 @@ export interface ProgramarMensajeResponseDTO {
   mensaje?: string | null;
 }
 
+export interface AdminDirectMessageEncryptedItemDTO {
+  userId: number;
+  contenido: string;
+  content?: string;
+}
+
+export interface AdminDirectMessageRequestDTO {
+  userIds: number[];
+  contenido?: string;
+  message?: string;
+  expiresAfterReadSeconds?: number;
+  encryptedPayloads?: AdminDirectMessageEncryptedItemDTO[];
+}
+
+export interface AdminDirectMessageResponseItemDTO {
+  userId?: number;
+  chatId?: number;
+  messageId?: number;
+  ok?: boolean;
+  status?: string;
+  error?: string | null;
+}
+
+export interface AdminDirectMessageResponseDTO {
+  ok?: boolean;
+  sentCount?: number;
+  failedCount?: number;
+  items?: AdminDirectMessageResponseItemDTO[] | null;
+  message?: string | null;
+  mensaje?: string | null;
+}
+
 export interface MensajeProgramadoDTO {
   id?: number;
   chatId?: number;
@@ -618,6 +650,15 @@ export class ChatService {
     return this.http.post<MensajeProgramadoDTO>(
       `${this.baseUrl}/scheduled/${id}/cancel`,
       {}
+    );
+  }
+
+  enviarMensajesDirectosAdmin(
+    payload: AdminDirectMessageRequestDTO
+  ): Observable<AdminDirectMessageResponseDTO> {
+    return this.http.post<AdminDirectMessageResponseDTO>(
+      `${this.baseUrl}/admin/direct-messages`,
+      payload
     );
   }
 }

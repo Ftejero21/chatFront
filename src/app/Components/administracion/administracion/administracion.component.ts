@@ -7,7 +7,12 @@ import { firstValueFrom, Observable, Subject, Subscription } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import Swal from 'sweetalert2';
 import { StompSubscription } from '@stomp/stompjs';
-import { AdminGroupListDTO, ChatService } from '../../../Service/chat/chat.service';
+import {
+  AdminDirectMessageEncryptedItemDTO,
+  AdminDirectMessageResponseDTO,
+  AdminGroupListDTO,
+  ChatService,
+} from '../../../Service/chat/chat.service';
 import {
   decryptPreviewStringE2E,
   parsePollPayload,
@@ -27,6 +32,7 @@ import {
   RATE_LIMIT_SCOPES,
   RateLimitService,
 } from '../../../Service/rate-limit/rate-limit.service';
+import { AdminMessageComposerSubmitEvent } from '../admin-message-composer/admin-message-composer.component';
 
 type AdminAudioE2EPayload = {
   type: 'E2E_AUDIO' | 'E2E_GROUP_AUDIO';
@@ -92,6 +98,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   isDashboardView: boolean = true;
   isReportsView: boolean = false;
   isGroupsView: boolean = false;
+  isMessagesView: boolean = false;
   isGroupsTableMode: boolean = false;
   isDashboardMenuOpen: boolean = true;
   isSidebarOpen: boolean = false;
@@ -100,6 +107,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   loadingConversations: boolean = false;
   loadingGroups: boolean = false;
   loadingChatMessages: boolean = false;
+  isSendingAdminMessage: boolean = false;
   selectedChatMessagesSource: 'admin' | 'group' = 'admin';
   public usuarioActualId!: number;
   userChats: any[] = [];
@@ -147,6 +155,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   };
   usuariosLocales: UsuarioDTO[] = [];
   usuariosMostrados: UsuarioDTO[] = [];
+  adminMessageUsers: UsuarioDTO[] = [];
   busquedaTerm: string = "";
   currentPage: number = 0;
   pageSize: number = 10;
@@ -154,6 +163,11 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   totalElements: number = 0;
   isLastPage: boolean = true;
   loadingUsuarios: boolean = false;
+  adminMessageUsersPage: number = 0;
+  adminMessageUsersPageSize: number = 10;
+  adminMessageUsersTotalElements: number = 0;
+  adminMessageUsersIsLastPage: boolean = false;
+  adminMessageUsersLoading: boolean = false;
   appealItems: UnbanAppealDTO[] = [];
   loadingAppeals: boolean = false;
   appealPage: number = 0;
@@ -170,6 +184,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   processingAppealId: number | null = null;
   private reportUserNamesById = new Map<number, string>();
   private reportesWsSub: StompSubscription | null = null;
+  private adminAuditPublicKeyInitPromise: Promise<void> | null = null;
 
   // Suscripción a búsqueda por input en tiempo real (debounce)
   private searchSubject = new Subject<string>();
@@ -453,6 +468,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.isDashboardView = false;
     this.isReportsView = true;
     this.isGroupsView = false;
+    this.isMessagesView = false;
     this.isGroupsTableMode = false;
     this.isSidebarOpen = false;
     this.selectedChat = null;
@@ -857,6 +873,58 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     }));
   }
 
+  private resetAdminMessageUsersFeed(): void {
+    this.adminMessageUsers = [];
+    this.adminMessageUsersPage = 0;
+    this.adminMessageUsersTotalElements = 0;
+    this.adminMessageUsersIsLastPage = false;
+  }
+
+  private loadAdminMessageUsersPage(page: number, append: boolean = false): void {
+    if (this.adminMessageUsersLoading) return;
+
+    const targetPage = Math.max(0, Number(page || 0));
+    this.adminMessageUsersLoading = true;
+
+    this.authService
+      .getUsuariosRecientes(targetPage, this.adminMessageUsersPageSize)
+      .subscribe({
+        next: (data: PageResponse<UsuarioDTO>) => {
+          const content = this.normalizeUsuariosFotos(data?.content || []);
+          const merged = append
+            ? [
+                ...(this.adminMessageUsers || []),
+                ...content.filter((user) => {
+                  const id = Number(user?.id || 0);
+                  return !this.adminMessageUsers.some(
+                    (existing) => Number(existing?.id || 0) === id
+                  );
+                }),
+              ]
+            : content;
+
+          this.adminMessageUsers = merged;
+          this.adminMessageUsersPage = Number(data?.number ?? targetPage);
+          this.adminMessageUsersPageSize = Number(
+            data?.size ?? this.adminMessageUsersPageSize
+          );
+          this.adminMessageUsersTotalElements = Number(
+            data?.totalElements ?? merged.length
+          );
+          this.adminMessageUsersIsLastPage = Boolean(
+            data?.last ??
+              (this.adminMessageUsersPage >=
+                Math.max(1, Number(data?.totalPages ?? 1)) - 1)
+          );
+          this.adminMessageUsersLoading = false;
+        },
+        error: (err) => {
+          console.error('Error cargando usuarios para mensajeria admin', err);
+          this.adminMessageUsersLoading = false;
+        },
+      });
+  }
+
   private cargarAdminPerfil(usuarioId: number): void {
     const cachedFoto = localStorage.getItem('usuarioFoto') || '';
     if (cachedFoto) {
@@ -896,6 +964,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.isDashboardView = false;
     this.isReportsView = false;
     this.isGroupsView = false;
+    this.isMessagesView = false;
     this.isGroupsTableMode = false;
     this.currentUserName = user.nombre;
     this.headerSubtitle = `Inspeccionando registros de: ${user.nombre}`;
@@ -3686,6 +3755,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.isDashboardView = true;
     this.isReportsView = false;
     this.isGroupsView = false;
+    this.isMessagesView = false;
     this.isGroupsTableMode = false;
     this.isSidebarOpen = false;
     this.selectedChat = null;
@@ -3702,6 +3772,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.isDashboardView = true;
     this.isReportsView = false;
     this.isGroupsView = true;
+    this.isMessagesView = false;
     this.isGroupsTableMode = false;
     this.isSidebarOpen = false;
     this.selectedChat = null;
@@ -3709,6 +3780,351 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.selectedChatMessagesSource = 'admin';
     this.headerSubtitle = 'Dashboard con listado administrativo de grupos.';
     this.loadAdminGroups(0);
+  }
+
+  public showMessagesView(): void {
+    this.isDashboardView = false;
+    this.isReportsView = false;
+    this.isGroupsView = false;
+    this.isMessagesView = true;
+    this.isGroupsTableMode = false;
+    this.isSidebarOpen = false;
+    this.selectedChat = null;
+    this.selectedChatMensajes = [];
+    this.selectedChatMessagesSource = 'admin';
+    this.headerSubtitle = 'Mensajeria administrativa en modo maqueta.';
+    if (!this.adminMessageUsers.length && !this.adminMessageUsersLoading) {
+      this.resetAdminMessageUsersFeed();
+      this.loadAdminMessageUsersPage(0);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  public get adminMessageUsersCount(): number {
+    const fallback = Array.isArray(this.adminMessageUsers) ? this.adminMessageUsers.length : 0;
+    return Math.max(0, Number(this.adminMessageUsersTotalElements ?? fallback) || fallback);
+  }
+
+  public get adminMessageUsersHasMore(): boolean {
+    return !this.adminMessageUsersIsLastPage;
+  }
+
+  public onAdminMessageUsersLoadMore(): void {
+    if (this.adminMessageUsersLoading || this.adminMessageUsersIsLastPage) return;
+    this.loadAdminMessageUsersPage(this.adminMessageUsersPage + 1, true);
+  }
+
+  public async onAdminMessageSend(
+    event: AdminMessageComposerSubmitEvent
+  ): Promise<void> {
+    const message = String(event?.message || '').trim();
+    if (!message || this.isSendingAdminMessage) return;
+
+    this.isSendingAdminMessage = true;
+    try {
+      const recipients = await this.resolveAdminMessageRecipients(event);
+      if (recipients.length === 0) {
+        await Swal.fire('Sin destinatarios', 'No hay usuarios validos para enviar el mensaje.', 'warning');
+        return;
+      }
+
+      const keysReady = await this.ensureAdminMessagingKeysReady();
+      if (!keysReady) {
+        await Swal.fire(
+          'Claves E2E no disponibles',
+          'No se pudo preparar la clave publica del administrador para mensajeria cifrada.',
+          'error'
+        );
+        return;
+      }
+
+      const encryptedPayloads: AdminDirectMessageEncryptedItemDTO[] = [];
+      const failedNames: string[] = [];
+
+      for (const recipient of recipients) {
+        try {
+          encryptedPayloads.push({
+            userId: Number(recipient.id),
+            contenido: await this.buildAdminOutgoingE2EContent(
+              Number(recipient.id),
+              message
+            ),
+          });
+        } catch (err) {
+          console.error('Error cifrando comunicado admin para usuario', {
+            recipientId: recipient?.id,
+            err,
+          });
+          failedNames.push(this.getAdminRecipientDisplayName(recipient));
+        }
+      }
+
+      if (encryptedPayloads.length === 0) {
+        await Swal.fire(
+          'Envio fallido',
+          'No se pudo preparar ningun payload cifrado.',
+          'error'
+        );
+        return;
+      }
+
+      const response: AdminDirectMessageResponseDTO = await firstValueFrom(
+        this.chatService.enviarMensajesDirectosAdmin({
+          userIds: encryptedPayloads.map((item) => Number(item.userId)),
+          contenido: message,
+          message,
+          encryptedPayloads,
+        })
+      );
+
+      const responseItems = Array.isArray(response?.items) ? response.items : [];
+      const responseSuccessCount = responseItems.filter((item) => {
+        if (item?.ok === true) return true;
+        const status = String(item?.status || '').trim().toUpperCase();
+        return status === 'SENT' || status === 'SUCCESS' || status === 'OK';
+      }).length;
+      const responseFailureItems = responseItems.filter((item) => {
+        if (item?.ok === false) return true;
+        const status = String(item?.status || '').trim().toUpperCase();
+        return status === 'FAILED' || status === 'ERROR';
+      });
+
+      const explicitSentCount = Number(response?.sentCount || 0);
+      const explicitFailedCount = Number(response?.failedCount || 0);
+      const fallbackSentCount =
+        responseItems.length > 0
+          ? Math.max(0, responseItems.length - responseFailureItems.length)
+          : encryptedPayloads.length;
+      const sentCount = Math.max(
+        explicitSentCount,
+        responseSuccessCount,
+        response?.ok === false ? 0 : fallbackSentCount
+      );
+      const totalFailedCount = Math.max(
+        failedNames.length + responseFailureItems.length,
+        explicitFailedCount
+      );
+
+      const responseFailures = responseFailureItems
+        .map((item) => {
+          const recipient = recipients.find((user) => Number(user?.id) === Number(item?.userId));
+          return recipient ? this.getAdminRecipientDisplayName(recipient) : `#${item?.userId || '?'}`;
+        });
+      failedNames.push(...responseFailures);
+
+      if (sentCount > 0 && totalFailedCount === 0) {
+        await Swal.fire(
+          'Comunicado enviado',
+          `Se enviaron ${sentCount} mensajes cifrados por WS.`,
+          'success'
+        );
+        return;
+      }
+
+      if (sentCount > 0) {
+        await Swal.fire(
+          'Envio parcial',
+          `Se enviaron ${sentCount} mensajes. Fallaron ${totalFailedCount}.`,
+          'warning'
+        );
+        return;
+      }
+
+      await Swal.fire(
+        'Envio fallido',
+        'No se pudo enviar el comunicado a ningun destinatario.',
+        'error'
+      );
+    } finally {
+      this.isSendingAdminMessage = false;
+    }
+  }
+
+  private async resolveAdminMessageRecipients(
+    event: AdminMessageComposerSubmitEvent
+  ): Promise<UsuarioDTO[]> {
+    const myId = Number(this.usuarioActualId || 0);
+    const filterSelf = (users: UsuarioDTO[]) =>
+      (users || []).filter((user) => Number(user?.id) > 0 && Number(user?.id) !== myId);
+
+    if (event.mode === 'selected') {
+      const selectedIds = new Set(
+        (event.selectedUserIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      );
+      return filterSelf(
+        (this.adminMessageUsers || []).filter((user) => selectedIds.has(Number(user?.id)))
+      );
+    }
+
+    const requestedSize = Math.max(
+      Number(this.adminMessageUsersTotalElements || 0),
+      Number(this.adminMessageUsersPageSize || 0),
+      Array.isArray(this.adminMessageUsers) ? this.adminMessageUsers.length : 0,
+      1
+    );
+
+    try {
+      const page = await firstValueFrom(
+        this.authService.getUsuariosRecientes(0, requestedSize)
+      );
+      const content = this.normalizeUsuariosFotos(page?.content || []);
+      return filterSelf(content);
+    } catch (err) {
+      console.warn('Fallo cargando destinatarios admin para modo all; usando cache local.', err);
+      return filterSelf(this.adminMessageUsers || []);
+    }
+  }
+
+  private async ensureAdminMessagingKeysReady(): Promise<boolean> {
+    try {
+      const adminId = Number(this.usuarioActualId || 0);
+      if (!Number.isFinite(adminId) || adminId <= 0) return false;
+
+      let publicKeyBase64 = String(
+        localStorage.getItem(`publicKey_${adminId}`) || ''
+      ).trim();
+      let privateKeyBase64 = String(
+        localStorage.getItem(`privateKey_${adminId}`) || ''
+      ).trim();
+
+      if (!publicKeyBase64 || !privateKeyBase64) {
+        const keys = await this.cryptoService.generateKeyPair();
+        publicKeyBase64 = await this.cryptoService.exportPublicKey(keys.publicKey);
+        privateKeyBase64 = await this.cryptoService.exportPrivateKey(keys.privateKey);
+        localStorage.setItem(`publicKey_${adminId}`, publicKeyBase64);
+        localStorage.setItem(`privateKey_${adminId}`, privateKeyBase64);
+      }
+
+      if (!publicKeyBase64) return false;
+      await firstValueFrom(this.authService.updatePublicKey(adminId, publicKeyBase64));
+      await this.ensureAdminAuditPublicKeyForE2E();
+      return !!this.getStoredAdminAuditPublicKey();
+    } catch (err) {
+      console.error('Error preparando claves E2E admin', err);
+      return false;
+    }
+  }
+
+  private async buildAdminOutgoingE2EContent(
+    recipientId: number,
+    plainText: string
+  ): Promise<string> {
+    const recipient = await firstValueFrom(this.authService.getById(recipientId));
+    const recipientPubKeyBase64 = String(recipient?.publicKey || '').trim();
+    if (!recipientPubKeyBase64) {
+      throw new Error(`RECIPIENT_PUBLIC_KEY_MISSING_${recipientId}`);
+    }
+
+    const adminPubKeyBase64 = String(
+      localStorage.getItem(`publicKey_${this.usuarioActualId}`) || ''
+    ).trim();
+    if (!adminPubKeyBase64) {
+      throw new Error('ADMIN_PUBLIC_KEY_MISSING');
+    }
+
+    await this.ensureAdminAuditPublicKeyForE2E();
+    const auditPubKeyBase64 = this.getStoredAdminAuditPublicKey();
+    if (!auditPubKeyBase64) {
+      throw new Error('AUDIT_PUBLIC_KEY_MISSING');
+    }
+
+    const aesKey = await this.cryptoService.generateAESKey();
+    const { iv, ciphertext } = await this.cryptoService.encryptAES(
+      plainText,
+      aesKey
+    );
+    const aesKeyRawBase64 = await this.cryptoService.exportAESKey(aesKey);
+
+    const recipientRsaKey = await this.cryptoService.importPublicKey(
+      recipientPubKeyBase64
+    );
+    const adminRsaKey = await this.cryptoService.importPublicKey(adminPubKeyBase64);
+    const auditRsaKey = await this.cryptoService.importPublicKey(auditPubKeyBase64);
+
+    return JSON.stringify({
+      type: 'E2E',
+      iv,
+      ciphertext,
+      forEmisor: await this.cryptoService.encryptRSA(aesKeyRawBase64, adminRsaKey),
+      forReceptor: await this.cryptoService.encryptRSA(aesKeyRawBase64, recipientRsaKey),
+      forAdmin: await this.cryptoService.encryptRSA(aesKeyRawBase64, auditRsaKey),
+    });
+  }
+
+  private extractAuditPublicKeyFromSource(source: any): string | null {
+    const candidates = [
+      source,
+      source?.publicKey,
+      source?.auditPublicKey,
+      source?.forAdminPublicKey,
+      source?.public_key,
+      source?.audit_public_key,
+      source?.key,
+      source?.value,
+    ];
+    for (const candidate of candidates) {
+      const normalized = String(candidate || '').trim();
+      if (normalized) return normalized;
+    }
+    return null;
+  }
+
+  private persistAdminAuditPublicKeyLocal(key: string): void {
+    const normalized = String(key || '').trim();
+    if (!normalized) return;
+    localStorage.setItem('auditPublicKey', normalized);
+    localStorage.setItem('publicKey_admin_audit', normalized);
+    localStorage.setItem('forAdminPublicKey', normalized);
+  }
+
+  private getStoredAdminAuditPublicKey(): string | null {
+    const local =
+      localStorage.getItem('auditPublicKey') ||
+      localStorage.getItem('publicKey_admin_audit') ||
+      localStorage.getItem('forAdminPublicKey') ||
+      '';
+    const normalized = String(local).trim();
+    return normalized || null;
+  }
+
+  private async ensureAdminAuditPublicKeyForE2E(): Promise<void> {
+    if (this.getStoredAdminAuditPublicKey()) return;
+    if (this.adminAuditPublicKeyInitPromise) {
+      await this.adminAuditPublicKeyInitPromise;
+      return;
+    }
+
+    const initPromise = new Promise<void>((resolve) => {
+      this.authService.getAuditPublicKey().subscribe({
+        next: (resp: any) => {
+          const key =
+            this.extractAuditPublicKeyFromSource(resp) ||
+            this.extractAuditPublicKeyFromSource(resp?.data) ||
+            this.extractAuditPublicKeyFromSource(resp?.result);
+          if (key) this.persistAdminAuditPublicKeyLocal(key);
+          resolve();
+        },
+        error: (err) => {
+          console.warn('No se pudo cargar audit public key para admin messaging', err);
+          resolve();
+        },
+      });
+    });
+
+    this.adminAuditPublicKeyInitPromise = initPromise;
+    try {
+      await initPromise;
+    } finally {
+      if (this.adminAuditPublicKeyInitPromise === initPromise) {
+        this.adminAuditPublicKeyInitPromise = null;
+      }
+    }
+  }
+
+  private getAdminRecipientDisplayName(user: UsuarioDTO): string {
+    return `${user?.nombre || ''} ${user?.apellido || ''}`.trim() || user?.email || 'Usuario';
   }
 
   public loadAdminGroups(page: number = 0): void {

@@ -2734,6 +2734,10 @@
   width: 100%;
 }
 
+.preview-line--poll {
+  width: 100%;
+}
+
 .preview-line--closed {
   width: 100%;
   color: #b91c1c;
@@ -2754,6 +2758,19 @@
   background: #eff6ff;
   color: #1d4ed8;
   border: 1px solid #bfdbfe;
+  flex: 0 0 28px;
+}
+
+.preview-poll-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
   flex: 0 0 28px;
 }
 
@@ -2779,6 +2796,13 @@
 
 .preview-file-caption {
   color: #475569;
+}
+
+.preview-text--poll {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Preview en negrita cuando hay no leídos */

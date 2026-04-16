@@ -23,6 +23,7 @@ import { FilePreviewViewerComponent } from './Components/inicio/file-preview-vie
 import { VideoCallOverlayComponent } from './Components/inicio/video-call-overlay/video-call-overlay.component';
 import { StarredMessagesPanelComponent } from './Components/inicio/starred-messages-panel/starred-messages-panel.component';
 import { ReportChatClosurePopupComponent } from './Components/popup/report-chat-closure-popup/report-chat-closure-popup.component';
+import { AdminMessageComposerComponent } from './Components/administracion/admin-message-composer/admin-message-composer.component';
 
 @NgModule({
   declarations: [
@@ -43,7 +44,8 @@ import { ReportChatClosurePopupComponent } from './Components/popup/report-chat-
     FilePreviewViewerComponent,
     VideoCallOverlayComponent,
     StarredMessagesPanelComponent,
-    ReportChatClosurePopupComponent
+    ReportChatClosurePopupComponent,
+    AdminMessageComposerComponent
   ],
   imports: [
     BrowserModule,

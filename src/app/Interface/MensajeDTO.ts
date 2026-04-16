@@ -67,6 +67,11 @@ export interface MensajeDTO {
   reenviado?: boolean;
   mensajeTemporal?: boolean;
   mensajeTemporalSegundos?: number | null;
+  adminMessage?: boolean;
+  expiresAfterReadSeconds?: number | null;
+  firstReadAt?: string | null;
+  expireAt?: string | null;
+  expiredByPolicy?: boolean;
   estadoTemporal?: 'ACTIVO' | 'EXPIRADO' | 'NO_TEMPORAL' | string | null;
   motivoEliminacion?: string | null;
   fechaEliminacion?: string | null;
@@ -82,6 +87,11 @@ export interface MensajeDTO {
   fecha_eliminacion?: string | null;
   placeholder_texto?: string | null;
   expira_en?: string | null;
+  admin_message?: boolean;
+  expires_after_read_seconds?: number | null;
+  first_read_at?: string | null;
+  expire_at?: string | null;
+  expired_by_policy?: boolean;
   pollType?: 'POLL_V1' | string | null;
   contentKind?: 'POLL' | string | null;
   poll?: MensajePollDTO | null;

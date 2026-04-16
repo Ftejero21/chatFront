@@ -1,0 +1,129 @@
+<section class="admin-message-shell">
+  <header class="admin-message-header">
+    <div class="admin-message-header__info">
+      <div class="admin-message-header__icon" aria-hidden="true">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+      </div>
+
+      <div>
+        <h3 class="admin-message-header__title">Redactar comunicado</h3>
+        <p class="admin-message-header__subtitle">{{ audienceText }}</p>
+      </div>
+    </div>
+
+    <div class="admin-message-pill-group">
+      <button
+        type="button"
+        class="admin-message-pill"
+        [class.is-active]="audienceMode === 'all'"
+        (click)="setAudience('all')"
+      >
+        Todos
+      </button>
+      <button
+        type="button"
+        class="admin-message-pill"
+        [class.is-active]="audienceMode === 'selected'"
+        (click)="setAudience('selected')"
+      >
+        Seleccionados
+      </button>
+    </div>
+  </header>
+
+  <div class="admin-message-body">
+    <div class="admin-message-users" [class.is-visible]="audienceMode === 'selected'">
+      <label class="admin-message-label">Destinatarios seleccionados</label>
+
+      <div class="admin-message-users__filters">
+        <input
+          [(ngModel)]="searchTerm"
+          type="text"
+          placeholder="Buscar usuario por nombre..."
+          class="admin-message-users__search"
+        />
+        <button
+          type="button"
+          class="admin-message-users__toggle-all"
+          [disabled]="!filteredUsers.length"
+          (click)="toggleAllFilteredUsers()"
+        >
+          {{ allFilteredSelected ? 'Quitar todos' : 'Seleccionar todos' }}
+        </button>
+      </div>
+
+      <div class="admin-message-users__grid" (scroll)="onUsersScroll($event)">
+        <label
+          *ngFor="let user of filteredUsers; trackBy: trackByUser"
+          class="admin-message-user"
+        >
+          <input
+            type="checkbox"
+            [checked]="isUserSelected(user.id)"
+            (change)="toggleUserSelection(user.id)"
+          />
+
+          <span *ngIf="!user.foto" class="admin-message-user__avatar admin-message-user__avatar--fallback">
+            {{ getUserInitials(user) }}
+          </span>
+          <img
+            *ngIf="user.foto"
+            [src]="user.foto"
+            class="admin-message-user__avatar"
+            [alt]="getUserDisplayName(user)"
+          />
+
+          <span class="admin-message-user__name">{{ getUserDisplayName(user) }}</span>
+        </label>
+
+        <div *ngIf="!users.length" class="admin-message-empty">
+          No hay usuarios cargados.
+        </div>
+
+        <div *ngIf="users.length && !filteredUsers.length" class="admin-message-empty">
+          No hay usuarios para ese filtro.
+        </div>
+
+        <div *ngIf="loadingMoreUsers" class="admin-message-users__load-state">
+          Cargando mas usuarios...
+        </div>
+
+        <div *ngIf="!loadingMoreUsers && hasMoreUsers && filteredUsers.length" class="admin-message-users__load-hint">
+          Desliza para cargar mas usuarios
+        </div>
+      </div>
+    </div>
+
+    <label class="admin-message-label">Mensaje</label>
+    <textarea
+      [(ngModel)]="messageText"
+      class="admin-message-textarea"
+      placeholder="Escribe el contenido del mensaje..."
+    ></textarea>
+
+    <div class="admin-message-actions">
+      <button type="button" class="admin-message-preview-btn">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+        </svg>
+        Vista previa
+      </button>
+
+      <button
+        type="button"
+        class="admin-message-send-btn"
+        [disabled]="sending || !messageText.trim() || (audienceMode === 'selected' && !selectedUsersCount)"
+        (click)="submit()"
+      >
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+        </svg>
+        <span>{{ sending ? 'Enviando...' : sendLabel }}</span>
+      </button>
+    </div>
+  </div>
+
+</section>

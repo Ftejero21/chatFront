@@ -1396,6 +1396,7 @@ export function isSystemMessageLike(mensaje: any): boolean {
   const eventCode = normalizeSystemEventCode(mensaje);
   const systemEvents = new Set([
     'GROUP_MEMBER_LEFT',
+    'ADMIN_DIRECT_CHAT_EXPIRED',
     ...Array.from(GROUP_EXPULSION_SYSTEM_EVENTS),
   ]);
 
