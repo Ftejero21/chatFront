@@ -1,0 +1,95 @@
+<div class="messages-area" role="status" aria-label="Cargando mensajes...">
+  <div class="header-bar" *ngIf="showHeader">
+    <div class="header-left">
+      <div class="skel skel-circle" style="width: 36px; height: 36px;"></div>
+      <div class="header-text">
+        <div class="skel" style="width: 100px; height: 13px;"></div>
+        <div class="skel" style="width: 160px; height: 10px;"></div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="skel skel-circle" style="width: 26px; height: 26px;"></div>
+      <div class="skel skel-circle" style="width: 26px; height: 26px;"></div>
+    </div>
+  </div>
+
+  <div class="date-sep">
+    <div class="skel date-pill"></div>
+  </div>
+
+  <ng-container *ngFor="let row of rows; let i = index">
+    <ng-container *ngIf="row.type === 'poll'">
+      <div class="date-sep">
+        <div class="skel date-pill" style="width: 50px;"></div>
+      </div>
+      <div class="msg-row right" [style.animation-delay]="(i * 0.05) + 's'">
+        <div class="poll-skel">
+          <div class="skel poll-title"></div>
+          <div class="skel poll-sub"></div>
+          <div class="poll-option">
+            <div class="poll-opt-row">
+              <div class="skel poll-opt-label" style="width: 20px;"></div>
+              <div class="skel poll-opt-label" style="width: 10px;"></div>
+            </div>
+            <div class="poll-bar-track">
+              <div class="skel poll-bar-fill" style="width: 55%;"></div>
+            </div>
+          </div>
+          <div class="poll-option">
+            <div class="poll-opt-row">
+              <div class="skel poll-opt-label" style="width: 24px;"></div>
+              <div class="skel poll-opt-label" style="width: 10px;"></div>
+            </div>
+            <div class="poll-bar-track">
+              <div class="skel poll-bar-fill" style="width: 45%;"></div>
+            </div>
+          </div>
+          <div class="skel poll-btn"></div>
+          <div class="meta-line">
+            <div class="skel meta-time"></div>
+            <div class="skel meta-time" style="width: 14px;"></div>
+          </div>
+        </div>
+      </div>
+    </ng-container>
+
+    <div
+      *ngIf="row.type !== 'poll'"
+      class="msg-row"
+      [class.right]="row.side === 'right'"
+      [style.animation-delay]="(i * 0.05) + 's'"
+    >
+      <div
+        class="skel skel-circle avatar-icon"
+        *ngIf="row.side === 'left'"
+        [style.visibility]="row.showAvatar ? 'visible' : 'hidden'"
+      ></div>
+
+      <div class="bubble-wrap">
+        <div class="sender-line skel" *ngIf="row.side === 'left' && row.showAvatar"></div>
+        <div class="bubble-inner">
+          <div
+            *ngFor="let w of row.lineWidths"
+            class="skel line"
+            [style.width]="w"
+          ></div>
+          <div class="meta-line">
+            <div class="skel meta-time"></div>
+            <div class="skel meta-time" style="width: 14px;" *ngIf="row.side === 'right'"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </ng-container>
+
+  <div class="spacer"></div>
+
+  <div class="input-bar" *ngIf="showInputBar">
+    <div class="skel skel-circle" style="width: 30px; height: 30px;"></div>
+    <div class="skel skel-circle" style="width: 30px; height: 30px;"></div>
+    <div class="skel skel-circle" style="width: 30px; height: 30px;"></div>
+    <div class="skel input-field"></div>
+    <div class="skel skel-circle" style="width: 30px; height: 30px;"></div>
+    <div class="skel send-btn"></div>
+  </div>
+</div>

@@ -70,6 +70,7 @@ export interface ProgramarMensajeResponseDTO {
 
 export interface AdminDirectMessageEncryptedItemDTO {
   userId: number;
+  chatId?: number;
   contenido: string;
   content?: string;
 }
@@ -121,8 +122,17 @@ export interface AdminScheduleDirectMessageRequestDTO {
   userIds: number[];
   contenido?: string;
   message?: string;
+  expiresAfterReadSeconds?: number;
+  encryptedPayloads?: AdminDirectMessageEncryptedItemDTO[];
   scheduledAt: string;
   scheduledAtLocal?: string;
+}
+
+export interface AdminUpdateScheduledDirectMessageRequestDTO {
+  contenido?: string;
+  message?: string;
+  expiresAfterReadSeconds?: number;
+  encryptedPayloads?: AdminDirectMessageEncryptedItemDTO[];
 }
 
 export interface AdminScheduleBulkEmailRequestDTO {
@@ -159,13 +169,35 @@ export interface MensajeProgramadoDTO {
   chatId?: number;
   createdBy?: number;
   message?: string;
+  contenido?: string;
+  body?: string;
+  subject?: string;
+  type?: string;
+  deliveryType?: 'message' | 'email' | string;
+  audienceMode?: 'all' | 'selected' | string;
+  userIds?: number[] | null;
+  recipientEmails?: string[] | null;
+  attachmentCount?: number | null;
   scheduledAt?: string;
   status?: 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED' | 'CANCELED' | string;
   attempts?: number;
   lastError?: string | null;
+  expiresAfterReadSeconds?: number | null;
   createdAt?: string;
   updatedAt?: string;
   sentAt?: string | null;
+  recipientCount?: number | null;
+  recipientLabel?: string | null;
+  recipientsSummary?: string | null;
+  recipientUsers?: Array<{
+    userId?: number | null;
+    chatId?: number | null;
+    email?: string | null;
+    fullName?: string | null;
+    name?: string | null;
+  }> | null;
+  attachmentNames?: string[] | null;
+  attachmentsMeta?: AdminBulkEmailAttachmentMetaDTO[] | null;
 }
 
 export interface ChatClearResponseDTO {
@@ -225,6 +257,9 @@ export interface AdminGroupListDTO {
   id: number;
   nombreGrupo: string | null;
   descripcion: string | null;
+  imagen?: string | null;
+  fotoGrupo?: string | null;
+  foto?: string | null;
   visibilidad: 'PUBLICO' | 'PRIVADO' | null;
   activo: boolean;
   fechaCreacion: string;
@@ -686,17 +721,20 @@ export class ChatService {
   }
 
   listarMensajesProgramados(
+    page: number = 0,
+    size: number = 10,
     status?: 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED' | 'CANCELED' | string
-  ): Observable<MensajeProgramadoDTO[]> {
-    let params = new HttpParams();
+  ): Observable<PageResponse<MensajeProgramadoDTO>> {
+    let params = new HttpParams()
+      .set('page', String(Number.isFinite(page) ? Math.max(0, Math.floor(page)) : 0))
+      .set('size', String(Number.isFinite(size) ? Math.max(1, Math.floor(size)) : 10));
     const normalizedStatus = String(status || '').trim();
     if (normalizedStatus) {
       params = params.set('status', normalizedStatus);
     }
-    const options = params.keys().length > 0 ? { params } : {};
-    return this.http.get<MensajeProgramadoDTO[]>(
+    return this.http.get<PageResponse<MensajeProgramadoDTO>>(
       `${this.baseUrl}/scheduled`,
-      options
+      { params }
     );
   }
 
@@ -742,6 +780,16 @@ export class ChatService {
   ): Observable<ProgramarMensajeResponseDTO> {
     return this.http.post<ProgramarMensajeResponseDTO>(
       `${this.baseUrl}/admin/direct-messages/scheduled`,
+      payload
+    );
+  }
+
+  actualizarMensajeDirectoProgramadoAdmin(
+    id: number,
+    payload: AdminUpdateScheduledDirectMessageRequestDTO
+  ): Observable<MensajeProgramadoDTO> {
+    return this.http.put<MensajeProgramadoDTO>(
+      `${this.baseUrl}/admin/direct-messages/scheduled/${id}`,
       payload
     );
   }

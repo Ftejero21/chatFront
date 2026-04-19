@@ -1,0 +1,81 @@
+<div class="skeleton-panel" role="status" [attr.aria-label]="ariaLabel" aria-live="polite" aria-busy="true">
+  <div class="skeleton-top-bar">
+    <div class="skel skeleton-title" [style.width]="titleWidth"></div>
+    <div *ngIf="showSearch" class="skel skeleton-search"></div>
+  </div>
+
+  <div class="skeleton-table-header" [ngClass]="gridClass">
+    <div
+      *ngFor="let width of headerWidths; let last = last"
+      class="skeleton-th"
+      [class.skeleton-th--actions]="last"
+      [style.width]="width"
+    ></div>
+  </div>
+
+  <div class="skeleton-table-body">
+    <div
+      *ngFor="let i of rows"
+      class="skeleton-row"
+      [ngClass]="gridClass"
+      [class.faded]="i === rowCount - 1"
+      [style.animation-delay]="(i * 0.04) + 's'"
+    >
+      <ng-container *ngIf="isUsersVariant; else groupsRow">
+        <div class="skeleton-user-cell">
+          <div class="skel skel-circle skeleton-avatar"></div>
+          <div class="skeleton-user-info">
+            <div class="skel skeleton-primary-line" [style.width]="primaryWidth(i)"></div>
+            <div class="skel skeleton-secondary-line" [style.width]="secondaryWidth(i)"></div>
+          </div>
+        </div>
+
+        <div class="skeleton-status-cell">
+          <div class="skel skel-pill skeleton-status-badge"></div>
+        </div>
+
+        <div class="skeleton-role-cell">
+          <div class="skel skeleton-role-line"></div>
+        </div>
+
+        <div class="skeleton-actions-cell">
+          <div class="skel skeleton-action-conv"></div>
+          <div class="skel skeleton-action-ban"></div>
+        </div>
+      </ng-container>
+
+      <ng-template #groupsRow>
+        <div class="skeleton-user-cell">
+          <div class="skel skel-circle skeleton-avatar skeleton-avatar--group"></div>
+          <div class="skeleton-user-info">
+            <div class="skel skeleton-primary-line" [style.width]="primaryWidth(i)"></div>
+            <div class="skel skeleton-secondary-line" [style.width]="secondaryWidth(i)"></div>
+          </div>
+        </div>
+
+        <div class="skeleton-visibility-cell">
+          <div class="skel skeleton-role-line skeleton-role-line--wide"></div>
+        </div>
+
+        <div class="skeleton-status-cell">
+          <div class="skel skel-pill skeleton-status-badge"></div>
+        </div>
+
+        <div class="skeleton-members-cell">
+          <div class="skel skeleton-members-line"></div>
+        </div>
+
+        <div class="skeleton-actions-cell">
+          <div class="skel skeleton-action-conv"></div>
+          <div class="skel skeleton-action-ban"></div>
+        </div>
+      </ng-template>
+    </div>
+  </div>
+
+  <div class="skeleton-pagination">
+    <div class="skel skeleton-page-info"></div>
+    <div class="skel skeleton-btn-prev"></div>
+    <div class="skel skeleton-btn-next"></div>
+  </div>
+</div>

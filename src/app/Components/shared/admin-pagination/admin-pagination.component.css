@@ -1,0 +1,82 @@
+.admin-pagination-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 18px 14px;
+  border-top: 1px solid #e2e8f0;
+  background: linear-gradient(135deg, #f8fafc 0%, #f0fdf4 100%);
+}
+
+.admin-pagination-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  letter-spacing: 0.01em;
+}
+
+.admin-pagination-dot {
+  color: #94a3b8;
+  font-weight: 900;
+}
+
+.admin-pagination-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-page-btn {
+  appearance: none;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  transition: all 0.2s ease;
+}
+
+.admin-page-btn:hover:not(:disabled) {
+  border-color: #10b981;
+  color: #047857;
+  background: #ecfdf5;
+}
+
+.admin-page-btn--primary {
+  border-color: #10b981;
+  color: #ffffff;
+  background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
+  box-shadow: 0 8px 18px -8px rgba(16, 185, 129, 0.55);
+}
+
+.admin-page-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.02);
+}
+
+.admin-page-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+@media (max-width: 768px) {
+  .admin-pagination-wrap {
+    justify-content: space-between;
+    padding: 10px 14px 12px;
+  }
+
+  .admin-pagination-meta {
+    font-size: 11px;
+  }
+
+  .admin-page-btn {
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+}

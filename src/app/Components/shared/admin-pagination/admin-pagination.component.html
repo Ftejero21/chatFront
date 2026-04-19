@@ -1,0 +1,25 @@
+<div class="admin-pagination-wrap">
+  <div class="admin-pagination-meta">
+    Página {{ currentPage + 1 }} de {{ totalPages }}
+    <span class="admin-pagination-dot">•</span>
+    {{ totalElements }} {{ itemLabel }}
+  </div>
+  <div class="admin-pagination-actions">
+    <button
+      type="button"
+      class="admin-page-btn"
+      [disabled]="currentPage <= 0 || loading"
+      (click)="onPrevious()"
+    >
+      Anterior
+    </button>
+    <button
+      type="button"
+      class="admin-page-btn admin-page-btn--primary"
+      [disabled]="isLastPage || loading"
+      (click)="onNext()"
+    >
+      Siguiente
+    </button>
+  </div>
+</div>

@@ -21,6 +21,7 @@ export class AdminMessageComposerComponent implements OnChanges {
   @Input() users: UsuarioDTO[] = [];
   @Input() totalUsers: number = 0;
   @Input() sending: boolean = false;
+  @Input() resetSignal: number = 0;
   @Input() hasMoreUsers: boolean = false;
   @Input() loadingMoreUsers: boolean = false;
   @Output() sendRequested = new EventEmitter<AdminMessageComposerSubmitEvent>();
@@ -51,6 +52,14 @@ export class AdminMessageComposerComponent implements OnChanges {
     ) {
       this.resetSelectedUsers();
       this.usersSelectionInitialized = true;
+    }
+
+    if (
+      changes['resetSignal'] &&
+      !changes['resetSignal'].firstChange &&
+      changes['resetSignal'].currentValue !== changes['resetSignal'].previousValue
+    ) {
+      this.resetComposerState();
     }
   }
 
@@ -353,5 +362,16 @@ export class AdminMessageComposerComponent implements OnChanges {
       if (!duplicate) next.push(file);
     }
     this.emailAttachments = next;
+  }
+
+  private resetComposerState(): void {
+    this.messageText = '';
+    this.subjectText = '';
+    this.showEmailPreview = false;
+    this.showSchedulePopup = false;
+    this.searchTerm = '';
+    this.emailDragDepth = 0;
+    this.emailDropActive = false;
+    this.clearEmailAttachments();
   }
 }

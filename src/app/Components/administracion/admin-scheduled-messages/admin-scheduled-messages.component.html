@@ -1,0 +1,242 @@
+<div class="scheduled-wrapper">
+  <div class="scheduled-filters">
+    <button
+      type="button"
+      class="scheduled-filter"
+      [class.is-active]="activeFilter === 'ALL'"
+      (click)="setFilter('ALL')"
+    >
+      Todos
+    </button>
+    <button
+      type="button"
+      class="scheduled-filter"
+      [class.is-active]="activeFilter === 'PENDING'"
+      (click)="setFilter('PENDING')"
+    >
+      Pendientes
+    </button>
+    <button
+      type="button"
+      class="scheduled-filter"
+      [class.is-active]="activeFilter === 'SENT'"
+      (click)="setFilter('SENT')"
+    >
+      Enviados
+    </button>
+    <button
+      type="button"
+      class="scheduled-filter"
+      [class.is-active]="activeFilter === 'FAILED'"
+      (click)="setFilter('FAILED')"
+    >
+      Fallidos
+    </button>
+    <button
+      type="button"
+      class="scheduled-filter"
+      [class.is-active]="activeFilter === 'CANCELED'"
+      (click)="setFilter('CANCELED')"
+    >
+      Cancelados
+    </button>
+    <button type="button" class="scheduled-filter scheduled-filter--ghost" (click)="retry()">
+      Recargar
+    </button>
+  </div>
+
+  <div class="card">
+    <div *ngIf="loading" class="scheduled-feedback scheduled-feedback--loading">
+      Cargando programados...
+    </div>
+
+    <div *ngIf="!loading && errorMessage" class="scheduled-feedback scheduled-feedback--error">
+      <span>{{ errorMessage }}</span>
+      <button type="button" class="inline-action-btn" (click)="retry()">Reintentar</button>
+    </div>
+
+    <div *ngIf="!loading && !errorMessage && visibleItems.length === 0" class="scheduled-feedback">
+      No hay elementos para el filtro actual.
+    </div>
+
+    <div class="table-container">
+      <table *ngIf="!loading && visibleItems.length > 0">
+        <thead>
+          <tr>
+            <th>Destinatarios</th>
+            <th>Tipo</th>
+            <th>Contenido</th>
+            <th>Fecha Programada</th>
+            <th>Estado</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let item of visibleItems; trackBy: trackByScheduledId">
+            <td>
+              <div class="recipient-wrap">
+                <button
+                  type="button"
+                  class="recipient-badge"
+                  [disabled]="!(item.recipientUsers?.length || item.recipientEmails?.length || item.userIds?.length)"
+                  (click)="openRecipients(item)"
+                >
+                  {{ getRecipientBadge(item) }}
+                </button>
+                <span class="recipient-label">{{ getRecipientLabel(item) }}</span>
+              </div>
+            </td>
+
+            <td>
+              <span class="type-chip">
+                <i [class]="getDeliveryIconClass(item)"></i>
+                {{ getDeliveryLabel(item) }}
+              </span>
+            </td>
+
+            <td>
+              <p class="content-preview">{{ getContentPreview(item) }}</p>
+            </td>
+
+            <td class="date-cell">
+              <div class="date-main">{{ getScheduleDate(item) | date:'dd MMM yyyy' }}</div>
+              <div class="date-sub">{{ getScheduleDate(item) | date:'HH:mm' }}</div>
+            </td>
+
+            <td>
+              <span [class]="getStatusClass(item.status)">
+                {{ getStatusLabel(item.status) }}
+              </span>
+              <div *ngIf="item.lastError && getStatusLabel(item.status) === 'Fallido'" class="status-help">
+                {{ item.lastError }}
+              </div>
+            </td>
+
+            <td class="actions-cell">
+              <button
+                *ngIf="canPreview(item)"
+                type="button"
+                class="btn-action text-slate"
+                title="Previsualizar Email"
+                (click)="openPreview(item)"
+              >
+                <i class="fas fa-eye"></i>
+              </button>
+              <button
+                *ngIf="canEdit(item)"
+                type="button"
+                class="btn-action text-blue"
+                [disabled]="editingId === item.id"
+                [title]="editingId === item.id ? 'Guardando' : 'Editar'"
+                (click)="edit(item)"
+              >
+                <i
+                  class="fas"
+                  [class.fa-spinner]="editingId === item.id"
+                  [class.fa-spin]="editingId === item.id"
+                  [class.fa-edit]="editingId !== item.id"
+                ></i>
+              </button>
+              <button
+                *ngIf="canResend(item)"
+                type="button"
+                class="btn-action text-teal"
+                title="Reenviar"
+                (click)="resend(item)"
+              >
+                <i class="fas fa-share"></i>
+              </button>
+              <button
+                *ngIf="canCancel(item)"
+                type="button"
+                class="btn-action text-rose"
+                [disabled]="cancelingId === item.id"
+                [title]="cancelingId === item.id ? 'Cancelando' : 'Cancelar'"
+                (click)="cancel(item)"
+              >
+                <i
+                  class="fas"
+                  [class.fa-spinner]="cancelingId === item.id"
+                  [class.fa-spin]="cancelingId === item.id"
+                  [class.fa-trash]="cancelingId !== item.id"
+                ></i>
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="admin-pagination-wrap" *ngIf="!loading && totalElements > 0">
+      <div class="admin-pagination-meta">
+        Página {{ currentPage + 1 }} de {{ totalPages }}
+        <span class="admin-pagination-dot">•</span>
+        {{ totalElements }} programados
+      </div>
+      <div class="admin-pagination-actions">
+        <button
+          type="button"
+          class="admin-page-btn"
+          [disabled]="currentPage <= 0 || loading"
+          (click)="prevPage()"
+        >
+          Anterior
+        </button>
+        <button
+          type="button"
+          class="admin-page-btn admin-page-btn--primary"
+          [disabled]="isLastPage || loading"
+          (click)="nextPage()"
+        >
+          Siguiente
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div *ngIf="openRecipientsModal" class="modal-overlay" (click)="closeRecipientsOutside($event)">
+  <div class="modal-content">
+    <div class="modal-head">
+      <h3 class="modal-title">{{ selectedRecipientsTitle }}</h3>
+      <button type="button" class="modal-close" (click)="closeRecipients()">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <div class="modal-body modal-body--scroll">
+      <div *ngIf="recipientModalLoading" class="scheduled-feedback scheduled-feedback--loading">
+        Cargando destinatarios...
+      </div>
+
+      <ul class="recipient-list">
+        <li *ngFor="let recipient of recipientPreviewList" class="recipient-item">
+          <div class="recipient-avatar" [ngClass]="recipient.colorClass">{{ recipient.initials }}</div>
+          <div>
+            <p class="recipient-name">{{ recipient.name }}</p>
+            <p class="recipient-email">{{ recipient.email }}</p>
+          </div>
+        </li>
+        <li *ngIf="!recipientModalLoading && recipientOverflowCount > 0" class="recipient-more">
+          ... y {{ recipientOverflowCount }} destinatario{{ recipientOverflowCount === 1 ? '' : 's' }} mas
+        </li>
+        <li *ngIf="!recipientModalLoading && recipientPreviewList.length === 0" class="recipient-more">
+          No hay emails disponibles para este programado.
+        </li>
+      </ul>
+    </div>
+
+    <div class="modal-footer modal-footer--right">
+      <button type="button" class="modal-primary-btn" (click)="closeRecipients()">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<app-admin-email-preview-popup
+  [open]="openPreviewModal"
+  [subject]="previewSubject"
+  [body]="previewBody"
+  [attachmentCount]="previewAttachmentCount"
+  [attachmentNames]="previewAttachmentNames"
+  (closed)="closePreview()"
+></app-admin-email-preview-popup>
