@@ -22,10 +22,16 @@ import { ScheduleMessageComposerComponent } from './Components/inicio/schedule-m
 import { FilePreviewViewerComponent } from './Components/inicio/file-preview-viewer/file-preview-viewer.component';
 import { VideoCallOverlayComponent } from './Components/inicio/video-call-overlay/video-call-overlay.component';
 import { StarredMessagesPanelComponent } from './Components/inicio/starred-messages-panel/starred-messages-panel.component';
+import { ChatListSkeletonComponent } from './Components/loaders/chat-list-skeleton/chat-list-skeleton.component';
+import { MessagesSkeletonComponent } from './Components/loaders/messages-skeleton/messages-skeleton.component';
 import { ReportChatClosurePopupComponent } from './Components/popup/report-chat-closure-popup/report-chat-closure-popup.component';
+import { ReportUserPopupComponent } from './Components/popup/report-user-popup/report-user-popup.component';
 import { AdminMessageComposerComponent } from './Components/administracion/admin-message-composer/admin-message-composer.component';
 import { AdminEmailPreviewPopupComponent } from './Components/popup/admin-email-preview-popup/admin-email-preview-popup.component';
 import { AdminScheduleSendPopupComponent } from './Components/popup/admin-schedule-send-popup/admin-schedule-send-popup.component';
+import { AdminScheduledMessagesComponent } from './Components/administracion/admin-scheduled-messages/admin-scheduled-messages.component';
+import { UsersTableSkeletonComponent } from './Components/loaders/users-table-skeleton/users-table-skeleton.component';
+import { AdminPaginationComponent } from './Components/shared/admin-pagination/admin-pagination.component';
 
 @NgModule({
   declarations: [
@@ -47,16 +53,21 @@ import { AdminScheduleSendPopupComponent } from './Components/popup/admin-schedu
     VideoCallOverlayComponent,
     StarredMessagesPanelComponent,
     ReportChatClosurePopupComponent,
+    ReportUserPopupComponent,
     AdminMessageComposerComponent,
     AdminEmailPreviewPopupComponent,
-    AdminScheduleSendPopupComponent
+    AdminScheduleSendPopupComponent,
+    AdminScheduledMessagesComponent
   ],
   imports: [
     BrowserModule,
     AppRoutingModule,
     HttpClientModule,
     FormsModule,
-
+    ChatListSkeletonComponent,
+    MessagesSkeletonComponent,
+    UsersTableSkeletonComponent,
+    AdminPaginationComponent,
   ],
   providers: [
     {

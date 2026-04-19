@@ -83,7 +83,7 @@
             </button>
             <button type="button" class="topbar-profile-item topbar-profile-item--danger" (click)="logoutFromTopbar($event)">
               <i class="bi bi-box-arrow-right"></i>
-              Cerrar sesiÃ³n
+              Cerrar Sesión
             </button>
           </div>
         </div>
@@ -149,72 +149,77 @@
       </div>
 
       <div class="listadoChats" *ngIf="!isStarredView">
-        <div class="encabezado-chats">
-          <div class="titulo-chat">TejeChat</div>
-          <div class="acciones-chat">
-            <button class="icono-chat" title="Crear grupo" data-bs-toggle="modal" (click)="crearGrupoModal.open()"
-              data-bs-target="#crearGrupoModal">
-              <i class="fas fa-users"></i>
-            </button>
-            <div class="chat-list-menu-anchor">
-              <button
-                type="button"
-                class="icono-chat"
-                title="Opciones"
-                aria-label="Opciones"
-                (click)="toggleChatListHeaderMenu($event)"
-              >
-                <i class="fas fa-ellipsis-v"></i>
+        <ng-container *ngIf="showChatListSkeleton; else chatListContent">
+          <app-chat-list-skeleton [itemCount]="7"></app-chat-list-skeleton>
+        </ng-container>
+
+        <ng-template #chatListContent>
+          <div class="encabezado-chats">
+            <div class="titulo-chat">TejeChat</div>
+            <div class="acciones-chat">
+              <button class="icono-chat" title="Crear grupo" data-bs-toggle="modal" (click)="crearGrupoModal.open()"
+                data-bs-target="#crearGrupoModal">
+                <i class="fas fa-users"></i>
               </button>
-              <div class="chat-list-menu" *ngIf="showChatListHeaderMenu">
+              <div class="chat-list-menu-anchor">
                 <button
                   type="button"
-                  class="chat-list-menu-item chat-list-menu-item--schedule"
-                  (click)="openScheduleMessageComposerFromHeader($event)"
+                  class="icono-chat"
+                  title="Opciones"
+                  aria-label="Opciones"
+                  (click)="toggleChatListHeaderMenu($event)"
                 >
-                  <i class="bi bi-calendar2-check"></i>
-                  Programar mensaje
+                  <i class="fas fa-ellipsis-v"></i>
                 </button>
+                <div class="chat-list-menu" *ngIf="showChatListHeaderMenu">
+                  <button
+                    type="button"
+                    class="chat-list-menu-item chat-list-menu-item--schedule"
+                    (click)="openScheduleMessageComposerFromHeader($event)"
+                  >
+                    <i class="bi bi-calendar2-check"></i>
+                    Programar mensaje
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <div class="buscador">
-          <input #chatSearchInput type="text" placeholder="Buscar personas..." class="input-busqueda" [value]="busquedaChat"
-            (input)="onSearchChange($event)" />
-        </div>
-        <div class="chat-filters">
-          <button
-            type="button"
-            class="chat-filter-btn"
-            [class.is-active]="isChatListFilterActive('TODOS')"
-            (click)="setChatListFilter('TODOS')">
-            Todos
-          </button>
-          <button
-            type="button"
-            class="chat-filter-btn"
-            [class.is-active]="isChatListFilterActive('LEIDOS')"
-            (click)="setChatListFilter('LEIDOS')">
-            Leidos
-          </button>
-          <button
-            type="button"
-            class="chat-filter-btn"
-            [class.is-active]="isChatListFilterActive('NO_LEIDOS')"
-            (click)="setChatListFilter('NO_LEIDOS')">
-            No leidos
-          </button>
-          <button
-            type="button"
-            class="chat-filter-btn"
-            [class.is-active]="isChatListFilterActive('GRUPOS')"
-            (click)="setChatListFilter('GRUPOS')">
-            Grupos
-          </button>
-        </div>
-        <div class="chat-scroll" [class.chat-scroll--empty]="chatsFiltrados.length === 0">
+          <div class="buscador">
+            <input #chatSearchInput type="text" placeholder="Buscar personas..." class="input-busqueda" [value]="busquedaChat"
+              (input)="onSearchChange($event)" />
+          </div>
+          <div class="chat-filters">
+            <button
+              type="button"
+              class="chat-filter-btn"
+              [class.is-active]="isChatListFilterActive('TODOS')"
+              (click)="setChatListFilter('TODOS')">
+              Todos
+            </button>
+            <button
+              type="button"
+              class="chat-filter-btn"
+              [class.is-active]="isChatListFilterActive('LEIDOS')"
+              (click)="setChatListFilter('LEIDOS')">
+              Leidos
+            </button>
+            <button
+              type="button"
+              class="chat-filter-btn"
+              [class.is-active]="isChatListFilterActive('NO_LEIDOS')"
+              (click)="setChatListFilter('NO_LEIDOS')">
+              No leidos
+            </button>
+            <button
+              type="button"
+              class="chat-filter-btn"
+              [class.is-active]="isChatListFilterActive('GRUPOS')"
+              (click)="setChatListFilter('GRUPOS')">
+              Grupos
+            </button>
+          </div>
+          <div class="chat-scroll" [class.chat-scroll--empty]="chatsFiltrados.length === 0">
           <ng-container *ngIf="chatsFiltrados.length > 0; else emptyChatsState">
           <div *ngFor="let chat of chatsFiltrados" class="chat-item" [class.chat-item--unread]="chat.unreadCount > 0"
             [class.chat-item--group]="chat.esGrupo"
@@ -451,6 +456,15 @@
                   Poner reporte
                 </button>
                 <button
+                  *ngIf="!chat.esGrupo"
+                  type="button"
+                  class="chat-pin-menu-btn chat-pin-menu-btn--report"
+                  (click)="reportarUsuarioDesdeListado(chat, $event)"
+                >
+                  <i class="bi bi-flag-fill"></i>
+                  Denunciar
+                </button>
+                <button
                   type="button"
                   class="chat-pin-menu-btn chat-pin-menu-btn--danger"
                   (click)="vaciarChat(chat, $event)"
@@ -527,9 +541,10 @@
             </button>
           </div>
         </ng-template>
-      </div>
+          </div>
+        </ng-template>
 
-            </div>
+      </div>
 
       <app-starred-messages-panel
         *ngIf="isStarredView"
@@ -558,7 +573,13 @@
         <div *ngIf="messageAreaDragActive" class="attachment-drop-hint">
           Suelta el archivo para adjuntarlo
         </div>
-        <div *ngIf="chatSeleccionadoId !== null" class="encabezado-chat-mensajes">
+        <app-messages-skeleton
+          *ngIf="showMessagesSkeleton"
+          [showHeader]="true"
+          [showInputBar]="true"
+        ></app-messages-skeleton>
+
+        <div *ngIf="chatSeleccionadoId !== null && !showMessagesSkeleton" class="encabezado-chat-mensajes">
 
           <button class="btn-back-mobile" (click)="chatSeleccionadoId = null">
             <i class="fas fa-arrow-left"></i>
@@ -644,6 +665,14 @@
                   <span class="icono-reportar" aria-hidden="true"><i class="bi bi-flag-fill"></i></span>
                   Poner reporte
                 </button>
+                <button
+                  *ngIf="chatActual && !chatActual.esGrupo"
+                  class="dropdown-item dropdown-item--reportar"
+                  (mousedown)="reportarUsuarioActual($event); $event.stopPropagation()"
+                >
+                  <span class="icono-reportar" aria-hidden="true"><i class="bi bi-flag-fill"></i></span>
+                  Denunciar
+                </button>
                 <button class="dropdown-item" *ngIf="chatActual && !chatActual.esGrupo"
                   [ngClass]="yoLoBloquee ? 'dropdown-item--desbloquear' : 'dropdown-item--bloquear'"
                   (mousedown)="toggleBloquearUsuario(); $event.stopPropagation()">
@@ -661,7 +690,7 @@
           </div>
         </div>
         <div
-          *ngIf="chatSeleccionadoId !== null && pinnedMessage as pinned"
+          *ngIf="chatSeleccionadoId !== null && !showMessagesSkeleton && pinnedMessage as pinned"
           class="chat-pinned-banner"
         >
           <div class="chat-pinned-banner__left">
@@ -701,6 +730,7 @@
           </div>
         </div>
         <div
+          *ngIf="!showMessagesSkeleton"
           class="cuerpo-mensajes"
           [class.cuerpo-mensajes--chat-selected]="chatSeleccionadoId !== null"
           #contenedorMensajes
@@ -1108,6 +1138,14 @@
                         <i class="bi bi-reply"></i> Responder
                       </button>
                       <button
+                        *ngIf="chatActual && !chatActual.esGrupo"
+                        type="button"
+                        class="btn-opcion-reportar"
+                        (click)="reportarUsuarioDesdeMensaje(mensaje, $event)"
+                      >
+                        <i class="bi bi-flag-fill"></i> Denunciar
+                      </button>
+                      <button
                         *ngIf="canDestacarMensaje(mensaje)"
                         type="button"
                         class="btn-opcion-destacar"
@@ -1337,7 +1375,7 @@
           </div>
         </div>
 
-        <div *ngIf="chatSeleccionadoId !== null" class="entrada-mensaje">
+        <div *ngIf="chatSeleccionadoId !== null && !showMessagesSkeleton" class="entrada-mensaje">
           <div *ngIf="forwardModalOpen; else composeMode" class="forward-bottom-actions">
             <div class="forward-target-count">Chats seleccionados: {{ forwardSelectedChatIds.size }}</div>
             <div class="forward-inline-actions">
@@ -1588,7 +1626,7 @@
               </div>
             </ng-template>
           </ng-template>
-        </div>
+          </div>
       </div>
       <ng-template #perfilView>
         <div *ngIf="!isStarredView" class="zonaMensajes zonaMensajes--perfil">
@@ -1659,3 +1697,16 @@
   (submitted)="submitReportChatClosure()"
   (canceled)="closeReportChatClosurePopup()"
 ></app-report-chat-closure-popup>
+<app-report-user-popup
+  [open]="showReportUserPopup"
+  [targetName]="reportUserTargetName"
+  [motivo]="reportUserReason"
+  [detalle]="reportUserDetail"
+  [sending]="reportUserSending"
+  [success]="reportUserSuccess"
+  [reasonOptions]="reportUserReasonOptions"
+  (motivoChange)="onReportUserReasonChange($event)"
+  (detalleChange)="onReportUserDetailChange($event)"
+  (submitted)="submitReportUser($event)"
+  (canceled)="closeReportUserPopup()"
+></app-report-user-popup>

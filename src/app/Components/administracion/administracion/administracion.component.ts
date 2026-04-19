@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, HostListener, OnInit, OnDestroy } from '@angular/core';
 import { AuthService } from '../../../Service/auth/auth.service';
 import { UsuarioDTO } from '../../../Interface/UsuarioDTO';
 import { DashboardStatsDTO } from '../../../Interface/DashboardStatsDTO';
@@ -91,6 +91,14 @@ type AdminPollOptionView = {
 
 type TemporalEstado = 'ACTIVO' | 'EXPIRADO' | 'NO_TEMPORAL';
 type AdminTemporalFilter = 'TODOS' | TemporalEstado;
+type AdminGroupStatusFilter = 'TODOS' | 'ACTIVO' | 'INACTIVO';
+type AdminGroupVisibilityFilter = 'TODOS' | 'PUBLICO' | 'PRIVADO';
+type AdminGroupView = AdminGroupListDTO & {
+  imagen?: string | null;
+  fotoGrupo?: string | null;
+  foto?: string | null;
+  nombre?: string | null;
+};
 
 @Component({
   selector: 'app-administracion',
@@ -102,10 +110,14 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   // Variables de control de vista
   isDashboardView: boolean = true;
   isReportsView: boolean = false;
+  isComplaintsView: boolean = false;
   isGroupsView: boolean = false;
   isMessagesView: boolean = false;
+  isScheduledMessagesView: boolean = false;
   isGroupsTableMode: boolean = false;
   isDashboardMenuOpen: boolean = true;
+  isIncidentsMenuOpen: boolean = true;
+  isMessagesMenuOpen: boolean = true;
   isSidebarOpen: boolean = false;
   headerSubtitle: string = "Gestion centralizada de TejeChat.";
   currentUserName: string = "";
@@ -113,17 +125,24 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   loadingGroups: boolean = false;
   loadingChatMessages: boolean = false;
   isSendingAdminMessage: boolean = false;
+  adminMessageComposerResetSignal: number = 0;
   selectedChatMessagesSource: 'admin' | 'group' = 'admin';
   public usuarioActualId!: number;
   userChats: any[] = [];
   selectedChat: any | null = null;
   selectedChatMensajes: any[] = [];
-  adminGroups: AdminGroupListDTO[] = [];
+  adminGroups: AdminGroupView[] = [];
   groupsPage: number = 0;
   groupsPageSize: number = 10;
   groupsTotalPages: number = 1;
   groupsTotalElements: number = 0;
   groupsIsLastPage: boolean = true;
+  groupSearchTerm: string = '';
+  groupStatusFilter: AdminGroupStatusFilter = 'ACTIVO';
+  groupVisibilityFilter: AdminGroupVisibilityFilter = 'PUBLICO';
+  isGroupStatusMenuOpen: boolean = false;
+  isGroupVisibilityMenuOpen: boolean = false;
+  private brokenGroupPhotoIds = new Set<number>();
   showAdminFilePreview: boolean = false;
   adminFilePreviewSrc: string = '';
   adminFilePreviewName: string = '';
@@ -190,6 +209,27 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   private reportUserNamesById = new Map<number, string>();
   private reportesWsSub: StompSubscription | null = null;
   private adminAuditPublicKeyInitPromise: Promise<void> | null = null;
+  readonly appealFilterOptions = [
+    { value: 'ABIERTOS', label: 'Pendientes + En revisión' },
+    { value: 'APROBADA', label: 'Aprobados' },
+    { value: 'RECHAZADA', label: 'Rechazados' },
+  ];
+  readonly groupStatusFilterOptions = [
+    { value: 'TODOS', label: 'Todos' },
+    { value: 'ACTIVO', label: 'Activos' },
+    { value: 'INACTIVO', label: 'Inactivos' },
+  ];
+  readonly groupVisibilityFilterOptions = [
+    { value: 'TODOS', label: 'Todo tipo' },
+    { value: 'PUBLICO', label: 'Publicos' },
+    { value: 'PRIVADO', label: 'Privados' },
+  ];
+  readonly adminTemporalFilterOptions = [
+    { value: 'TODOS', label: 'Todos' },
+    { value: 'ACTIVO', label: 'Activos' },
+    { value: 'EXPIRADO', label: 'Expirados' },
+    { value: 'NO_TEMPORAL', label: 'No temporal' },
+  ];
 
   // Suscripción a búsqueda por input en tiempo real (debounce)
   private searchSubject = new Subject<string>();
@@ -472,6 +512,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   public showReportes(): void {
     this.isDashboardView = false;
     this.isReportsView = true;
+    this.isComplaintsView = false;
     this.isGroupsView = false;
     this.isMessagesView = false;
     this.isGroupsTableMode = false;
@@ -483,6 +524,22 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       'Revisión de reportes (desbaneo de usuario y reapertura de chats) en tiempo real.';
     this.appealViewFilter = 'ABIERTOS';
     this.cargarSolicitudesDesbaneo(0);
+  }
+
+  public showComplaintsView(): void {
+    this.isDashboardView = false;
+    this.isReportsView = false;
+    this.isComplaintsView = true;
+    this.isGroupsView = false;
+    this.isMessagesView = false;
+    this.isScheduledMessagesView = false;
+    this.isGroupsTableMode = false;
+    this.isSidebarOpen = false;
+    this.selectedChat = null;
+    this.selectedChatMensajes = [];
+    this.selectedChatMessagesSource = 'admin';
+    this.headerSubtitle = 'Mensajeria administrativa programada.';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   public setAppealViewFilter(
@@ -499,6 +556,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   ): boolean {
     return this.appealViewFilter === filter;
   }
+
 
   public get appealEmptyText(): string {
     if (this.appealViewFilter === 'APROBADA') {
@@ -3756,11 +3814,21 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.isDashboardMenuOpen = !this.isDashboardMenuOpen;
   }
 
+  public toggleIncidentsMenu(): void {
+    this.isIncidentsMenuOpen = !this.isIncidentsMenuOpen;
+  }
+
+  public toggleMessagesMenu(): void {
+    this.isMessagesMenuOpen = !this.isMessagesMenuOpen;
+  }
+
   showDashboard() {
     this.isDashboardView = true;
     this.isReportsView = false;
+    this.isComplaintsView = false;
     this.isGroupsView = false;
     this.isMessagesView = false;
+    this.isScheduledMessagesView = false;
     this.isGroupsTableMode = false;
     this.isSidebarOpen = false;
     this.selectedChat = null;
@@ -3776,8 +3844,10 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   public showGroupsView(): void {
     this.isDashboardView = true;
     this.isReportsView = false;
+    this.isComplaintsView = false;
     this.isGroupsView = true;
     this.isMessagesView = false;
+    this.isScheduledMessagesView = false;
     this.isGroupsTableMode = false;
     this.isSidebarOpen = false;
     this.selectedChat = null;
@@ -3790,9 +3860,12 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   public showMessagesView(): void {
     this.isDashboardView = false;
     this.isReportsView = false;
+    this.isComplaintsView = false;
     this.isGroupsView = false;
     this.isMessagesView = true;
+    this.isScheduledMessagesView = false;
     this.isGroupsTableMode = false;
+    this.isMessagesMenuOpen = true;
     this.isSidebarOpen = false;
     this.selectedChat = null;
     this.selectedChatMensajes = [];
@@ -3802,6 +3875,23 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       this.resetAdminMessageUsersFeed();
       this.loadAdminMessageUsersPage(0);
     }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  public showScheduledMessagesView(): void {
+    this.isDashboardView = false;
+    this.isReportsView = false;
+    this.isComplaintsView = false;
+    this.isGroupsView = false;
+    this.isMessagesView = false;
+    this.isScheduledMessagesView = true;
+    this.isGroupsTableMode = false;
+    this.isMessagesMenuOpen = true;
+    this.isSidebarOpen = false;
+    this.selectedChat = null;
+    this.selectedChatMensajes = [];
+    this.selectedChatMessagesSource = 'admin';
+    this.headerSubtitle = 'Mensajeria administrativa programada.';
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -3837,6 +3927,14 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         await Swal.fire('Sin destinatarios', 'No hay usuarios validos para enviar el mensaje.', 'warning');
         return;
       }
+      const confirmed = await this.confirmAdminBulkDeliveryAction({
+        action: 'send',
+        deliveryType: 'message',
+        recipientCount: recipients.length,
+        attachmentCount: 0,
+        event,
+      });
+      if (!confirmed) return;
 
       const keysReady = await this.ensureAdminMessagingKeysReady();
       if (!keysReady) {
@@ -3881,8 +3979,6 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       const response: AdminDirectMessageResponseDTO = await firstValueFrom(
         this.chatService.enviarMensajesDirectosAdmin({
           userIds: encryptedPayloads.map((item) => Number(item.userId)),
-          contenido: message,
-          message,
           encryptedPayloads,
         })
       );
@@ -3923,6 +4019,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       failedNames.push(...responseFailures);
 
       if (sentCount > 0 && totalFailedCount === 0) {
+        this.bumpAdminMessageComposerResetSignal();
         await Swal.fire(
           'Comunicado enviado',
           `Se enviaron ${sentCount} mensajes cifrados por WS.`,
@@ -3932,6 +4029,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       }
 
       if (sentCount > 0) {
+        this.bumpAdminMessageComposerResetSignal();
         await Swal.fire(
           'Envio parcial',
           `Se enviaron ${sentCount} mensajes. Fallaron ${totalFailedCount}.`,
@@ -3971,14 +4069,61 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         await Swal.fire('Sin destinatarios', 'No hay usuarios validos para programar el mensaje.', 'warning');
         return;
       }
+      const confirmed = await this.confirmAdminBulkDeliveryAction({
+        action: 'schedule',
+        deliveryType: 'message',
+        recipientCount: recipients.length,
+        attachmentCount: 0,
+        event,
+      });
+      if (!confirmed) return;
+
+      const keysReady = await this.ensureAdminMessagingKeysReady();
+      if (!keysReady) {
+        await Swal.fire(
+          'Claves E2E no disponibles',
+          'No se pudo preparar la clave publica del administrador para mensajeria cifrada.',
+          'error'
+        );
+        return;
+      }
+
+      const encryptedPayloads: AdminDirectMessageEncryptedItemDTO[] = [];
+      const failedNames: string[] = [];
+
+      for (const recipient of recipients) {
+        try {
+          encryptedPayloads.push({
+            userId: Number(recipient.id),
+            contenido: await this.buildAdminOutgoingE2EContent(
+              Number(recipient.id),
+              message
+            ),
+          });
+        } catch (err) {
+          console.error('Error cifrando comunicado admin programado para usuario', {
+            recipientId: recipient?.id,
+            err,
+          });
+          failedNames.push(this.getAdminRecipientDisplayName(recipient));
+        }
+      }
+
+      if (encryptedPayloads.length === 0) {
+        await Swal.fire(
+          'Programacion fallida',
+          'No se pudo preparar ningun payload cifrado.',
+          'error'
+        );
+        return;
+      }
 
       const request: AdminScheduleDirectMessageRequestDTO = {
         audienceMode: String(event?.mode || 'selected'),
-        userIds: recipients
-          .map((user) => Number(user.id))
+        userIds: encryptedPayloads
+          .map((item) => Number(item.userId))
           .filter((id) => Number.isFinite(id) && id > 0),
-        contenido: message,
-        message,
+        encryptedPayloads,
         scheduledAt,
         scheduledAtLocal: String(event?.scheduledAtLocal || '').trim() || undefined,
       };
@@ -3987,10 +4132,13 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         this.chatService.programarMensajesDirectosAdmin(request)
       );
 
+      this.bumpAdminMessageComposerResetSignal();
       await Swal.fire(
         'Mensaje programado',
-        String(response?.message || response?.mensaje || 'El envio ha quedado programado.'),
-        'success'
+        failedNames.length > 0
+          ? `Se programaron ${encryptedPayloads.length} mensajes. ${failedNames.length} destinatarios quedaron fuera por error de cifrado.`
+          : String(response?.message || response?.mensaje || 'El envio ha quedado programado.'),
+        failedNames.length > 0 ? 'warning' : 'success'
       );
     } finally {
       this.isSendingAdminMessage = false;
@@ -4029,6 +4177,17 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         (item, index, arr) =>
           arr.findIndex((candidate) => candidate.email === item.email) === index
       );
+
+      const emailConfirmed = await this.confirmAdminBulkDeliveryAction({
+        action: 'send',
+        deliveryType: 'email',
+        recipientCount: deduped.length,
+        attachmentCount: attachments.length,
+        event,
+      });
+      if (!emailConfirmed) {
+        return;
+      }
 
       const payload: AdminBulkEmailRequestDTO = {
         audienceMode: String(event?.mode || 'selected'),
@@ -4077,6 +4236,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       );
 
       if (sentCount > 0 && failedCount === 0) {
+        this.bumpAdminMessageComposerResetSignal();
         await Swal.fire(
           'Correo enviado',
           `Se enviaron ${sentCount} correos${attachments.length ? ` con ${attachments.length} adjunto(s)` : ''}.`,
@@ -4086,6 +4246,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       }
 
       if (sentCount > 0) {
+        this.bumpAdminMessageComposerResetSignal();
         await Swal.fire(
           'Envio parcial',
           `Se enviaron ${sentCount} correos. Fallaron ${failedCount}.`,
@@ -4102,6 +4263,119 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     } finally {
       this.isSendingAdminMessage = false;
     }
+  }
+
+  private async confirmAdminBulkEmailSend(
+    recipientCount: number,
+    attachmentCount: number,
+    event: AdminMessageComposerSubmitEvent
+  ): Promise<boolean> {
+    const count = Math.max(0, Number(recipientCount || 0));
+    if (count <= 0) return false;
+
+    const audienceLabel =
+      event?.mode === 'all'
+        ? 'a todos los usuarios válidos'
+        : 'a los usuarios seleccionados';
+    const attachmentLabel =
+      attachmentCount > 0
+        ? `<p class="swal-unban-helper">Tambien se enviaran <strong>${attachmentCount}</strong> adjunto(s).</p>`
+        : '';
+
+    const result = await Swal.fire({
+      html: `
+        <div class="swal-unban-header">
+          <div class="swal-unban-header-icon"><i class="bi bi-envelope-fill"></i></div>
+          <div class="swal-unban-header-text">
+            <h2>Confirmar envio de correo</h2>
+            <p>Vas a enviar un correo a <strong>${count}</strong> usuario(s).</p>
+          </div>
+        </div>
+        <div class="swal-unban-body">
+          <label class="swal-unban-label">Destino</label>
+          <p class="swal-unban-helper">El sistema enviara este correo ${audienceLabel}.</p>
+          ${attachmentLabel}
+          <p class="swal-unban-helper">¿Estas seguro de que quieres continuar?</p>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Si, enviar correo',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#2563eb',
+      cancelButtonColor: '#64748b',
+      allowOutsideClick: false,
+      customClass: {
+        popup: 'swal-unban-popup',
+        htmlContainer: 'swal-unban-html',
+        confirmButton: 'swal-unban-confirm',
+        cancelButton: 'swal-unban-cancel',
+        actions: 'swal-unban-actions',
+      },
+    });
+
+    return !!result.isConfirmed;
+  }
+
+  private async confirmAdminBulkDeliveryAction(params: {
+    action: 'send' | 'schedule';
+    deliveryType: 'message' | 'email';
+    recipientCount: number;
+    attachmentCount: number;
+    event: AdminMessageComposerSubmitEvent;
+  }): Promise<boolean> {
+    const { action, deliveryType, recipientCount, attachmentCount, event } = params;
+    const count = Math.max(0, Number(recipientCount || 0));
+    if (count <= 0) return false;
+
+    const noun = deliveryType === 'email' ? 'correo' : 'mensaje';
+    const verb = action === 'schedule' ? 'programar' : 'enviar';
+    const title = `Confirmar ${action === 'schedule' ? 'programacion' : 'envio'} de ${noun}`;
+    const audienceLabel =
+      event?.mode === 'all'
+        ? 'a todos los usuarios validos'
+        : 'a los usuarios seleccionados';
+    const attachmentLabel =
+      deliveryType === 'email' && attachmentCount > 0
+        ? `<p class="swal-unban-helper">Tambien se incluiran <strong>${attachmentCount}</strong> adjunto(s).</p>`
+        : '';
+    const scheduleLabel =
+      action === 'schedule'
+        ? `<p class="swal-unban-helper">La accion quedara programada para envio posterior.</p>`
+        : '';
+
+    const result = await Swal.fire({
+      html: `
+        <div class="swal-unban-header">
+          <div class="swal-unban-header-icon"><i class="bi ${deliveryType === 'email' ? 'bi-envelope-fill' : 'bi-chat-dots-fill'}"></i></div>
+          <div class="swal-unban-header-text">
+            <h2>${title}</h2>
+            <p>Vas a ${verb} un ${noun} a <strong>${count}</strong> usuario(s).</p>
+          </div>
+        </div>
+        <div class="swal-unban-body">
+          <label class="swal-unban-label">Destino</label>
+          <p class="swal-unban-helper">El sistema va a ${verb} este ${noun} ${audienceLabel}.</p>
+          ${attachmentLabel}
+          ${scheduleLabel}
+          <p class="swal-unban-helper">Estas seguro de que quieres continuar?</p>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: `Si, ${verb} ${noun}`,
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#2563eb',
+      cancelButtonColor: '#64748b',
+      allowOutsideClick: false,
+      customClass: {
+        popup: 'swal-unban-popup',
+        htmlContainer: 'swal-unban-html',
+        confirmButton: 'swal-unban-confirm',
+        cancelButton: 'swal-unban-cancel',
+        actions: 'swal-unban-actions',
+      },
+    });
+
+    return !!result.isConfirmed;
   }
 
   private async onAdminEmailSchedule(
@@ -4136,6 +4410,14 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         (item, index, arr) =>
           arr.findIndex((candidate) => candidate.email === item.email) === index
       );
+      const confirmed = await this.confirmAdminBulkDeliveryAction({
+        action: 'schedule',
+        deliveryType: 'email',
+        recipientCount: deduped.length,
+        attachmentCount: attachments.length,
+        event,
+      });
+      if (!confirmed) return;
 
       const payload: AdminScheduleBulkEmailRequestDTO = {
         audienceMode: String(event?.mode || 'selected'),
@@ -4157,6 +4439,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         this.chatService.programarCorreoMasivoAdmin(payload, attachments)
       );
 
+      this.bumpAdminMessageComposerResetSignal();
       await Swal.fire(
         'Email programado',
         String(response?.message || response?.mensaje || 'El correo ha quedado programado.'),
@@ -4202,6 +4485,10 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       console.warn('Fallo cargando destinatarios admin para modo all; usando cache local.', err);
       return filterSelf(this.adminMessageUsers || []);
     }
+  }
+
+  private bumpAdminMessageComposerResetSignal(): void {
+    this.adminMessageComposerResetSignal += 1;
   }
 
   private async ensureAdminMessagingKeysReady(): Promise<boolean> {
@@ -4385,7 +4672,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     });
   }
 
-  private normalizeAdminGroupClosureState(group: any): AdminGroupListDTO {
+  private normalizeAdminGroupClosureState(group: any): AdminGroupView {
     const next: any = { ...(group || {}) };
     const closed = this.resolveBooleanLike([
       next?.chatCerrado,
@@ -4413,7 +4700,133 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       next.chatCerradoMotivo = reason;
       next.reason = reason;
     }
-    return next as AdminGroupListDTO;
+    const photoRaw = this.resolveStringLike([
+      next?.imagen,
+      next?.fotoGrupo,
+      next?.foto,
+      next?.avatarGrupo,
+      next?.avatar,
+      next?.image,
+      next?.iconoGrupo,
+    ]);
+    const photoResolved = resolveMediaUrl(photoRaw, environment.backendBaseUrl) || photoRaw || '';
+    next.imagen = photoResolved || null;
+    next.fotoGrupo = photoResolved || null;
+    next.foto = photoResolved || null;
+    return next as AdminGroupView;
+  }
+
+  public get filteredAdminGroups(): AdminGroupView[] {
+    const search = String(this.groupSearchTerm || '').trim().toLowerCase();
+    return this.adminGroups.filter((group) => {
+      const name = this.getGroupDisplayName(group).toLowerCase();
+      const matchesSearch = !search || name.includes(search);
+      const matchesStatus =
+        this.groupStatusFilter === 'TODOS' ||
+        (this.groupStatusFilter === 'ACTIVO' && !!group?.activo) ||
+        (this.groupStatusFilter === 'INACTIVO' && !group?.activo);
+      const visibility = String(group?.visibilidad || '').trim().toUpperCase();
+      const matchesVisibility =
+        this.groupVisibilityFilter === 'TODOS' ||
+        visibility === this.groupVisibilityFilter;
+      return matchesSearch && matchesStatus && matchesVisibility;
+    });
+  }
+
+  public get hasActiveGroupFilters(): boolean {
+    return !!String(this.groupSearchTerm || '').trim()
+      || this.groupStatusFilter !== 'TODOS'
+      || this.groupVisibilityFilter !== 'TODOS';
+  }
+
+  public get groupStatusFilterLabel(): string {
+    return this.groupStatusFilterOptions.find(
+      (option) => option.value === this.groupStatusFilter
+    )?.label || 'Estado';
+  }
+
+  public get groupVisibilityFilterLabel(): string {
+    return this.groupVisibilityFilterOptions.find(
+      (option) => option.value === this.groupVisibilityFilter
+    )?.label || 'Visibilidad';
+  }
+
+  public toggleGroupStatusMenu(event?: Event): void {
+    event?.stopPropagation();
+    this.isGroupStatusMenuOpen = !this.isGroupStatusMenuOpen;
+    if (this.isGroupStatusMenuOpen) this.isGroupVisibilityMenuOpen = false;
+  }
+
+  public toggleGroupVisibilityMenu(event?: Event): void {
+    event?.stopPropagation();
+    this.isGroupVisibilityMenuOpen = !this.isGroupVisibilityMenuOpen;
+    if (this.isGroupVisibilityMenuOpen) this.isGroupStatusMenuOpen = false;
+  }
+
+  public selectGroupStatusFilter(value: string): void {
+    this.groupStatusFilter = value as AdminGroupStatusFilter;
+    this.isGroupStatusMenuOpen = false;
+  }
+
+  public selectGroupVisibilityFilter(value: string): void {
+    this.groupVisibilityFilter = value as AdminGroupVisibilityFilter;
+    this.isGroupVisibilityMenuOpen = false;
+  }
+
+  public resetGroupFilters(): void {
+    this.groupSearchTerm = '';
+    this.groupStatusFilter = 'TODOS';
+    this.groupVisibilityFilter = 'TODOS';
+    this.isGroupStatusMenuOpen = false;
+    this.isGroupVisibilityMenuOpen = false;
+  }
+
+  @HostListener('document:click', ['$event'])
+  public onDocumentClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.admin-groups-toolbar')) return;
+    this.isGroupStatusMenuOpen = false;
+    this.isGroupVisibilityMenuOpen = false;
+  }
+
+  public getGroupDisplayName(group: AdminGroupListDTO | null | undefined): string {
+    return String(group?.nombreGrupo || (group as any)?.nombre || '').trim()
+      || `Grupo #${group?.id ?? '-'}`;
+  }
+
+  public getGroupPhotoUrl(group: AdminGroupView | null | undefined): string {
+    const groupId = Number(group?.id || 0);
+    if (Number.isFinite(groupId) && groupId > 0 && this.brokenGroupPhotoIds.has(groupId)) {
+      return '';
+    }
+    return String(group?.imagen || group?.fotoGrupo || group?.foto || '').trim();
+  }
+
+  public onGroupPhotoError(group: AdminGroupView | null | undefined): void {
+    const groupId = Number(group?.id || 0);
+    if (!Number.isFinite(groupId) || groupId <= 0) return;
+    this.brokenGroupPhotoIds.add(groupId);
+  }
+
+  public getGroupInitials(group: AdminGroupListDTO | null | undefined): string {
+    const words = this.getGroupDisplayName(group)
+      .split(/\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .slice(0, 2);
+    const initials = words.map((part) => part.charAt(0)).join('');
+    return (initials || 'GR').toUpperCase();
+  }
+
+  public groupVisibilityLabel(group: AdminGroupListDTO | null | undefined): string {
+    const visibility = String(group?.visibilidad || '').trim().toUpperCase();
+    if (visibility === 'PUBLICO') return 'Publico';
+    if (visibility === 'PRIVADO') return 'Privado';
+    return 'Sin visibilidad';
+  }
+
+  public isGroupPublic(group: AdminGroupListDTO | null | undefined): boolean {
+    return String(group?.visibilidad || '').trim().toUpperCase() === 'PUBLICO';
   }
 
   private resolveBooleanLike(candidates: any[]): boolean | null {

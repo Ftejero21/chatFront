@@ -47,7 +47,7 @@
             <div *ngIf="isDashboardMenuOpen" class="ml-4 pl-4 border-l border-slate-200 space-y-2">
                 <a href="javascript:void(0)" (click)="showUsersView()"
                     class="sidebar-item sidebar-item--sub flex items-center space-x-3 px-4 py-2 text-sm font-semibold"
-                    [class.active]="isDashboardView && !isReportsView && !isGroupsView">
+                    [class.active]="isDashboardView && !isReportsView && !isComplaintsView && !isGroupsView">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M5.121 17.804A3 3 0 017 17h10a3 3 0 011.879.646M15 11a3 3 0 11-6 0 3 3 0 016 0zm6 0a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -64,27 +64,79 @@
                     <span>Grupos</span>
                 </a>
             </div>
-            <a href="javascript:void(0)"
-                (click)="showReportes()"
-                class="sidebar-item flex items-center space-x-3 px-4 py-3 text-sm font-semibold"
-                [class.active]="isReportsView">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M3 5h18M7 5v14l5-3 5 3V5" />
+            <button type="button" (click)="toggleIncidentsMenu()"
+                class="sidebar-item flex items-center justify-between w-full px-4 py-3 text-sm font-semibold"
+                [class.active]="isReportsView || isComplaintsView">
+                <span class="flex items-center space-x-3 min-w-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M3 5h18M7 5v14l5-3 5 3V5" />
+                    </svg>
+                    <span>Incidencias</span>
+                </span>
+                <svg class="w-4 h-4 transition-transform duration-200" [class.rotate-180]="isIncidentsMenuOpen"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                 </svg>
-                <span class="sidebar-item-label">Reportes</span>
-                <span *ngIf="reportesBadgeCount > 0" class="sidebar-badge">{{ reportesBadgeText }}</span>
-            </a>
-            <a href="javascript:void(0)"
-                (click)="showMessagesView()"
-                class="sidebar-item flex items-center space-x-3 px-4 py-3 text-sm font-semibold"
-                [class.active]="isMessagesView">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </button>
+            <div *ngIf="isIncidentsMenuOpen" class="ml-4 pl-4 border-l border-slate-200 space-y-2">
+                <a href="javascript:void(0)"
+                    (click)="showReportes()"
+                    class="sidebar-item sidebar-item--sub flex items-center space-x-3 px-4 py-2 text-sm font-semibold"
+                    [class.active]="isReportsView">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M3 5h18M7 5v14l5-3 5 3V5" />
+                    </svg>
+                    <span class="sidebar-item-label">Reportes</span>
+                    <span *ngIf="reportesBadgeCount > 0" class="sidebar-badge">{{ reportesBadgeText }}</span>
+                </a>
+                <a href="javascript:void(0)"
+                    (click)="showComplaintsView()"
+                    class="sidebar-item sidebar-item--sub flex items-center space-x-3 px-4 py-2 text-sm font-semibold"
+                    [class.active]="isComplaintsView">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span>Denuncias</span>
+                </a>
+            </div>
+            <button type="button" (click)="toggleMessagesMenu()"
+                class="sidebar-item flex items-center justify-between w-full px-4 py-3 text-sm font-semibold"
+                [class.active]="isMessagesView || isScheduledMessagesView">
+                <span class="flex items-center space-x-3 min-w-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    <span>Comunicacion</span>
+                </span>
+                <svg class="w-4 h-4 transition-transform duration-200" [class.rotate-180]="isMessagesMenuOpen"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                 </svg>
-                <span>Mensajes</span>
-            </a>
+            </button>
+            <div *ngIf="isMessagesMenuOpen" class="ml-4 pl-4 border-l border-slate-200 space-y-2">
+                <a href="javascript:void(0)" (click)="showMessagesView()"
+                    class="sidebar-item sidebar-item--sub flex items-center space-x-3 px-4 py-2 text-sm font-semibold"
+                    [class.active]="isMessagesView">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    <span>Mensajes</span>
+                </a>
+                <a href="javascript:void(0)" (click)="showScheduledMessagesView()"
+                    class="sidebar-item sidebar-item--sub flex items-center space-x-3 px-4 py-2 text-sm font-semibold"
+                    [class.active]="isScheduledMessagesView">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="9" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></circle>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 7v5l3 2"></path>
+                    </svg>
+                    <span>Programados</span>
+                </a>
+            </div>
         </nav>
 
         <div class="glass-card p-4 mt-auto bg-white/50">
@@ -191,7 +243,13 @@
                         class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-emerald-500/20 outline-none">
                 </div>
             </div>
-            <div class="overflow-x-auto w-full admin-users-scroll">
+            <app-users-table-skeleton
+                *ngIf="loadingUsuarios"
+                [rowCount]="7"
+                variant="users">
+            </app-users-table-skeleton>
+
+            <div *ngIf="!loadingUsuarios" class="overflow-x-auto w-full admin-users-scroll">
                 <table class="w-full text-left border-collapse min-w-full admin-users-table">
                     <thead>
                         <tr class="text-slate-400 text-[10px] uppercase tracking-widest bg-slate-50/50">
@@ -202,30 +260,12 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
-                        <tr *ngIf="loadingUsuarios">
-                            <td colspan="4" class="px-6 py-6">
-                                <div class="admin-users-loader" aria-live="polite" aria-busy="true">
-                                    <div class="admin-users-loader-top">
-                                        <span class="admin-users-loader-spinner" aria-hidden="true"></span>
-                                        <div>
-                                            <p class="admin-users-loader-title">Cargando usuarios</p>
-                                            <p class="admin-users-loader-subtitle">Preparando la página actual del listado...</p>
-                                        </div>
-                                    </div>
-                                    <div class="admin-users-loader-skeleton">
-                                        <span class="admin-skeleton-line admin-skeleton-line--lg"></span>
-                                        <span class="admin-skeleton-line admin-skeleton-line--md"></span>
-                                        <span class="admin-skeleton-line admin-skeleton-line--sm"></span>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
-                        <tr *ngIf="!loadingUsuarios && totalElements === 0">
+                        <tr *ngIf="totalElements === 0">
                             <td colspan="4" class="px-6 py-8 text-center text-slate-400 text-sm">
                                 No se encontraron usuarios.
                             </td>
                         </tr>
-                        <tr *ngFor="let user of (loadingUsuarios ? [] : usuariosMostrados)" class="hover:bg-blue-50/30 transition-colors">
+                        <tr *ngFor="let user of usuariosMostrados" class="hover:bg-blue-50/30 transition-colors">
                             <td class="px-6 py-3">
                                 <div class="flex items-center space-x-3">
                                     <div *ngIf="!user.foto"
@@ -322,7 +362,7 @@
                         [class.is-active]="isAppealFilterActive('ABIERTOS')"
                         (click)="setAppealViewFilter('ABIERTOS')"
                     >
-                        Pendientes + En revisión
+                        Pendientes + En revisi?n
                     </button>
                     <button
                         type="button"
@@ -408,11 +448,98 @@
         <section id="groups-view" class="space-y-6 w-full" [class.hidden-view]="!isGroupsView || !isDashboardView">
       <div class="glass-card overflow-hidden w-full flex flex-col">
         <div
-          class="p-4 md:p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4 bg-white/30">
-          <h3 class="text-lg font-bold text-slate-800">Grupos</h3>
+          class="p-4 md:p-5 border-b border-slate-100 bg-white/30">
+          <div class="admin-groups-header">
+            <h3 class="text-lg font-bold text-slate-800">Grupos</h3>
+
+            <div class="admin-groups-actions">
+              <label class="admin-groups-search" aria-label="Buscar grupo">
+                <i class="bi bi-search"></i>
+                <input
+                  type="text"
+                  [(ngModel)]="groupSearchTerm"
+                  placeholder="Buscar grupo"
+                >
+                <button
+                  *ngIf="groupSearchTerm"
+                  type="button"
+                  class="admin-groups-search__clear"
+                  (click)="groupSearchTerm = ''"
+                  aria-label="Limpiar busqueda"
+                >
+                  <i class="bi bi-x-lg"></i>
+                </button>
+              </label>
+
+              <div class="admin-filter-menu" [class.is-open]="isGroupStatusMenuOpen">
+                <button
+                  type="button"
+                  class="admin-filter-trigger"
+                  (click)="toggleGroupStatusMenu($event)"
+                  [attr.aria-expanded]="isGroupStatusMenuOpen"
+                >
+                  <span class="admin-filter-trigger__label">Estado</span>
+                  <strong>{{ groupStatusFilterLabel }}</strong>
+                  <i class="bi" [ngClass]="isGroupStatusMenuOpen ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                </button>
+
+                <div *ngIf="isGroupStatusMenuOpen" class="admin-filter-menu__panel">
+                  <button
+                    *ngFor="let option of groupStatusFilterOptions"
+                    type="button"
+                    class="admin-filter-option"
+                    [class.is-active]="groupStatusFilter === option.value"
+                    (click)="selectGroupStatusFilter(option.value)"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="admin-filter-menu" [class.is-open]="isGroupVisibilityMenuOpen">
+                <button
+                  type="button"
+                  class="admin-filter-trigger"
+                  (click)="toggleGroupVisibilityMenu($event)"
+                  [attr.aria-expanded]="isGroupVisibilityMenuOpen"
+                >
+                  <span class="admin-filter-trigger__label">Visibilidad</span>
+                  <strong>{{ groupVisibilityFilterLabel }}</strong>
+                  <i class="bi" [ngClass]="isGroupVisibilityMenuOpen ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                </button>
+
+                <div *ngIf="isGroupVisibilityMenuOpen" class="admin-filter-menu__panel">
+                  <button
+                    *ngFor="let option of groupVisibilityFilterOptions"
+                    type="button"
+                    class="admin-filter-option"
+                    [class.is-active]="groupVisibilityFilter === option.value"
+                    (click)="selectGroupVisibilityFilter(option.value)"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                class="admin-filter-reset"
+                [disabled]="!hasActiveGroupFilters"
+                (click)="resetGroupFilters()"
+              >
+                Limpiar
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div class="overflow-x-auto w-full admin-users-scroll">
+        <app-users-table-skeleton
+          *ngIf="loadingGroups"
+          [rowCount]="7"
+          variant="groups">
+        </app-users-table-skeleton>
+
+        <div *ngIf="!loadingGroups" class="overflow-x-auto w-full admin-users-scroll">
           <table class="w-full text-left border-collapse min-w-full admin-users-table">
             <thead>
               <tr class="text-slate-400 text-[10px] uppercase tracking-widest bg-slate-50/50">
@@ -424,25 +551,51 @@
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
-              <tr *ngIf="loadingGroups">
-                <td colspan="5" class="px-6 py-8 text-center text-slate-500 text-sm">
-                  Cargando grupos...
-                </td>
-              </tr>
-              <tr *ngIf="!loadingGroups && adminGroups.length === 0">
+              <tr *ngIf="filteredAdminGroups.length === 0">
                 <td colspan="5" class="px-6 py-8 text-center text-slate-400 text-sm">
-                  No hay grupos disponibles.
+                  No hay grupos que coincidan con los filtros actuales.
                 </td>
               </tr>
-              <tr *ngFor="let group of (loadingGroups ? [] : adminGroups)" class="hover:bg-blue-50/30 transition-colors">
+              <tr *ngFor="let group of filteredAdminGroups" class="hover:bg-blue-50/30 transition-colors">
                 <td class="px-6 py-3">
-                  <div class="min-w-0">
-                    <p class="text-sm font-bold text-slate-700 truncate">{{ group.nombreGrupo || ('Grupo #' + group.id) }}</p>
-                    <p class="text-xs text-slate-400 truncate">{{ group.descripcion || 'Sin descripcion' }}</p>
-                    <p class="text-[11px] text-slate-500 mt-1">Creado: {{ group.fechaCreacion | date:'dd/MM/yyyy HH:mm' }}</p>
+                  <div class="flex items-center gap-3 min-w-0">
+                    <div
+                      *ngIf="!getGroupPhotoUrl(group)"
+                      class="admin-group-avatar admin-group-avatar--fallback"
+                    >
+                      {{ getGroupInitials(group) }}
+                    </div>
+                    <img
+                      *ngIf="getGroupPhotoUrl(group)"
+                      [src]="getGroupPhotoUrl(group)"
+                      (error)="onGroupPhotoError(group)"
+                      class="admin-group-avatar"
+                      alt="Avatar grupo"
+                    >
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-2 min-w-0">
+                        <p class="text-sm font-bold text-slate-700 truncate">{{ getGroupDisplayName(group) }}</p>
+                        <span
+                          [ngClass]="group.activo ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-rose-100 text-rose-700 border-rose-200'"
+                          class="admin-inline-chip"
+                        >
+                          {{ group.activo ? 'Activo' : 'Inactivo' }}
+                        </span>
+                        <span
+                          [ngClass]="isGroupPublic(group)
+                            ? 'bg-sky-100 text-sky-700 border-sky-200'
+                            : 'bg-slate-100 text-slate-700 border-slate-200'"
+                          class="admin-inline-chip"
+                        >
+                          {{ groupVisibilityLabel(group) }}
+                        </span>
+                      </div>
+                      <p class="text-xs text-slate-400 truncate">{{ group.descripcion || 'Sin descripcion' }}</p>
+                      <p class="text-[11px] text-slate-500 mt-1">Creado: {{ group.fechaCreacion | date:'dd/MM/yyyy HH:mm' }}</p>
+                    </div>
                   </div>
                 </td>
-                <td class="px-6 py-3 text-sm text-slate-500">{{ group.visibilidad || 'SIN_VISIBILIDAD' }}</td>
+                <td class="px-6 py-3 text-sm text-slate-500">{{ groupVisibilityLabel(group) }}</td>
                 <td class="px-6 py-3">
                   <span
                     [ngClass]="group.activo ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'"
@@ -490,7 +643,7 @@
           </table>
         </div>
 
-        <div class="admin-pagination-wrap" *ngIf="!loadingGroups && groupsTotalElements > 0">
+        <div class="admin-pagination-wrap" *ngIf="!loadingGroups && groupsTotalElements > 0 && !hasActiveGroupFilters">
           <div class="admin-pagination-meta">
             Página {{ groupsPage + 1 }} de {{ groupsTotalPages }}
             <span class="admin-pagination-dot">•</span>
@@ -517,7 +670,25 @@
         </div>
       </div>
     </section>
-<section id="conversations-view" class="space-y-6 w-full" [class.hidden-view]="isDashboardView || isReportsView || isGroupsView || isMessagesView">
+<section id="complaints-view" class="space-y-6 w-full" [class.hidden-view]="!isComplaintsView">
+      <div class="flex items-center gap-4" style="margin-bottom: 30px;">
+        <button (click)="showDashboard()"
+          class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+        </button>
+
+        <div>
+          <h3 class="text-2xl font-bold text-slate-800">
+            Panel administrativo: <span class="logo-accent">Denuncias</span>
+          </h3>
+          <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
+        </div>
+      </div>
+  </section>
+<section id="conversations-view" class="space-y-6 w-full" [class.hidden-view]="isDashboardView || isReportsView || isComplaintsView || isGroupsView || isMessagesView || isScheduledMessagesView">
       <div class="flex items-center gap-4">
         <button (click)="showDashboard()"
           class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90">
@@ -962,8 +1133,8 @@
         </div>
       </div>
   </section>
-  <section id="messages-view" class="space-y-6 w-full" [class.hidden-view]="!isMessagesView">
-      <div class="flex items-center gap-4">
+<section id="messages-view" class="space-y-6 w-full" [class.hidden-view]="!isMessagesView">
+      <div class="flex items-center gap-4" style="margin-bottom: 30px;">
         <button (click)="showDashboard()"
           class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -974,7 +1145,7 @@
 
         <div>
           <h3 class="text-2xl font-bold text-slate-800">
-            Mensajes: <span class="logo-accent">Panel administrativo</span>
+            Panel administrativo: <span class="logo-accent">Mensajes</span>
           </h3>
           <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
         </div>
@@ -984,12 +1155,34 @@
         [users]="adminMessageUsers"
         [totalUsers]="adminMessageUsersCount"
         [sending]="isSendingAdminMessage"
+        [resetSignal]="adminMessageComposerResetSignal"
         [hasMoreUsers]="adminMessageUsersHasMore"
         [loadingMoreUsers]="adminMessageUsersLoading"
         (sendRequested)="onAdminMessageSend($event)"
         (scheduleRequested)="onAdminMessageSchedule($event)"
         (loadMoreRequested)="onAdminMessageUsersLoadMore()"
       ></app-admin-message-composer>
+  </section>
+
+  <section id="scheduled-messages-view" class="space-y-6 w-full" [class.hidden-view]="!isScheduledMessagesView">
+      <div class="flex items-center gap-4" style="margin-bottom: 30px;">
+        <button (click)="showDashboard()"
+          class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+        </button>
+
+        <div>
+          <h3 class="text-2xl font-bold text-slate-800">
+            Panel administrativo: <span class="logo-accent">Programados</span>
+          </h3>
+          <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
+        </div>
+      </div>
+
+      <app-admin-scheduled-messages [active]="isScheduledMessagesView"></app-admin-scheduled-messages>
   </section>
   <app-file-preview-viewer
     [open]="showAdminFilePreview"

@@ -403,6 +403,12 @@ export class InicioComponent {
   public reportChatClosureSending = false;
   public reportChatClosureText = '';
   public reportChatClosureTarget: any | null = null;
+  public showReportUserPopup = false;
+  public reportUserSending = false;
+  public reportUserSuccess = false;
+  public reportUserReason = '';
+  public reportUserDetail = '';
+  public reportUserTarget: any | null = null;
   public showGroupPollComposer = false;
   public showScheduleMessageComposer = false;
   public showChatListHeaderMenu = false;
@@ -433,6 +439,13 @@ export class InicioComponent {
       durationMs: null,
       helper: 'Hasta que vuelvas a activarlo',
     },
+  ];
+  public readonly reportUserReasonOptions = [
+    { value: 'spam', label: 'Spam o contenido no deseado' },
+    { value: 'acoso', label: 'Acoso o comportamiento abusivo' },
+    { value: 'odio', label: 'Discurso de odio' },
+    { value: 'inapropiado', label: 'Contenido inapropiado' },
+    { value: 'otro', label: 'Otro motivo' },
   ];
   public attachmentUploading = false;
   public pendingAttachmentFile: File | null = null;
@@ -855,6 +868,8 @@ export class InicioComponent {
   public busquedaChat: string = '';
   public chatListFilter: ChatListFilter = 'TODOS';
   public pinnedChatId: number | null = null;
+  public chatListLoading = true;
+  private messagesInitialLoadingConversationKey: string | null = null;
 
   public bloqueadosIds = new Set<number>();
   public meHanBloqueadoIds = new Set<number>();
@@ -1682,7 +1697,16 @@ export class InicioComponent {
   public listarTodosLosChats(): void {
     if (this.chatListAccessForbidden) return;
 
-    this.chatService.listarTodosLosChats().subscribe({
+    this.chatListLoading = true;
+    this.chatService
+      .listarTodosLosChats()
+      .pipe(
+        finalize(() => {
+          this.chatListLoading = false;
+          this.cdr.markForCheck();
+        })
+      )
+      .subscribe({
       next: (chats: ChatListItemDTO[]) => {
         const dedupedChats = dedupeChatListItemsById(chats || []);
         this.chats = dedupedChats
@@ -2752,6 +2776,8 @@ export class InicioComponent {
     this.cancelarRespuestaMensaje();
     this.chatSeleccionadoId = chat.id;
     this.chatActual = chat;
+    this.beginInitialMessagesLoading(Number(chat?.id), !!chat?.esGrupo);
+    this.mensajesSeleccionados = [];
     this.showGroupInfoPanel = false;
     this.showGroupInfoPanelMounted = false;
     this.showMessageSearchPanel = false;
@@ -2780,7 +2806,6 @@ export class InicioComponent {
     this.resetEdicion(); // Asegura que limpia haSalidoDelGrupo/mensajeNuevo/menu
 
     // Estado de mensajes / typing
-    this.mensajesSeleccionados = [];
     this.usuarioEscribiendo = false;
     this.usuarioGrabandoAudio = false;
     this.typingSetHeader.clear();
@@ -6742,7 +6767,10 @@ private async decryptPreviewString(
   private loadInitialMessagesPage(chat: any, _leftSet: Set<number>): void {
     const chatId = Number(chat?.id);
     const esGrupo = !!chat?.esGrupo;
-    if (!Number.isFinite(chatId) || chatId <= 0) return;
+    if (!Number.isFinite(chatId) || chatId <= 0) {
+      this.endInitialMessagesLoading(chatId, esGrupo);
+      return;
+    }
 
     const state = this.resetHistoryStateForConversation(chatId, esGrupo);
 
@@ -6834,11 +6862,13 @@ private async decryptPreviewString(
         if (!skipInitialAutoScroll) {
           this.scrollAlFinal();
         }
+        this.endInitialMessagesLoading(chatId, esGrupo);
         this.cdr.markForCheck();
       },
       error: (err) => {
         state.loadingMore = false;
         state.initialized = false;
+        this.endInitialMessagesLoading(chatId, esGrupo);
         console.error('[INICIO] error al obtener mensajes:', err);
         const status = Number(err?.status || 0);
         if (status === 404) {
@@ -6853,6 +6883,25 @@ private async decryptPreviewString(
         }
       },
     });
+  }
+
+  private beginInitialMessagesLoading(chatId: number, esGrupo: boolean): void {
+    if (!Number.isFinite(chatId) || chatId <= 0) {
+      this.messagesInitialLoadingConversationKey = null;
+      return;
+    }
+    this.messagesInitialLoadingConversationKey = buildConversationHistoryKey(
+      chatId,
+      esGrupo
+    );
+  }
+
+  private endInitialMessagesLoading(chatId: number, esGrupo: boolean): void {
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+    const key = buildConversationHistoryKey(chatId, esGrupo);
+    if (this.messagesInitialLoadingConversationKey === key) {
+      this.messagesInitialLoadingConversationKey = null;
+    }
   }
 
   private loadOlderMessagesPageForActiveChat(): void {
@@ -12876,6 +12925,17 @@ private async decryptPreviewString(
     return this.chatListFilter === filter;
   }
 
+  public get showChatListSkeleton(): boolean {
+    return this.chatListLoading && (this.chats?.length || 0) === 0;
+  }
+
+  public get showMessagesSkeleton(): boolean {
+    const chatId = Number(this.chatActual?.id ?? this.chatSeleccionadoId ?? 0);
+    if (!Number.isFinite(chatId) || chatId <= 0 || !this.chatActual) return false;
+    const key = buildConversationHistoryKey(chatId, !!this.chatActual.esGrupo);
+    return this.messagesInitialLoadingConversationKey === key;
+  }
+
   // ? lista derivada para el *ngFor*
   //  - Coincidencias arriba (empieza por > contiene)
   //  - Luego el resto (sin coincidencia), conservando orden original
@@ -15297,6 +15357,84 @@ private async decryptPreviewString(
           this.showToast(msg, 'warning', 'Reportes', 2600);
         },
       });
+  }
+
+  public async reportarUsuarioActual(event?: MouseEvent): Promise<void> {
+    await this.reportarUsuario(this.chatActual, event);
+  }
+
+  public async reportarUsuarioDesdeListado(chat: any, event?: MouseEvent): Promise<void> {
+    await this.reportarUsuario(chat, event);
+  }
+
+  public async reportarUsuarioDesdeMensaje(
+    mensaje: MensajeDTO,
+    event?: MouseEvent
+  ): Promise<void> {
+    await this.reportarUsuario(this.chatActual, event, mensaje);
+  }
+
+  private async reportarUsuario(
+    chatTarget: any,
+    event?: MouseEvent,
+    _mensaje?: MensajeDTO
+  ): Promise<void> {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (!chatTarget || !!chatTarget?.esGrupo) return;
+
+    this.openChatPinMenuChatId = null;
+    this.openMensajeMenuId = null;
+    this.cerrarMenuOpciones();
+    this.reportUserTarget = chatTarget;
+    this.reportUserReason = '';
+    this.reportUserDetail = '';
+    this.reportUserSending = false;
+    this.reportUserSuccess = false;
+    this.showReportUserPopup = true;
+  }
+
+  public get reportUserTargetName(): string {
+    const chat = this.reportUserTarget;
+    if (!chat) return 'este usuario';
+    const fallbackId = Number(chat?.receptorId || chat?.usuarioId || chat?.id);
+    return (
+      String(chat?.receptor?.nombre || chat?.nombre || '').trim() ||
+      (Number.isFinite(fallbackId) && fallbackId > 0
+        ? `Usuario #${fallbackId}`
+        : 'este usuario')
+    );
+  }
+
+  public closeReportUserPopup(): void {
+    if (this.reportUserSending) return;
+    this.showReportUserPopup = false;
+    this.reportUserTarget = null;
+    this.reportUserReason = '';
+    this.reportUserDetail = '';
+    this.reportUserSuccess = false;
+  }
+
+  public onReportUserReasonChange(next: string): void {
+    this.reportUserReason = String(next || '');
+  }
+
+  public onReportUserDetailChange(next: string): void {
+    this.reportUserDetail = String(next || '');
+  }
+
+  public submitReportUser(payload: { motivo: string; detalle: string }): void {
+    if (this.reportUserSending || !this.reportUserTarget) return;
+
+    const motivo = String(payload?.motivo || '').trim();
+    const detalle = String(payload?.detalle || '').trim();
+    if (!motivo || !detalle) return;
+
+    this.reportUserSending = true;
+    window.setTimeout(() => {
+      this.reportUserSending = false;
+      this.reportUserSuccess = true;
+    }, 320);
   }
 
   /**

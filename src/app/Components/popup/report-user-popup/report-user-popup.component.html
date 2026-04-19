@@ -1,0 +1,103 @@
+<div
+  *ngIf="open"
+  class="report-user-popup-overlay"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Denunciar usuario"
+  (click)="onBackdropClick()"
+>
+  <div class="report-user-popup" (click)="$event.stopPropagation()">
+    <div class="report-user-popup__header">
+      <div class="report-user-popup__icon">
+        <i class="bi bi-shield-exclamation"></i>
+      </div>
+
+      <div class="report-user-popup__headline">
+        <h2>Denunciar usuario</h2>
+        <p>
+          Vas a reportar el comportamiento de
+          <span>{{ targetName || 'este usuario' }}</span> a TejeChat
+        </p>
+      </div>
+
+      <button
+        type="button"
+        class="report-user-popup__close"
+        [disabled]="sending"
+        aria-label="Cerrar"
+        (click)="onCancel()"
+      >
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+
+    <ng-container *ngIf="!success; else successState">
+      <div class="report-user-popup__body">
+        <div class="report-user-popup__intro">
+          <h3>Motivo de la denuncia</h3>
+          <p>Selecciona el motivo principal y anade detalles.</p>
+        </div>
+
+        <div class="report-user-popup__field">
+          <select
+            [ngModel]="motivo"
+            (ngModelChange)="onMotivoChange($event)"
+            [disabled]="sending"
+            class="report-user-popup__select"
+          >
+            <option value="" disabled>Selecciona un motivo...</option>
+            <option *ngFor="let option of reasonOptions" [value]="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="report-user-popup__field">
+          <textarea
+            class="report-user-popup__textarea"
+            [ngModel]="detalle"
+            (ngModelChange)="onDetalleChange($event)"
+            [disabled]="sending"
+            placeholder="Ej: Insultos reiterados, spam, comportamiento inapropiado..."
+          ></textarea>
+        </div>
+
+        <div class="report-user-popup__actions">
+          <button
+            type="button"
+            class="report-user-popup__btn report-user-popup__btn--primary"
+            [disabled]="sending || !canSubmit"
+            (click)="onSubmit()"
+          >
+            {{ sending ? 'Enviando...' : 'Continuar' }}
+          </button>
+          <button
+            type="button"
+            class="report-user-popup__btn report-user-popup__btn--secondary"
+            [disabled]="sending"
+            (click)="onCancel()"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </ng-container>
+
+    <ng-template #successState>
+      <div class="report-user-popup__success">
+        <div class="report-user-popup__success-icon">
+          <i class="bi bi-send-check"></i>
+        </div>
+        <h3>Denuncia enviada</h3>
+        <p>Gracias por informarnos. Revisaremos este caso de inmediato.</p>
+        <button
+          type="button"
+          class="report-user-popup__btn report-user-popup__btn--success"
+          (click)="onCancel()"
+        >
+          Cerrar
+        </button>
+      </div>
+    </ng-template>
+  </div>
+</div>
