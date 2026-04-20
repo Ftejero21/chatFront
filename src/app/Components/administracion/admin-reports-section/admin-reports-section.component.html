@@ -1,0 +1,80 @@
+<section id="reports-view" class="space-y-6 w-full" [class.hidden-view]="!active">
+  <div class="flex items-center gap-4">
+    <button
+      type="button"
+      (click)="backRequested.emit()"
+      class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90"
+    >
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+      </svg>
+    </button>
+
+    <div>
+      <h3 class="text-2xl font-bold text-slate-800">
+        Reportes de <span class="logo-accent">Desbaneo</span>
+      </h3>
+      <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
+    </div>
+  </div>
+
+  <div class="glass-card overflow-hidden w-full p-4 md:p-5">
+    <div class="reports-meta-line">
+      <span class="reports-meta-title">Total en vista: {{ appealTotalElements }}</span>
+      <span class="reports-meta-hint">Actualización en tiempo real</span>
+    </div>
+
+    <div class="reports-filter-tabs" role="tablist" aria-label="Filtrar reportes">
+      <button type="button" class="reports-filter-btn" [class.is-active]="isFilterActive('ABIERTOS')" (click)="filterChanged.emit('ABIERTOS')">
+        Pendientes + En revisión
+      </button>
+      <button type="button" class="reports-filter-btn" [class.is-active]="isFilterActive('APROBADA')" (click)="filterChanged.emit('APROBADA')">
+        Aprobados
+      </button>
+      <button type="button" class="reports-filter-btn" [class.is-active]="isFilterActive('RECHAZADA')" (click)="filterChanged.emit('RECHAZADA')">
+        Rechazados
+      </button>
+    </div>
+
+    <div *ngIf="loadingAppeals" class="text-sm text-slate-500 py-6">Cargando reportes...</div>
+
+    <div *ngIf="!loadingAppeals && appealItems.length === 0" class="text-sm text-slate-500 py-6">
+      {{ appealEmptyText }}
+    </div>
+
+    <div *ngIf="!loadingAppeals && appealItems.length > 0" class="reports-list">
+      <article
+        class="report-card"
+        [class.report-card--processing]="processingAppealId === item.id"
+        *ngFor="let item of appealItems; trackBy: trackAppeal"
+        (click)="appealClicked.emit(item)"
+      >
+        <div class="report-card-head">
+          <div class="report-card-user">
+            <span class="report-card-name">{{ getAppealReporterLabel(item) }}</span>
+            <span class="report-card-email">{{ item.email }}</span>
+          </div>
+          <div class="report-card-tags">
+            <span [class]="getAppealTipoClass(item)">{{ getAppealTipoLabel(item) }}</span>
+            <span [class]="getAppealEstadoClass(item)">{{ item.estado }}</span>
+          </div>
+        </div>
+        <p class="report-card-motivo">{{ item.motivo || 'Sin motivo especificado por el usuario.' }}</p>
+        <p class="report-card-date" *ngIf="item.createdAt">Enviado: {{ item.createdAt | date:'dd/MM/yyyy HH:mm' }}</p>
+        <p class="report-card-cta">{{ getAppealCtaLabel(item) }}</p>
+      </article>
+    </div>
+
+    <app-admin-pagination
+      *ngIf="!loadingAppeals && appealTotalElements > 0"
+      [currentPage]="appealPage"
+      [totalPages]="appealTotalPages"
+      [totalElements]="appealTotalElements"
+      [itemLabel]="'reportes'"
+      [loading]="loadingAppeals"
+      [isLastPage]="appealIsLastPage"
+      (previous)="prevPageRequested.emit()"
+      (next)="nextPageRequested.emit()"
+    ></app-admin-pagination>
+  </div>
+</section>

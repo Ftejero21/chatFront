@@ -29,7 +29,12 @@ import { ReportUserPopupComponent } from './Components/popup/report-user-popup/r
 import { AdminMessageComposerComponent } from './Components/administracion/admin-message-composer/admin-message-composer.component';
 import { AdminEmailPreviewPopupComponent } from './Components/popup/admin-email-preview-popup/admin-email-preview-popup.component';
 import { AdminScheduleSendPopupComponent } from './Components/popup/admin-schedule-send-popup/admin-schedule-send-popup.component';
+import { AdminComplaintUserRecordPopupComponent } from './Components/popup/admin-complaint-user-record-popup/admin-complaint-user-record-popup.component';
 import { AdminScheduledMessagesComponent } from './Components/administracion/admin-scheduled-messages/admin-scheduled-messages.component';
+import { AdminReportsSectionComponent } from './Components/administracion/admin-reports-section/admin-reports-section.component';
+import { AdminComplaintsSectionComponent } from './Components/administracion/admin-complaints-section/admin-complaints-section.component';
+import { AdminMessagesSectionComponent } from './Components/administracion/admin-messages-section/admin-messages-section.component';
+import { AdminScheduledSectionComponent } from './Components/administracion/admin-scheduled-section/admin-scheduled-section.component';
 import { UsersTableSkeletonComponent } from './Components/loaders/users-table-skeleton/users-table-skeleton.component';
 import { AdminPaginationComponent } from './Components/shared/admin-pagination/admin-pagination.component';
 
@@ -57,7 +62,12 @@ import { AdminPaginationComponent } from './Components/shared/admin-pagination/a
     AdminMessageComposerComponent,
     AdminEmailPreviewPopupComponent,
     AdminScheduleSendPopupComponent,
-    AdminScheduledMessagesComponent
+    AdminComplaintUserRecordPopupComponent,
+    AdminScheduledMessagesComponent,
+    AdminReportsSectionComponent,
+    AdminComplaintsSectionComponent,
+    AdminMessagesSectionComponent,
+    AdminScheduledSectionComponent
   ],
   imports: [
     BrowserModule,

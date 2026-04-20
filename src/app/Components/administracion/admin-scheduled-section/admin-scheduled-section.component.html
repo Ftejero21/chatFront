@@ -1,0 +1,22 @@
+<section id="scheduled-messages-view" class="space-y-6 w-full" [class.hidden-view]="!active">
+  <div class="flex items-center gap-4" style="margin-bottom: 30px;">
+    <button
+      type="button"
+      (click)="backRequested.emit()"
+      class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90"
+    >
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+      </svg>
+    </button>
+
+    <div>
+      <h3 class="text-2xl font-bold text-slate-800">
+        Panel administrativo: <span class="logo-accent">Programados</span>
+      </h3>
+      <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
+    </div>
+  </div>
+
+  <app-admin-scheduled-messages [active]="active"></app-admin-scheduled-messages>
+</section>

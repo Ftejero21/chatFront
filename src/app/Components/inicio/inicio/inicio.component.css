@@ -1762,6 +1762,10 @@
 .contenido-mensaje {
   display: inline-block;
   margin-right: 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .contenido-mensaje--reenviado {
   display: inline-flex;
@@ -1864,6 +1868,15 @@
   display: inline-block;
   position: relative;
   padding-right: 44px;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.msg-text-inline > span:first-child {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .msg-meta-inline--end {
@@ -5325,6 +5338,21 @@
 .dropdown-item--reportar:hover {
   background: #fef3c7;
   color: #92400e;
+}
+
+.pill--reported {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 /* Icono del botón (puedes cambiar el emoji por un SVG si prefieres) */

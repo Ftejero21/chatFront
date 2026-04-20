@@ -1,0 +1,70 @@
+<div
+  *ngIf="open"
+  class="complaint-record-popup-overlay"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Expediente de usuario"
+  (click)="onBackdropClick()"
+>
+  <div class="complaint-record-popup" (click)="$event.stopPropagation()">
+    <button type="button" class="complaint-record-popup__close" aria-label="Cerrar" (click)="onClose()">
+      <i class="bi bi-x-lg"></i>
+    </button>
+
+    <ng-container *ngIf="!loading; else loadingState">
+      <div class="complaint-record-popup__head">
+        <div class="complaint-record-popup__avatar">{{ initials }}</div>
+        <p class="complaint-record-popup__name">{{ resolvedName }}</p>
+        <p class="complaint-record-popup__meta">Usuario desde: Enero 2024</p>
+      </div>
+
+      <div class="complaint-record-popup__counters">
+        <div class="complaint-record-popup__counter">
+          <div class="complaint-record-popup__counter-circle complaint-record-popup__counter-circle--red">
+            {{ totalRecibidas }}
+          </div>
+          <p>Recibidas</p>
+        </div>
+        <div class="complaint-record-popup__counter">
+          <div class="complaint-record-popup__counter-circle complaint-record-popup__counter-circle--blue">
+            {{ totalRealizadas }}
+          </div>
+          <p>Realizadas</p>
+        </div>
+      </div>
+
+      <div class="complaint-record-popup__reason-wrap">
+        <p class="complaint-record-popup__section-title">Motivos del reporte</p>
+        <div *ngIf="groupedMotivoEntries.length === 0" class="complaint-record-popup__reason-empty">
+          Sin motivos registrados.
+        </div>
+        <div *ngFor="let entry of groupedMotivoEntries" class="complaint-record-popup__reason-item">
+          <div class="complaint-record-popup__reason-row">
+            <span>{{ entry.label }}</span>
+            <span class="complaint-record-popup__reason-count">{{ entry.count }} denuncias</span>
+          </div>
+          <div class="complaint-record-popup__bar">
+            <div class="complaint-record-popup__bar-fill" [style.width.%]="entry.percent"></div>
+          </div>
+          <div class="complaint-record-popup__reason-percent">{{ entry.percent }}%</div>
+        </div>
+      </div>
+
+      <div class="complaint-record-popup__actions">
+        <button type="button" class="complaint-record-popup__btn complaint-record-popup__btn--warning" (click)="warningRequested.emit(userId)">
+          Enviar advertencia
+        </button>
+        <button type="button" class="complaint-record-popup__btn complaint-record-popup__btn--danger" (click)="suspendRequested.emit(userId)">
+          Suspender cuenta
+        </button>
+        <button type="button" class="complaint-record-popup__btn complaint-record-popup__btn--neutral" (click)="profileRequested.emit(userId)">
+          Ver perfil completo
+        </button>
+      </div>
+    </ng-container>
+
+    <ng-template #loadingState>
+      <div class="complaint-record-popup__loading">Cargando expediente...</div>
+    </ng-template>
+  </div>
+</div>

@@ -271,6 +271,10 @@
               <div class="nombre-linea">
                 <i *ngIf="isChatPinned(chat)" class="bi bi-pin-angle-fill chat-pinned-dot" title="Chat fijado"></i>
                 <span class="nombre">{{ chat.nombre }}</span>
+                <span *ngIf="!chat.esGrupo && chat.denunciado" class="pill pill--reported" title="Usuario denunciado">
+                  <i class="bi bi-flag-fill" aria-hidden="true"></i>
+                  Denunciado
+                </span>
                 <span *ngIf="chat.esGrupo" class="pill pill--group">Grupo</span>
               </div>
               <div class="mensaje-preview" [class.preview-unread]="chat.unreadCount > 0">
@@ -456,7 +460,7 @@
                   Poner reporte
                 </button>
                 <button
-                  *ngIf="!chat.esGrupo"
+                  *ngIf="!chat.esGrupo && !chat.denunciado"
                   type="button"
                   class="chat-pin-menu-btn chat-pin-menu-btn--report"
                   (click)="reportarUsuarioDesdeListado(chat, $event)"
@@ -666,7 +670,7 @@
                   Poner reporte
                 </button>
                 <button
-                  *ngIf="chatActual && !chatActual.esGrupo"
+                  *ngIf="chatActual && !chatActual.esGrupo && !chatActual?.denunciado"
                   class="dropdown-item dropdown-item--reportar"
                   (mousedown)="reportarUsuarioActual($event); $event.stopPropagation()"
                 >

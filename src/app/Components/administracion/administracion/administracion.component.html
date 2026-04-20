@@ -100,6 +100,7 @@
                             d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                     <span>Denuncias</span>
+                    <span *ngIf="complaintsBadgeCount > 0" class="sidebar-badge">{{ complaintsBadgeText }}</span>
                 </a>
             </div>
             <button type="button" (click)="toggleMessagesMenu()"
@@ -331,119 +332,24 @@
             </div>
         </section>
 
-        <section id="reports-view" class="space-y-6 w-full" [class.hidden-view]="!isReportsView">
-            <div class="flex items-center gap-4">
-                <button (click)="showDashboard()"
-                    class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                    </svg>
-                </button>
-
-                <div>
-                    <h3 class="text-2xl font-bold text-slate-800">
-                        Reportes de <span class="logo-accent">Desbaneo</span>
-                    </h3>
-                    <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
-                </div>
-            </div>
-
-            <div class="glass-card overflow-hidden w-full p-4 md:p-5">
-                <div class="reports-meta-line">
-                    <span class="reports-meta-title">Total en vista: {{ appealTotalElements }}</span>
-                    <span class="reports-meta-hint">Actualización en tiempo real</span>
-                </div>
-
-                <div class="reports-filter-tabs" role="tablist" aria-label="Filtrar reportes">
-                    <button
-                        type="button"
-                        class="reports-filter-btn"
-                        [class.is-active]="isAppealFilterActive('ABIERTOS')"
-                        (click)="setAppealViewFilter('ABIERTOS')"
-                    >
-                        Pendientes + En revisi?n
-                    </button>
-                    <button
-                        type="button"
-                        class="reports-filter-btn"
-                        [class.is-active]="isAppealFilterActive('APROBADA')"
-                        (click)="setAppealViewFilter('APROBADA')"
-                    >
-                        Aprobados
-                    </button>
-                    <button
-                        type="button"
-                        class="reports-filter-btn"
-                        [class.is-active]="isAppealFilterActive('RECHAZADA')"
-                        (click)="setAppealViewFilter('RECHAZADA')"
-                    >
-                        Rechazados
-                    </button>
-                </div>
-
-                <div *ngIf="loadingAppeals" class="text-sm text-slate-500 py-6">Cargando reportes...</div>
-
-                <div *ngIf="!loadingAppeals && appealItems.length === 0" class="text-sm text-slate-500 py-6">
-                    {{ appealEmptyText }}
-                </div>
-
-                <div *ngIf="!loadingAppeals && appealItems.length > 0" class="reports-list">
-                    <article
-                        class="report-card"
-                        [class.report-card--processing]="processingAppealId === item.id"
-                        *ngFor="let item of appealItems; trackBy: trackAppeal"
-                        (click)="onAppealCardClick(item)"
-                    >
-                        <div class="report-card-head">
-                            <div class="report-card-user">
-                                <span class="report-card-name">{{ getAppealReporterLabel(item) }}</span>
-                                <span class="report-card-email">{{ item.email }}</span>
-                            </div>
-                            <div class="report-card-tags">
-                                <span [class]="getAppealTipoClass(item)">{{ getAppealTipoLabel(item) }}</span>
-                                <span [class]="getAppealEstadoClass(item)">{{ item.estado }}</span>
-                            </div>
-                        </div>
-                        <p class="report-card-motivo">
-                            {{ item.motivo || 'Sin motivo especificado por el usuario.' }}
-                        </p>
-                        <p class="report-card-date" *ngIf="item.createdAt">
-                            Enviado: {{ item.createdAt | date:'dd/MM/yyyy HH:mm' }}
-                        </p>
-                        <p class="report-card-cta">
-                            {{ processingAppealId === item.id ? 'Procesando...' : getAppealCtaLabel(item) }}
-                        </p>
-                    </article>
-                </div>
-
-                <div class="admin-pagination-wrap" *ngIf="!loadingAppeals && appealTotalElements > 0">
-                    <div class="admin-pagination-meta">
-                        Página {{ appealPage + 1 }} de {{ appealTotalPages }}
-                        <span class="admin-pagination-dot">•</span>
-                        {{ appealTotalElements }} reportes
-                    </div>
-                    <div class="admin-pagination-actions">
-                        <button
-                            type="button"
-                            class="admin-page-btn"
-                            [disabled]="appealPage <= 0 || loadingAppeals"
-                            (click)="prevAppealsPage()"
-                        >
-                            Anterior
-                        </button>
-                        <button
-                            type="button"
-                            class="admin-page-btn admin-page-btn--primary"
-                            [disabled]="appealIsLastPage || loadingAppeals"
-                            (click)="nextAppealsPage()"
-                        >
-                            Siguiente
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </section>
+        <app-admin-reports-section
+            [active]="isReportsView"
+            [headerSubtitle]="headerSubtitle"
+            [appealTotalElements]="appealTotalElements"
+            [loadingAppeals]="loadingAppeals"
+            [appealItems]="appealItems"
+            [appealEmptyText]="appealEmptyText"
+            [appealPage]="appealPage"
+            [appealTotalPages]="appealTotalPages"
+            [appealIsLastPage]="appealIsLastPage"
+            [processingAppealId]="processingAppealId"
+            [appealViewFilter]="appealViewFilter"
+            (backRequested)="showDashboard()"
+            (filterChanged)="setAppealViewFilter($event)"
+            (appealClicked)="onAppealCardClick($event)"
+            (prevPageRequested)="prevAppealsPage()"
+            (nextPageRequested)="nextAppealsPage()"
+        ></app-admin-reports-section>
 
         <section id="groups-view" class="space-y-6 w-full" [class.hidden-view]="!isGroupsView || !isDashboardView">
       <div class="glass-card overflow-hidden w-full flex flex-col">
@@ -670,24 +576,22 @@
         </div>
       </div>
     </section>
-<section id="complaints-view" class="space-y-6 w-full" [class.hidden-view]="!isComplaintsView">
-      <div class="flex items-center gap-4" style="margin-bottom: 30px;">
-        <button (click)="showDashboard()"
-          class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-        </button>
-
-        <div>
-          <h3 class="text-2xl font-bold text-slate-800">
-            Panel administrativo: <span class="logo-accent">Denuncias</span>
-          </h3>
-          <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
-        </div>
-      </div>
-  </section>
+<app-admin-complaints-section
+      [active]="isComplaintsView"
+      [headerSubtitle]="headerSubtitle"
+      [loadingComplaints]="loadingComplaints"
+      [complaintsItems]="complaintsItems"
+      [complaintsEmptyText]="complaintsEmptyText"
+      [complaintsPage]="complaintsPage"
+      [complaintsTotalPages]="complaintsTotalPages"
+      [complaintsIsLastPage]="complaintsIsLastPage"
+      [complaintsTotalElements]="complaintsTotalElements"
+      (backRequested)="showDashboard()"
+      (complaintClicked)="onComplaintCardClick($event)"
+      (userNameClicked)="openComplaintUserRecord($event)"
+      (prevPageRequested)="prevComplaintsPage()"
+      (nextPageRequested)="nextComplaintsPage()"
+></app-admin-complaints-section>
 <section id="conversations-view" class="space-y-6 w-full" [class.hidden-view]="isDashboardView || isReportsView || isComplaintsView || isGroupsView || isMessagesView || isScheduledMessagesView">
       <div class="flex items-center gap-4">
         <button (click)="showDashboard()"
@@ -1133,57 +1037,36 @@
         </div>
       </div>
   </section>
-<section id="messages-view" class="space-y-6 w-full" [class.hidden-view]="!isMessagesView">
-      <div class="flex items-center gap-4" style="margin-bottom: 30px;">
-        <button (click)="showDashboard()"
-          class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-        </button>
+<app-admin-messages-section
+      [active]="isMessagesView"
+      [headerSubtitle]="headerSubtitle"
+      [users]="adminMessageUsers"
+      [totalUsers]="adminMessageUsersCount"
+      [sending]="isSendingAdminMessage"
+      [resetSignal]="adminMessageComposerResetSignal"
+      [hasMoreUsers]="adminMessageUsersHasMore"
+      [loadingMoreUsers]="adminMessageUsersLoading"
+      (backRequested)="showDashboard()"
+      (sendRequested)="onAdminMessageSend($event)"
+      (scheduleRequested)="onAdminMessageSchedule($event)"
+      (loadMoreRequested)="onAdminMessageUsersLoadMore()"
+></app-admin-messages-section>
 
-        <div>
-          <h3 class="text-2xl font-bold text-slate-800">
-            Panel administrativo: <span class="logo-accent">Mensajes</span>
-          </h3>
-          <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
-        </div>
-      </div>
-
-      <app-admin-message-composer
-        [users]="adminMessageUsers"
-        [totalUsers]="adminMessageUsersCount"
-        [sending]="isSendingAdminMessage"
-        [resetSignal]="adminMessageComposerResetSignal"
-        [hasMoreUsers]="adminMessageUsersHasMore"
-        [loadingMoreUsers]="adminMessageUsersLoading"
-        (sendRequested)="onAdminMessageSend($event)"
-        (scheduleRequested)="onAdminMessageSchedule($event)"
-        (loadMoreRequested)="onAdminMessageUsersLoadMore()"
-      ></app-admin-message-composer>
-  </section>
-
-  <section id="scheduled-messages-view" class="space-y-6 w-full" [class.hidden-view]="!isScheduledMessagesView">
-      <div class="flex items-center gap-4" style="margin-bottom: 30px;">
-        <button (click)="showDashboard()"
-          class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-        </button>
-
-        <div>
-          <h3 class="text-2xl font-bold text-slate-800">
-            Panel administrativo: <span class="logo-accent">Programados</span>
-          </h3>
-          <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
-        </div>
-      </div>
-
-      <app-admin-scheduled-messages [active]="isScheduledMessagesView"></app-admin-scheduled-messages>
-  </section>
+<app-admin-scheduled-section
+      [active]="isScheduledMessagesView"
+      [headerSubtitle]="headerSubtitle"
+      (backRequested)="showDashboard()"
+></app-admin-scheduled-section>
+  <app-admin-complaint-user-record-popup
+    [open]="complaintUserRecordOpen"
+    [loading]="complaintUserRecordLoading"
+    [expediente]="complaintUserRecord"
+    [fallbackName]="complaintUserRecordFallbackName"
+    (closed)="closeComplaintUserRecord()"
+    (warningRequested)="onComplaintUserWarning($event)"
+    (suspendRequested)="onComplaintUserSuspend($event)"
+    (profileRequested)="onComplaintUserProfile($event)"
+  ></app-admin-complaint-user-record-popup>
   <app-file-preview-viewer
     [open]="showAdminFilePreview"
     [fileUrl]="adminFilePreviewSrc"

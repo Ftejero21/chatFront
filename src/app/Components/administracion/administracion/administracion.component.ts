@@ -27,12 +27,16 @@ import { CryptoService } from '../../../Service/crypto/crypto.service';
 import { environment } from '../../../environments';
 import { SessionService } from '../../../Service/session/session.service';
 import { WebSocketService } from '../../../Service/WebSocket/web-socket.service';
+import { ComplaintService } from '../../../Service/complaint/complaint.service';
 import {
   UnbanAppealDTO,
   UnbanAppealEstado,
   UnbanAppealTipoReporte,
 } from '../../../Interface/UnbanAppealDTO';
 import { UnbanAppealEventDTO } from '../../../Interface/UnbanAppealEventDTO';
+import { UserComplaintDTO } from '../../../Interface/UserComplaintDTO';
+import { UserComplaintEventDTO } from '../../../Interface/UserComplaintEventDTO';
+import { UserComplaintExpedienteDTO } from '../../../Interface/UserComplaintExpedienteDTO';
 import {
   RATE_LIMIT_SCOPES,
   RateLimitService,
@@ -202,12 +206,26 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   appealViewFilter: 'ABIERTOS' | 'APROBADA' | 'RECHAZADA' = 'ABIERTOS';
   reportesBadgeCount: number = 0;
   reportesPendientesCount: number = 0;
+  complaintsItems: UserComplaintDTO[] = [];
+  loadingComplaints: boolean = false;
+  complaintsPage: number = 0;
+  complaintsPageSize: number = 8;
+  complaintsTotalPages: number = 1;
+  complaintsTotalElements: number = 0;
+  complaintsIsLastPage: boolean = true;
+  complaintsBadgeCount: number = 0;
+  complaintUserRecordOpen: boolean = false;
+  complaintUserRecordLoading: boolean = false;
+  complaintUserRecordFallbackName: string = '';
+  complaintUserRecord: UserComplaintExpedienteDTO | null = null;
   reportesHoyCount: number = 0;
   reportesHoyFechaReferencia: string = '';
   reportesHoyTimezone: string = '';
   processingAppealId: number | null = null;
   private reportUserNamesById = new Map<number, string>();
   private reportesWsSub: StompSubscription | null = null;
+  private denunciasWsSub: StompSubscription | null = null;
+  private localComplaintEventsSub?: Subscription;
   private adminAuditPublicKeyInitPromise: Promise<void> | null = null;
   readonly appealFilterOptions = [
     { value: 'ABIERTOS', label: 'Pendientes + En revisión' },
@@ -244,6 +262,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     private cryptoService: CryptoService,
     private sessionService: SessionService,
     private wsService: WebSocketService,
+    private complaintService: ComplaintService,
     private rateLimitService: RateLimitService
   ) { }
 
@@ -252,6 +271,8 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.cargarEstadisticas();
     this.cargarUsuariosRecientes();
     this.cargarSolicitudesDesbaneo();
+    this.cargarDenunciasAdmin();
+    this.refreshComplaintsBadgeCount();
 
     if (!id) {
       console.warn('No hay usuario logueado');
@@ -261,6 +282,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.usuarioActualId = parseInt(id, 10);
     this.cargarAdminPerfil(this.usuarioActualId);
     this.inicializarWsReportesAdmin();
+    this.inicializarWsDenunciasAdmin();
     // Configurar búsqueda con un poco de retraso (300ms) para no saturar al teclear
     this.searchSubscription = this.searchSubject.pipe(
       debounceTime(300),
@@ -279,6 +301,16 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         this.reportesWsSub.unsubscribe();
       } catch {}
       this.reportesWsSub = null;
+    }
+    if (this.denunciasWsSub) {
+      try {
+        this.denunciasWsSub.unsubscribe();
+      } catch {}
+      this.denunciasWsSub = null;
+    }
+    if (this.localComplaintEventsSub) {
+      this.localComplaintEventsSub.unsubscribe();
+      this.localComplaintEventsSub = undefined;
     }
     if (this.adminCurrentAudioEl) {
       try {
@@ -454,6 +486,108 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     }
   }
 
+  private inicializarWsDenunciasAdmin(): void {
+    this.localComplaintEventsSub = this.complaintService
+      .complaintEvents()
+      .subscribe((event) => this.handleComplaintWsEvent(event));
+
+    const subscribe = () => {
+      if (this.denunciasWsSub) return;
+      this.denunciasWsSub = this.wsService.suscribirseADenunciasAdmin((event) => {
+        this.handleComplaintWsEvent(event);
+      });
+    };
+
+    if (this.wsService.stompClient?.connected) {
+      subscribe();
+      return;
+    }
+
+    const isActive = (this.wsService.stompClient as any)?.active === true;
+    if (!isActive) {
+      this.wsService.conectar(() => subscribe());
+      return;
+    }
+    this.wsService.esperarConexion(() => subscribe());
+  }
+
+  private handleComplaintWsEvent(event: UserComplaintEventDTO): void {
+    const normalized = this.normalizeComplaint(event);
+    if (!normalized?.id) return;
+    this.upsertComplaint(normalized);
+    this.refreshComplaintsBadgeCount();
+    if (this.isComplaintsView) {
+      this.cargarDenunciasAdmin(this.complaintsPage);
+    }
+  }
+
+  private normalizeComplaint(raw: any): UserComplaintDTO {
+    return {
+      id: Number(raw?.id ?? 0),
+      denuncianteId: Number(raw?.denuncianteId ?? raw?.reporterId ?? 0) || null,
+      denunciadoId: Number(raw?.denunciadoId ?? raw?.reportedUserId ?? 0) || null,
+      chatId: Number(raw?.chatId ?? 0) || null,
+      motivo: String(raw?.motivo ?? '').trim(),
+      detalle: String(raw?.detalle ?? raw?.descripcion ?? '').trim(),
+      estado: String(raw?.estado || 'PENDIENTE').trim().toUpperCase() || 'PENDIENTE',
+      leida: raw?.leida === true,
+      createdAt: String(raw?.createdAt || raw?.fechaCreacion || '').trim() || null,
+      updatedAt: String(raw?.updatedAt || raw?.fechaActualizacion || '').trim() || null,
+      leidaAt: String(raw?.leidaAt || '').trim() || null,
+      denuncianteNombre: String(raw?.denuncianteNombre || raw?.reporterName || '').trim() || null,
+      denunciadoNombre: String(raw?.denunciadoNombre || raw?.reportedUserName || '').trim() || null,
+      chatNombreSnapshot: String(raw?.chatNombreSnapshot || raw?.chatNombre || '').trim() || null,
+    };
+  }
+
+  private upsertComplaint(next: UserComplaintDTO): void {
+    const id = Number(next?.id);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const idx = this.complaintsItems.findIndex((x) => Number(x?.id) === id);
+    if (idx === -1) {
+      this.complaintsItems = [next, ...this.complaintsItems];
+      return;
+    }
+    this.complaintsItems = [
+      ...this.complaintsItems.slice(0, idx),
+      { ...this.complaintsItems[idx], ...next },
+      ...this.complaintsItems.slice(idx + 1),
+    ];
+  }
+
+  public cargarDenunciasAdmin(page: number = 0): void {
+    this.loadingComplaints = true;
+    this.complaintsPage = Number.isFinite(Number(page)) ? Number(page) : 0;
+    this.complaintService.listAdminComplaints(this.complaintsPage, this.complaintsPageSize).subscribe({
+      next: (data) => {
+        const content = Array.isArray(data?.content)
+          ? data.content.map((raw) => this.normalizeComplaint(raw))
+          : [];
+        this.complaintsItems = [...content].sort((a, b) => {
+          const left = Date.parse(String(a?.createdAt || a?.updatedAt || '')) || 0;
+          const right = Date.parse(String(b?.createdAt || b?.updatedAt || '')) || 0;
+          return right - left;
+        });
+        this.complaintsPage = Number(data?.number ?? this.complaintsPage);
+        this.complaintsPageSize = Number(data?.size ?? this.complaintsPageSize);
+        this.complaintsTotalPages = Math.max(1, Number(data?.totalPages ?? 1));
+        this.complaintsTotalElements = Number(data?.totalElements ?? content.length);
+        this.complaintsIsLastPage = Boolean(
+          data?.last ?? (this.complaintsPage >= this.complaintsTotalPages - 1)
+        );
+        this.loadingComplaints = false;
+        this.refreshComplaintsBadgeCount();
+      },
+      error: () => {
+        this.complaintsItems = [];
+        this.complaintsTotalPages = 1;
+        this.complaintsTotalElements = 0;
+        this.complaintsIsLastPage = true;
+        this.loadingComplaints = false;
+      },
+    });
+  }
+
   private upsertAppeal(next: UnbanAppealDTO): void {
     const id = Number(next?.id);
     if (!Number.isFinite(id) || id <= 0) return;
@@ -515,6 +649,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.isComplaintsView = false;
     this.isGroupsView = false;
     this.isMessagesView = false;
+    this.isScheduledMessagesView = false;
     this.isGroupsTableMode = false;
     this.isSidebarOpen = false;
     this.selectedChat = null;
@@ -538,7 +673,9 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.selectedChat = null;
     this.selectedChatMensajes = [];
     this.selectedChatMessagesSource = 'admin';
-    this.headerSubtitle = 'Mensajeria administrativa programada.';
+    this.headerSubtitle = 'Denuncias de usuarios con lectura y badge en tiempo real.';
+    this.cargarDenunciasAdmin(0);
+    this.refreshComplaintsBadgeCount();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -571,6 +708,35 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   public get reportesBadgeText(): string {
     const count = Math.max(0, Number(this.reportesBadgeCount || 0));
     return count > 99 ? '99+' : String(count);
+  }
+
+  public get complaintsBadgeText(): string {
+    const count = Math.max(0, Number(this.complaintsBadgeCount || 0));
+    return count > 99 ? '99+' : String(count);
+  }
+
+  public get complaintsEmptyText(): string {
+    return 'No hay denuncias registradas por ahora.';
+  }
+
+  public getComplaintReporterLabel(item: UserComplaintDTO): string {
+    const label = String(item?.denuncianteNombre || '').trim();
+    if (label) return label;
+    const userId = Number(item?.denuncianteId || 0);
+    return userId > 0 ? `Usuario #${userId}` : 'Usuario desconocido';
+  }
+
+  public getComplaintTargetLabel(item: UserComplaintDTO): string {
+    const label = String(item?.denunciadoNombre || '').trim();
+    if (label) return label;
+    const userId = Number(item?.denunciadoId || 0);
+    return userId > 0 ? `Usuario #${userId}` : 'Usuario desconocido';
+  }
+
+  public getComplaintReadClass(item: UserComplaintDTO): string {
+    return item?.leida
+      ? 'bg-slate-100 text-slate-600 border border-slate-200'
+      : 'bg-rose-100 text-rose-700 border border-rose-200';
   }
 
   public get chatsCreadosHoyCard(): number {
@@ -857,6 +1023,16 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     });
   }
 
+  private refreshComplaintsBadgeCount(): void {
+    this.complaintService.getAdminComplaintStats().subscribe({
+      next: (stats) => {
+        const unread = Number(stats?.unread ?? stats?.pendientes ?? 0);
+        this.complaintsBadgeCount = Math.max(0, Number.isFinite(unread) ? unread : 0);
+      },
+      error: () => {},
+    });
+  }
+
   private getBrowserTimeZone(): string {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
@@ -873,6 +1049,100 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   public prevAppealsPage(): void {
     if (this.appealPage <= 0) return;
     this.cargarSolicitudesDesbaneo(this.appealPage - 1);
+  }
+
+  public nextComplaintsPage(): void {
+    if (this.complaintsIsLastPage) return;
+    this.cargarDenunciasAdmin(this.complaintsPage + 1);
+  }
+
+  public prevComplaintsPage(): void {
+    if (this.complaintsPage <= 0) return;
+    this.cargarDenunciasAdmin(this.complaintsPage - 1);
+  }
+
+  public async onComplaintCardClick(item: UserComplaintDTO): Promise<void> {
+    const complaintId = Number(item?.id || 0);
+    if (!Number.isFinite(complaintId) || complaintId <= 0) return;
+
+    let currentItem = item;
+    if (!item?.leida) {
+      try {
+        const updated = await firstValueFrom(
+          this.complaintService.markComplaintAsRead(complaintId)
+        );
+        const normalized = this.normalizeComplaint({ ...item, ...updated, leida: true });
+        this.upsertComplaint(normalized);
+        this.refreshComplaintsBadgeCount();
+        currentItem = normalized;
+      } catch {}
+    }
+
+    await Swal.fire({
+      html: `
+        <div class="swal-complaint-modal">
+          <div class="swal-complaint-header">
+            <div class="swal-complaint-icon-bg" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <span class="swal-complaint-status-badge">Incidente Reportado</span>
+            <h1>Detalle de Denuncia</h1>
+          </div>
+
+          <div class="swal-complaint-info-grid">
+            <div class="swal-complaint-info-item">
+              <span class="swal-complaint-label">Denunciante</span>
+              <span class="swal-complaint-value swal-complaint-value--reporter">
+                ${this.escapeHtml(this.getComplaintReporterLabel(currentItem))}
+              </span>
+            </div>
+
+            <div class="swal-complaint-grid-two">
+              <div class="swal-complaint-info-item">
+                <span class="swal-complaint-label">Denunciado</span>
+                <span class="swal-complaint-value">
+                  ${this.escapeHtml(this.getComplaintTargetLabel(currentItem))}
+                </span>
+              </div>
+              <div class="swal-complaint-info-item">
+                <span class="swal-complaint-label">Chat</span>
+                <span class="swal-complaint-value">
+                  ${this.escapeHtml(String(currentItem?.chatNombreSnapshot || 'Sin chat asociado'))}
+                </span>
+              </div>
+            </div>
+
+            <div class="swal-complaint-info-item">
+              <span class="swal-complaint-label">Motivo</span>
+              <span class="swal-complaint-value swal-complaint-value--accent-red">
+                ${this.escapeHtml(String(currentItem?.motivo || 'Sin motivo'))}
+              </span>
+            </div>
+
+            <div class="swal-complaint-info-item">
+              <span class="swal-complaint-label">Detalle del mensaje</span>
+              <div class="swal-complaint-detail-box">
+                <p>"${this.escapeHtml(String(currentItem?.detalle || 'Sin detalle'))}"</p>
+              </div>
+            </div>
+
+            <p class="swal-complaint-id-text">
+              ID de reporte: #DEN-${String(complaintId).padStart(5, '0')}
+            </p>
+          </div>
+        </div>
+      `,
+      showConfirmButton: true,
+      confirmButtonText: 'Cerrar y Revisar',
+      customClass: {
+        popup: 'swal-complaint-popup',
+        htmlContainer: 'swal-complaint-html',
+        confirmButton: 'swal-complaint-confirm',
+        actions: 'swal-complaint-actions',
+      },
+    });
   }
 
   private applyUserActiveFromAppeal(
@@ -4870,6 +5140,169 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     });
   }
 
+  public openComplaintUserRecord(payload: { userId: number; name: string }): void {
+    const userId = Number(payload?.userId || 0);
+    if (!Number.isFinite(userId) || userId <= 0) return;
+
+    this.complaintUserRecordOpen = true;
+    this.complaintUserRecordLoading = true;
+    this.complaintUserRecordFallbackName = String(payload?.name || '').trim();
+    this.complaintUserRecord = null;
+
+    this.complaintService.getAdminComplaintUserExpediente(userId).subscribe({
+      next: (data) => {
+        this.complaintUserRecord = this.normalizeComplaintExpediente(data, userId);
+        this.complaintUserRecordLoading = false;
+      },
+      error: () => {
+        this.complaintUserRecordLoading = false;
+        void Swal.fire({
+          title: 'Error',
+          text: 'No se pudo cargar el expediente del usuario.',
+          icon: 'error',
+          confirmButtonColor: '#ef4444',
+        });
+      },
+    });
+  }
+
+  public closeComplaintUserRecord(): void {
+    this.complaintUserRecordOpen = false;
+    this.complaintUserRecordLoading = false;
+    this.complaintUserRecord = null;
+    this.complaintUserRecordFallbackName = '';
+  }
+
+  public async onComplaintUserWarning(userIdRaw: number): Promise<void> {
+    const userId = Number(userIdRaw || 0);
+    if (!Number.isFinite(userId) || userId <= 0) return;
+    if (this.isSendingAdminMessage) return;
+
+    const warningMessage = this.buildAutoWarningMessage(userId);
+    const expedienteName =
+      Number(this.complaintUserRecord?.userId || 0) === userId
+        ? String(this.complaintUserRecord?.nombre || '').trim()
+        : '';
+    this.closeComplaintUserRecord();
+
+    const confirm = await Swal.fire({
+      title: 'Enviar advertencia',
+      text: `Se enviara una advertencia directa a ${expedienteName || `Usuario #${userId}`}.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Enviar advertencia',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#d97706',
+      cancelButtonColor: '#64748b',
+    });
+    if (!confirm.isConfirmed) return;
+    this.isSendingAdminMessage = true;
+    try {
+      const recipient = await firstValueFrom(this.authService.getById(userId));
+      const recipientId = Number(recipient?.id || userId);
+      if (!Number.isFinite(recipientId) || recipientId <= 0) {
+        await Swal.fire('Error', 'No se encontro un destinatario valido.', 'error');
+        return;
+      }
+
+      const keysReady = await this.ensureAdminMessagingKeysReady();
+      if (!keysReady) {
+        await Swal.fire(
+          'Claves E2E no disponibles',
+          'No se pudo preparar la clave publica del administrador para mensajeria cifrada.',
+          'error'
+        );
+        return;
+      }
+
+      const contenido = await this.buildAdminOutgoingE2EContent(recipientId, warningMessage);
+      const response: AdminDirectMessageResponseDTO = await firstValueFrom(
+        this.chatService.enviarMensajesDirectosAdmin({
+          userIds: [recipientId],
+          encryptedPayloads: [{ userId: recipientId, contenido }],
+        })
+      );
+
+      const responseItems = Array.isArray(response?.items) ? response.items : [];
+      const sentByItem = responseItems.some((item) => {
+        if (item?.ok === true) return true;
+        const status = String(item?.status || '').trim().toUpperCase();
+        return status === 'SENT' || status === 'SUCCESS' || status === 'OK';
+      });
+      const sentCount = Math.max(Number(response?.sentCount || 0), sentByItem ? 1 : 0);
+
+      if (sentCount > 0) {
+        await Swal.fire('Advertencia enviada', 'El mensaje de advertencia se envio correctamente.', 'success');
+        return;
+      }
+
+      await Swal.fire('Envio fallido', 'No se pudo enviar la advertencia al usuario.', 'error');
+    } catch (err) {
+      console.error('Error enviando advertencia administrativa', err);
+      await Swal.fire('Error', 'No se pudo enviar la advertencia al usuario.', 'error');
+    } finally {
+      this.isSendingAdminMessage = false;
+    }
+  }
+
+  public async onComplaintUserSuspend(userIdRaw: number): Promise<void> {
+    const userId = Number(userIdRaw || 0);
+    if (!Number.isFinite(userId) || userId <= 0) return;
+
+    const nombre =
+      (Number(this.complaintUserRecord?.userId || 0) === userId
+        ? String(this.complaintUserRecord?.nombre || '').trim()
+        : '') ||
+      this.complaintUserRecordFallbackName ||
+      `Usuario #${userId}`;
+
+    const usuario = {
+      id: userId,
+      nombre,
+      activo: true,
+    };
+
+    const motivoInicial = this.buildAutoSuspendReason(userId);
+    this.closeComplaintUserRecord();
+    await this.banUsuario(usuario, motivoInicial);
+  }
+
+  public onComplaintUserProfile(userIdRaw: number): void {
+    const userId = Number(userIdRaw || 0);
+    if (!Number.isFinite(userId) || userId <= 0) return;
+    void Swal.fire({
+      title: 'Perfil completo',
+      text: `Abriremos el perfil completo del usuario #${userId} al conectar esta accion.`,
+      icon: 'info',
+      confirmButtonColor: '#2563eb',
+    });
+  }
+
+  private normalizeComplaintExpediente(
+    raw: any,
+    fallbackUserId: number
+  ): UserComplaintExpedienteDTO {
+    const map: Record<string, number> = {};
+    const source = raw?.conteoPorMotivo && typeof raw?.conteoPorMotivo === 'object'
+      ? raw.conteoPorMotivo
+      : {};
+    for (const key of Object.keys(source)) {
+      const count = Number(source[key] ?? 0);
+      map[String(key || '').trim() || 'N/A'] = Number.isFinite(count) ? Math.max(0, count) : 0;
+    }
+    const ultimas = Array.isArray(raw?.ultimasCincoDenuncias)
+      ? raw.ultimasCincoDenuncias.map((x: any) => this.normalizeComplaint(x))
+      : [];
+    return {
+      userId: Number(raw?.userId || fallbackUserId),
+      nombre: String(raw?.nombre || '').trim() || this.complaintUserRecordFallbackName || 'Usuario',
+      totalDenunciasRecibidas: Math.max(0, Number(raw?.totalDenunciasRecibidas || 0)),
+      totalDenunciasRealizadas: Math.max(0, Number(raw?.totalDenunciasRealizadas || 0)),
+      conteoPorMotivo: map,
+      ultimasCincoDenuncias: ultimas,
+    };
+  }
+
   public isGroupClosed(group: AdminGroupListDTO | null | undefined): boolean {
     if (!group) return false;
     const resolved = this.resolveBooleanLike([
@@ -5043,7 +5476,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     });
   }
 
-   async banUsuario(usuario: any) {
+   async banUsuario(usuario: any, motivoInicial: string = '') {
     const { value: motivo } = await Swal.fire({
       title: '',
       html: `
@@ -5061,6 +5494,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         </div>
       `,
       input: 'textarea',
+      inputValue: String(motivoInicial || '').trim(),
       inputPlaceholder: 'Ej: Insultos reiterados, spam, comportamiento inapropiado...',
       showCancelButton: true,
       confirmButtonText: 'Continuar',
@@ -5074,6 +5508,25 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         confirmButton: 'swal-ban-confirm',
         cancelButton: 'swal-ban-cancel',
         actions: 'swal-ban-actions'
+      },
+      didOpen: () => {
+        const textarea = Swal.getInput() as HTMLTextAreaElement | null;
+        if (!textarea) return;
+        const minHeight = 120;
+        const maxHeight = 360;
+        textarea.style.minHeight = `${minHeight}px`;
+        textarea.style.maxHeight = `${maxHeight}px`;
+        textarea.style.overflowY = 'hidden';
+
+        const autoResize = () => {
+          textarea.style.height = 'auto';
+          const nextHeight = Math.min(maxHeight, Math.max(minHeight, textarea.scrollHeight));
+          textarea.style.height = `${nextHeight}px`;
+          textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+        };
+
+        autoResize();
+        textarea.addEventListener('input', autoResize);
       }
     });
 
@@ -5103,6 +5556,108 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         Swal.fire('Error', 'No se pudo banear al usuario en el servidor.', 'error');
       }
     });
+  }
+
+  private buildAutoSuspendReason(userIdRaw: number): string {
+    const userId = Number(userIdRaw || 0);
+    const expediente =
+      Number(this.complaintUserRecord?.userId || 0) === userId
+        ? this.complaintUserRecord
+        : null;
+
+    const totalRecibidas = Math.max(
+      0,
+      Number(expediente?.totalDenunciasRecibidas || expediente?.ultimasCincoDenuncias?.length || 0)
+    );
+
+    const ultimas = Array.isArray(expediente?.ultimasCincoDenuncias)
+      ? expediente!.ultimasCincoDenuncias
+      : [];
+
+    const denunciantes = Array.from(
+      new Set(
+        ultimas
+          .map((x) => String(x?.denuncianteNombre || '').trim())
+          .filter(Boolean)
+      )
+    )
+      .slice(0, 3)
+      .join(', ');
+
+    const motivos = Array.from(
+      new Set(
+        ultimas
+          .map((x) => String(x?.motivo || '').trim().toLowerCase())
+          .filter(Boolean)
+      )
+    )
+      .slice(0, 4)
+      .join(', ');
+
+    const targetName =
+      String(expediente?.nombre || this.complaintUserRecordFallbackName || '').trim() ||
+      `el usuario #${userId}`;
+
+    const base = `Se suspende la cuenta de ${targetName} por acumulacion de ${totalRecibidas} denuncia${
+      totalRecibidas === 1 ? '' : 's'
+    } recibida${totalRecibidas === 1 ? '' : 's'}.`;
+
+    const byPeople = denunciantes
+      ? ` Las denuncias fueron presentadas por ${denunciantes}.`
+      : '';
+    const byReasons = motivos
+      ? ` Los motivos reportados incluyen: ${motivos}.`
+      : '';
+
+    return `${base}${byPeople}${byReasons} Se aplica esta medida para proteger la convivencia y seguridad de la plataforma.`;
+  }
+
+  private buildAutoWarningMessage(userIdRaw: number): string {
+    const userId = Number(userIdRaw || 0);
+    const expediente =
+      Number(this.complaintUserRecord?.userId || 0) === userId
+        ? this.complaintUserRecord
+        : null;
+
+    const targetName = String(expediente?.nombre || '').trim() || 'usuario';
+    const ultimas = Array.isArray(expediente?.ultimasCincoDenuncias)
+      ? expediente!.ultimasCincoDenuncias
+      : [];
+    const totalRecibidas = Math.max(
+      0,
+      Number(expediente?.totalDenunciasRecibidas || ultimas.length || 0)
+    );
+
+    const denunciantes = Array.from(
+      new Set(
+        ultimas
+          .map((x) => String(x?.denuncianteNombre || '').trim())
+          .filter(Boolean)
+      )
+    )
+      .slice(0, 3)
+      .join(', ');
+
+    const motivos = Array.from(
+      new Set(
+        ultimas
+          .map((x) => String(x?.motivo || '').trim().toLowerCase())
+          .filter(Boolean)
+      )
+    )
+      .slice(0, 4)
+      .join(', ');
+
+    const opening = `Hola ${targetName}. Te escribimos desde administracion de TejeChat.`;
+    const summary = totalRecibidas > 0
+      ? ` Hemos recibido ${totalRecibidas} denuncia${totalRecibidas === 1 ? '' : 's'} reciente${totalRecibidas === 1 ? '' : 's'} asociada${totalRecibidas === 1 ? '' : 's'} a tu actividad.`
+      : ' Hemos recibido reportes recientes asociados a tu actividad.';
+    const people = denunciantes ? ` Algunas fueron registradas por: ${denunciantes}.` : '';
+    const reasons = motivos ? ` Los motivos reportados incluyen: ${motivos}.` : '';
+    const closing =
+      ' Te pedimos mantener una conducta respetuosa y ajustar tu comportamiento a las normas de convivencia de la plataforma. Si se repiten incidencias, se podran aplicar medidas adicionales sobre la cuenta.';
+
+    return `${opening}${summary}${people}${reasons}${closing}`;
   }
 
   unbanUsuario(usuario: any) {

@@ -87,6 +87,7 @@ import { PerfilUsuarioSavePayload } from '../perfil-usuario/perfil-usuario.compo
 import { PollDraftPayload } from '../poll-composer/poll-composer.component';
 import { ScheduleMessageDraftPayload } from '../schedule-message-composer/schedule-message-composer.component';
 import { SessionService } from '../../../Service/session/session.service';
+import { ComplaintService } from '../../../Service/complaint/complaint.service';
 import { ChatListItemDTO } from '../../../Interface/ChatListItemDTO';
 import { MensajeReaccionDTO } from '../../../Interface/MensajeReaccionDTO';
 import {
@@ -441,11 +442,17 @@ export class InicioComponent {
     },
   ];
   public readonly reportUserReasonOptions = [
-    { value: 'spam', label: 'Spam o contenido no deseado' },
-    { value: 'acoso', label: 'Acoso o comportamiento abusivo' },
-    { value: 'odio', label: 'Discurso de odio' },
-    { value: 'inapropiado', label: 'Contenido inapropiado' },
-    { value: 'otro', label: 'Otro motivo' },
+    { value: 'Spam o contenido no deseado', label: 'Spam o contenido no deseado' },
+    { value: 'Acoso o comportamiento abusivo', label: 'Acoso o comportamiento abusivo' },
+    { value: 'Discurso de odio', label: 'Discurso de odio' },
+    { value: 'Amenazas o intimidacion', label: 'Amenazas o intimidacion' },
+    { value: 'Suplantacion de identidad', label: 'Suplantacion de identidad' },
+    { value: 'Estafa o fraude', label: 'Estafa o fraude' },
+    { value: 'Contenido sexual no solicitado', label: 'Contenido sexual no solicitado' },
+    { value: 'Difusion de datos personales', label: 'Difusion de datos personales' },
+    { value: 'Contenido violento o autolesivo', label: 'Contenido violento o autolesivo' },
+    { value: 'Incitacion a actividades ilegales', label: 'Incitacion a actividades ilegales' },
+    { value: 'Otro motivo', label: 'Otro motivo' },
   ];
   public attachmentUploading = false;
   public pendingAttachmentFile: File | null = null;
@@ -890,6 +897,7 @@ export class InicioComponent {
     private cdr: ChangeDetectorRef,
     private cryptoService: CryptoService,
     private authService: AuthService,
+    private complaintService: ComplaintService,
     private notificationService: NotificationService,
     private groupInviteService: GroupInviteService,
     private router: Router,
@@ -10772,8 +10780,19 @@ private async decryptPreviewString(
   public formatearPreviewHtml(chat: any): string {
     const source = this.buildExpulsionSourceFromPreviewChat(chat);
     const perspectiveText = this.resolveExpulsionPerspectiveTextForCurrentUser(source);
-    if (perspectiveText) return this.emphasizeQuotedSegments(perspectiveText);
-    return this.escapeSystemMessageHtml(this.formatearPreview(chat));
+    if (perspectiveText) {
+      return this.emphasizeQuotedSegments(this.truncateChatPreviewText(perspectiveText, 90));
+    }
+    return this.escapeSystemMessageHtml(
+      this.truncateChatPreviewText(this.formatearPreview(chat), 90)
+    );
+  }
+
+  private truncateChatPreviewText(text: string, maxLength: number = 90): string {
+    const value = String(text || '').trim();
+    if (!value) return '';
+    if (value.length <= maxLength) return value;
+    return `${value.slice(0, maxLength).trimEnd()}...`;
   }
 
   public formatearPreview(chat: any): string {
@@ -15382,6 +15401,7 @@ private async decryptPreviewString(
     event?.preventDefault();
     event?.stopPropagation();
     if (!chatTarget || !!chatTarget?.esGrupo) return;
+    if (chatTarget?.denunciado === true) return;
 
     this.openChatPinMenuChatId = null;
     this.openMensajeMenuId = null;
@@ -15425,16 +15445,71 @@ private async decryptPreviewString(
 
   public submitReportUser(payload: { motivo: string; detalle: string }): void {
     if (this.reportUserSending || !this.reportUserTarget) return;
+    if (this.reportUserTarget?.denunciado === true) return;
 
     const motivo = String(payload?.motivo || '').trim();
     const detalle = String(payload?.detalle || '').trim();
     if (!motivo || !detalle) return;
 
     this.reportUserSending = true;
-    window.setTimeout(() => {
+    const target = this.reportUserTarget;
+    const denunciadoId = Number(
+      target?.receptor?.id || target?.receptorId || target?.usuarioId || 0
+    );
+    const chatId = Number(target?.id || target?.chatId || 0);
+    const denunciadoNombre =
+      String(target?.receptor?.nombre || target?.nombre || '').trim() || null;
+    const chatNombreSnapshot =
+      String(target?.nombreChat || target?.nombre || '').trim() || null;
+
+    if (!Number.isFinite(denunciadoId) || denunciadoId <= 0) {
       this.reportUserSending = false;
-      this.reportUserSuccess = true;
-    }, 320);
+      return;
+    }
+
+    void (async () => {
+      try {
+        await firstValueFrom(
+          this.complaintService.createComplaint({
+            denunciadoId,
+            chatId: Number.isFinite(chatId) && chatId > 0 ? chatId : null,
+            motivo,
+            detalle,
+            denunciadoNombre,
+            chatNombreSnapshot,
+          })
+        );
+
+        if (!this.bloqueadosIds.has(denunciadoId)) {
+          await firstValueFrom(this.authService.bloquearUsuario(denunciadoId));
+          this.bloqueadosIds.add(denunciadoId);
+          this.updateCachedBloqueados();
+        }
+
+        // Marca local inmediata para ocultar acciones de re-denuncia en listado y cabecera.
+        this.reportUserTarget.denunciado = true;
+        const targetChatId = Number(target?.id || target?.chatId || 0);
+        if (Number.isFinite(targetChatId) && targetChatId > 0) {
+          const inList = this.chats.find((c) => Number(c?.id || 0) === targetChatId);
+          if (inList) inList.denunciado = true;
+          if (Number(this.chatActual?.id || 0) === targetChatId) {
+            this.chatActual = { ...this.chatActual, denunciado: true };
+          }
+        }
+
+        this.reportUserSuccess = true;
+        this.cdr.markForCheck();
+      } catch (err) {
+        void Swal.fire({
+          title: 'Error',
+          text: 'No se pudo guardar la denuncia o bloquear al usuario.',
+          icon: 'error',
+          confirmButtonColor: '#ef4444',
+        });
+      } finally {
+        this.reportUserSending = false;
+      }
+    })();
   }
 
   /**

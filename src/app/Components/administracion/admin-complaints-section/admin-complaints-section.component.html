@@ -1,0 +1,97 @@
+<section id="complaints-view" class="space-y-6 w-full" [class.hidden-view]="!active">
+  <div class="flex items-center gap-4" style="margin-bottom: 30px;">
+    <button
+      type="button"
+      (click)="backRequested.emit()"
+      class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90"
+    >
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+      </svg>
+    </button>
+
+    <div>
+      <h3 class="text-2xl font-bold text-slate-800">
+        Panel administrativo: <span class="logo-accent">Denuncias</span>
+      </h3>
+      <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
+    </div>
+  </div>
+
+  <div class="glass-card p-6 text-slate-500 text-sm" *ngIf="loadingComplaints">
+    Cargando denuncias...
+  </div>
+
+  <div class="glass-card p-6 text-slate-500 text-sm" *ngIf="!loadingComplaints && complaintsItems.length === 0">
+    {{ complaintsEmptyText }}
+  </div>
+
+  <div class="space-y-4" *ngIf="!loadingComplaints && complaintsItems.length > 0">
+    <article
+      *ngFor="let item of complaintsItems"
+      class="complaint-card"
+      [class.complaint-card--pending]="!item.leida"
+      (click)="complaintClicked.emit(item)"
+    >
+      <div class="complaint-card__indicator" [class.priority-green]="item.leida" [class.priority-red]="!item.leida"></div>
+
+      <div class="complaint-card__header">
+        <div class="complaint-card__user-info">
+          <h3>
+            <button type="button" class="complaint-card__name-link" (click)="onReporterNameClick(item, $event)">
+              {{ getComplaintReporterLabel(item) }}
+            </button>
+          </h3>
+          <p>
+            Contra
+            <button type="button" class="complaint-card__name-link" (click)="onTargetNameClick(item, $event)">
+              {{ getComplaintTargetLabel(item) }}
+            </button>
+          </p>
+        </div>
+
+        <div class="complaint-card__badge-container">
+          <span class="complaint-card__badge" [class.badge-green]="item.leida" [class.badge-red]="!item.leida">
+            {{ item.leida ? 'Leída' : 'Pendiente' }}
+          </span>
+        </div>
+      </div>
+
+      <div>
+        <span class="complaint-card__reason">{{ item.motivo || 'Sin motivo especificado.' }}</span>
+      </div>
+
+      <div class="complaint-card__message">
+        "{{ item.detalle || 'Sin detalle.' }}"
+      </div>
+
+      <div class="complaint-card__footer">
+        <div class="complaint-card__timestamp" *ngIf="item.createdAt">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Enviada: {{ item.createdAt | date:'dd/MM/yyyy HH:mm' }}
+        </div>
+
+        <button type="button" class="complaint-card__action">
+          Click para revisar detalle
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
+    </article>
+  </div>
+
+  <app-admin-pagination
+    *ngIf="!loadingComplaints && complaintsTotalElements > 0"
+    [currentPage]="complaintsPage"
+    [totalPages]="complaintsTotalPages"
+    [totalElements]="complaintsTotalElements"
+    [itemLabel]="'denuncias'"
+    [loading]="loadingComplaints"
+    [isLastPage]="complaintsIsLastPage"
+    (previous)="prevPageRequested.emit()"
+    (next)="nextPageRequested.emit()"
+  ></app-admin-pagination>
+</section>

@@ -8,6 +8,7 @@ import { CallAnswerWS } from '../../Interface/CallAnswerWS';
 import { CallInviteWS } from '../../Interface/CallInviteWS';
 import { MensajeReaccionDTO } from '../../Interface/MensajeReaccionDTO';
 import { UnbanAppealEventDTO } from '../../Interface/UnbanAppealEventDTO';
+import { UserComplaintEventDTO } from '../../Interface/UserComplaintEventDTO';
 import { WsUserErrorDTO } from '../../Interface/WsUserErrorDTO';
 import { RateLimitService } from '../rate-limit/rate-limit.service';
 import { environment } from '../../environments';
@@ -1869,6 +1870,19 @@ export class WebSocketService {
         callback(JSON.parse(message.body) as UnbanAppealEventDTO);
       } catch (e) {
         this.logError(' Error parseando reporte admin WS:', e);
+      }
+    });
+  }
+
+  public suscribirseADenunciasAdmin(
+    callback: (payload: UserComplaintEventDTO) => void
+  ): StompSubscription | null {
+    if (!this.stompClient?.connected) return null;
+    return this.stompClient.subscribe(`/topic/admin.denuncias`, (message) => {
+      try {
+        callback(JSON.parse(message.body) as UserComplaintEventDTO);
+      } catch (e) {
+        this.logError(' Error parseando denuncia admin WS:', e);
       }
     });
   }

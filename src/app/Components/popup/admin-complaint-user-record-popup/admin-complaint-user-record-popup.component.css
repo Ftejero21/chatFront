@@ -1,0 +1,220 @@
+.complaint-record-popup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.complaint-record-popup {
+  position: relative;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #bee3f8;
+  padding: 20px;
+  width: 100%;
+  max-width: 560px;
+  min-height: 620px;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.complaint-record-popup__close {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.complaint-record-popup__head {
+  text-align: center;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #edf2f7;
+  margin-bottom: 14px;
+}
+
+.complaint-record-popup__avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  background: #e24b4a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: white;
+  margin: 0 auto 8px;
+}
+
+.complaint-record-popup__name {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  color: #2d3748;
+}
+
+.complaint-record-popup__meta {
+  font-size: 11px;
+  color: #a0aec0;
+  margin: 2px 0 0;
+}
+
+.complaint-record-popup__counters {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 14px;
+}
+
+.complaint-record-popup__counter {
+  text-align: center;
+}
+
+.complaint-record-popup__counter-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0 auto;
+}
+
+.complaint-record-popup__counter-circle--red {
+  border: 3px solid #fed7d7;
+  color: #e53e3e;
+}
+
+.complaint-record-popup__counter-circle--blue {
+  border: 3px solid #bee3f8;
+  color: #3182ce;
+}
+
+.complaint-record-popup__counter p {
+  font-size: 9px;
+  font-weight: 700;
+  color: #a0aec0;
+  text-transform: uppercase;
+  margin: 4px 0 0;
+  letter-spacing: 0.05em;
+}
+
+.complaint-record-popup__reason-wrap {
+  margin-bottom: 14px;
+}
+
+.complaint-record-popup__reason-item {
+  margin-bottom: 10px;
+}
+
+.complaint-record-popup__section-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: #a0aec0;
+  text-transform: uppercase;
+  margin: 0 0 8px;
+  letter-spacing: 0.05em;
+}
+
+.complaint-record-popup__reason-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.complaint-record-popup__reason-row span:first-child {
+  font-size: 12px;
+  color: #718096;
+  font-weight: 600;
+}
+
+.complaint-record-popup__reason-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #fff5f5;
+  color: #e53e3e;
+  text-transform: uppercase;
+}
+
+.complaint-record-popup__reason-count {
+  font-size: 11px;
+  color: #4a5568;
+  font-weight: 700;
+}
+
+.complaint-record-popup__bar {
+  background: #edf2f7;
+  height: 6px;
+  border-radius: 3px;
+}
+
+.complaint-record-popup__bar-fill {
+  height: 6px;
+  border-radius: 3px;
+  background: #e53e3e;
+}
+
+.complaint-record-popup__reason-percent {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 700;
+  text-align: right;
+}
+
+.complaint-record-popup__reason-empty {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.complaint-record-popup__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.complaint-record-popup__btn {
+  width: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+}
+
+.complaint-record-popup__btn--warning {
+  background: #ecc94b;
+  color: white;
+}
+
+.complaint-record-popup__btn--danger {
+  background: #e53e3e;
+  color: white;
+}
+
+.complaint-record-popup__btn--neutral {
+  background: white;
+  border: 1px solid #e2e8f0;
+  color: #4a5568;
+}
+
+.complaint-record-popup__loading {
+  padding: 24px 8px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+}
