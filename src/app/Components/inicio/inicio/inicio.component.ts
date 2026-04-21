@@ -335,7 +335,7 @@ interface PollVoteEntryView {
  * Representa los diferentes estados en los que puede estar un usuario.
  */
 export type EstadoUsuario = 'Conectado' | 'Desconectado' | 'Ausente';
-type ChatListFilter = 'TODOS' | 'LEIDOS' | 'NO_LEIDOS' | 'GRUPOS';
+type ChatListFilter = 'TODOS' | 'NO_LEIDOS' | 'FAVORITOS' | 'GRUPOS';
 type SidebarSection = 'CHATS' | 'STARRED';
 
 /**
@@ -811,6 +811,7 @@ export class InicioComponent {
   private readonly CHAT_DRAFTS_KEY = 'chatDraftsByChat';
   private readonly TEMPORARY_CHAT_SETTINGS_KEY = 'chatTemporarySecondsByChat';
   private readonly PINNED_CHAT_ID_KEY = 'pinnedChatId';
+  private readonly FAVORITE_CHAT_ID_KEY = 'favoriteChatId';
   private readonly OPEN_PROFILE_AFTER_REGISTER_KEY = 'openProfileAfterRegister';
   private draftByChatId = new Map<number, string>();
   private temporarySecondsByChatId = new Map<number, number>();
@@ -875,10 +876,12 @@ export class InicioComponent {
   public busquedaChat: string = '';
   public chatListFilter: ChatListFilter = 'TODOS';
   public pinnedChatId: number | null = null;
+  public favoriteChatId: number | null = null;
   public chatListLoading = true;
   private messagesInitialLoadingConversationKey: string | null = null;
 
   public bloqueadosIds = new Set<number>();
+  public bloqueadosPorDenunciaIds = new Set<number>();
   public meHanBloqueadoIds = new Set<number>();
   public e2eSessionReady = true;
 
@@ -938,6 +941,8 @@ export class InicioComponent {
     this.loadChatDraftsFromStorage();
     this.loadTemporarySettingsFromStorage();
     this.loadPinnedChatFromStorage();
+    this.loadFavoriteChatFromStorage();
+    this.loadFavoriteChatFromBackend();
     this.loadMutedChatsFromBackend();
     this.loadStarredMessagesFromBackend();
     void this.ensureLocalE2EKeysAndSyncPublicKey(this.usuarioActualId);
@@ -948,6 +953,14 @@ export class InicioComponent {
     if (cachedBloqueados) {
       try {
         this.bloqueadosIds = new Set(JSON.parse(cachedBloqueados) as number[]);
+      } catch (e) {}
+    }
+    const cachedBloqueadosPorDenuncia = localStorage.getItem('bloqueadosPorDenunciaIds');
+    if (cachedBloqueadosPorDenuncia) {
+      try {
+        this.bloqueadosPorDenunciaIds = new Set(
+          JSON.parse(cachedBloqueadosPorDenuncia) as number[]
+        );
       } catch (e) {}
     }
 
@@ -4952,6 +4965,13 @@ private async decryptPreviewString(
       : this.PINNED_CHAT_ID_KEY;
   }
 
+  private getFavoriteChatStorageKey(): string {
+    const userId = Number(this.usuarioActualId);
+    return Number.isFinite(userId) && userId > 0
+      ? `${this.FAVORITE_CHAT_ID_KEY}:${userId}`
+      : this.FAVORITE_CHAT_ID_KEY;
+  }
+
   private loadPinnedChatFromStorage(): void {
     this.pinnedChatId = null;
     try {
@@ -4965,6 +4985,26 @@ private async decryptPreviewString(
   private persistPinnedChatToStorage(): void {
     const key = this.getPinnedChatStorageKey();
     const chatId = Number(this.pinnedChatId);
+    if (!Number.isFinite(chatId) || chatId <= 0) {
+      localStorage.removeItem(key);
+      return;
+    }
+    localStorage.setItem(key, String(Math.round(chatId)));
+  }
+
+  private loadFavoriteChatFromStorage(): void {
+    this.favoriteChatId = null;
+    try {
+      const raw = localStorage.getItem(this.getFavoriteChatStorageKey());
+      const chatId = Number(raw);
+      if (!Number.isFinite(chatId) || chatId <= 0) return;
+      this.favoriteChatId = Math.round(chatId);
+    } catch {}
+  }
+
+  private persistFavoriteChatToStorage(): void {
+    const key = this.getFavoriteChatStorageKey();
+    const chatId = Number(this.favoriteChatId);
     if (!Number.isFinite(chatId) || chatId <= 0) {
       localStorage.removeItem(key);
       return;
@@ -4996,6 +5036,63 @@ private async decryptPreviewString(
       },
       error: (err) => {
         console.warn('[mute] no se pudo cargar estado de chats silenciados', err);
+      },
+    });
+  }
+
+  private loadFavoriteChatFromBackend(): void {
+    this.chatService.getFavoriteChat().subscribe({
+      next: (state) => {
+        const chatId = Number(state?.chatId || 0);
+        if (!Number.isFinite(chatId) || chatId <= 0) {
+          this.favoriteChatId = null;
+          this.persistFavoriteChatToStorage();
+          this.cdr.markForCheck();
+          return;
+        }
+        this.favoriteChatId = Math.round(chatId);
+        this.persistFavoriteChatToStorage();
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        const status = Number(err?.status || 0);
+        if (status === 404 || status === 405 || status === 501) return;
+        console.warn('[favorite] no se pudo cargar chat favorito desde backend', err);
+      },
+    });
+  }
+
+  private syncFavoriteChatToBackend(
+    chatId: number | null,
+    previousFavoriteChatId: number | null
+  ): void {
+    const currentFavorite = Number(this.favoriteChatId || 0);
+    if (Number.isFinite(currentFavorite) && currentFavorite > 0) {
+      this.chatService.setFavoriteChat(currentFavorite).subscribe({
+        next: () => {},
+        error: (err) => {
+          const status = Number(err?.status || 0);
+          if (status === 404 || status === 405 || status === 501) return;
+          this.favoriteChatId = previousFavoriteChatId;
+          this.persistFavoriteChatToStorage();
+          this.cdr.markForCheck();
+          this.showToast('No se pudo guardar favorito en servidor.', 'warning', 'Chats', 2200);
+        },
+      });
+      return;
+    }
+
+    const targetChatId = Number(chatId || 0);
+    if (!Number.isFinite(targetChatId) || targetChatId <= 0) return;
+    this.chatService.clearFavoriteChat(targetChatId).subscribe({
+      next: () => {},
+      error: (err) => {
+        const status = Number(err?.status || 0);
+        if (status === 404 || status === 405 || status === 501) return;
+        this.favoriteChatId = previousFavoriteChatId;
+        this.persistFavoriteChatToStorage();
+        this.cdr.markForCheck();
+        this.showToast('No se pudo quitar favorito en servidor.', 'warning', 'Chats', 2200);
       },
     });
   }
@@ -5221,6 +5318,14 @@ private async decryptPreviewString(
     return pinnedId === chatId;
   }
 
+  public isChatFavorite(chat: any): boolean {
+    const favoriteId = Number(this.favoriteChatId);
+    const chatId = Number(chat?.id);
+    if (!Number.isFinite(favoriteId) || favoriteId <= 0) return false;
+    if (!Number.isFinite(chatId) || chatId <= 0) return false;
+    return favoriteId === chatId;
+  }
+
   private comparePinnedChatOrder(left: any, right: any): number {
     const leftPinned = this.isChatPinned(left) ? 1 : 0;
     const rightPinned = this.isChatPinned(right) ? 1 : 0;
@@ -5251,6 +5356,28 @@ private async decryptPreviewString(
       this.showToast('Chat fijado en la parte superior.', 'success', 'Chats', 1800);
     }
     this.persistPinnedChatToStorage();
+    this.openChatPinMenuChatId = null;
+    this.cdr.markForCheck();
+  }
+
+  public toggleFavoriteChat(chat: any, event?: MouseEvent): void {
+    event?.stopPropagation();
+    const chatId = Number(chat?.id);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+    const previousFavoriteChatId = this.favoriteChatId;
+
+    if (this.isChatFavorite(chat)) {
+      this.favoriteChatId = null;
+      this.showToast('Chat quitado de favoritos.', 'info', 'Chats', 1600);
+    } else {
+      this.favoriteChatId = Math.round(chatId);
+      this.showToast('Chat añadido a favoritos.', 'success', 'Chats', 1800);
+    }
+    this.persistFavoriteChatToStorage();
+    this.syncFavoriteChatToBackend(
+      this.favoriteChatId ? Math.round(this.favoriteChatId) : Math.round(chatId),
+      previousFavoriteChatId
+    );
     this.openChatPinMenuChatId = null;
     this.cdr.markForCheck();
   }
@@ -12944,6 +13071,52 @@ private async decryptPreviewString(
     return this.chatListFilter === filter;
   }
 
+  public get hasAnyChats(): boolean {
+    return (this.chats?.length || 0) > 0;
+  }
+
+  public get chatFilterEmptyTitle(): string {
+    switch (this.chatListFilter) {
+      case 'NO_LEIDOS':
+        return 'No hay chats no leídos';
+      case 'FAVORITOS':
+        return 'No hay chats favoritos';
+      case 'GRUPOS':
+        return 'No hay chats de grupo';
+      case 'TODOS':
+      default:
+        return 'No hay chats para mostrar';
+    }
+  }
+
+  public get chatFilterEmptyDescription(): string {
+    switch (this.chatListFilter) {
+      case 'NO_LEIDOS':
+        return 'Cuando tengas mensajes pendientes, aparecerán aquí.';
+      case 'FAVORITOS':
+        return 'Fija chats para verlos rápidamente aquí.';
+      case 'GRUPOS':
+        return 'No perteneces a ningún grupo por ahora.';
+      case 'TODOS':
+      default:
+        return 'No hay resultados con el filtro actual.';
+    }
+  }
+
+  public get chatFilterEmptyIconClass(): string {
+    switch (this.chatListFilter) {
+      case 'NO_LEIDOS':
+        return 'bi bi-check-circle-fill';
+      case 'FAVORITOS':
+        return 'bi bi-star-fill';
+      case 'GRUPOS':
+        return 'bi bi-people-fill';
+      case 'TODOS':
+      default:
+        return 'bi bi-filter-circle';
+    }
+  }
+
   public get showChatListSkeleton(): boolean {
     return this.chatListLoading && (this.chats?.length || 0) === 0;
   }
@@ -13015,10 +13188,10 @@ private async decryptPreviewString(
 
   private matchesChatListFilter(chat: any): boolean {
     switch (this.chatListFilter) {
-      case 'LEIDOS':
-        return Number(chat?.unreadCount || 0) === 0;
       case 'NO_LEIDOS':
         return Number(chat?.unreadCount || 0) > 0;
+      case 'FAVORITOS':
+        return this.isChatFavorite(chat);
       case 'GRUPOS':
         return !!chat?.esGrupo;
       case 'TODOS':
@@ -13059,6 +13232,7 @@ private async decryptPreviewString(
     this.authService.getById(id).subscribe({
       next: (u) => {
         this.perfilUsuario = { ...u };
+        this.applyBlockedStateFromUserDto(u);
         if (typeof (u as any)?.hasPublicKey === 'boolean') {
           this.e2eSessionReady = !!(u as any).hasPublicKey;
         } else {
@@ -14977,6 +15151,15 @@ private async decryptPreviewString(
         // failed to parse
       }
     }
+    const cachedBloqueadosPorDenuncia = localStorage.getItem('bloqueadosPorDenunciaIds');
+    if (cachedBloqueadosPorDenuncia) {
+      try {
+        const arr = JSON.parse(cachedBloqueadosPorDenuncia) as number[];
+        this.bloqueadosPorDenunciaIds = new Set(arr);
+      } catch (e) {
+        // failed to parse
+      }
+    }
 
     const cachedMeHanBloqueado = localStorage.getItem('meHanBloqueadoIds');
     if (cachedMeHanBloqueado) {
@@ -15481,10 +15664,12 @@ private async decryptPreviewString(
         );
 
         if (!this.bloqueadosIds.has(denunciadoId)) {
-          await firstValueFrom(this.authService.bloquearUsuario(denunciadoId));
+          await firstValueFrom(this.authService.bloquearUsuario(denunciadoId, 'REPORT'));
           this.bloqueadosIds.add(denunciadoId);
           this.updateCachedBloqueados();
         }
+        this.bloqueadosPorDenunciaIds.add(denunciadoId);
+        this.updateCachedBloqueadosPorDenuncia();
 
         // Marca local inmediata para ocultar acciones de re-denuncia en listado y cabecera.
         this.reportUserTarget.denunciado = true;
@@ -17152,6 +17337,16 @@ private async decryptPreviewString(
     return this.bloqueadosIds.has(peerId);
   }
 
+  public get yoLoBloqueeManual(): boolean {
+    if (!this.chatActual || this.chatActual.esGrupo) return false;
+    const peerId = this.chatActual.receptor?.id;
+    if (!peerId) return false;
+    return (
+      this.bloqueadosIds.has(peerId) &&
+      !this.bloqueadosPorDenunciaIds.has(peerId)
+    );
+  }
+
   /**
    * Invierte asimétricamente al individuo activo según su estado cacheado (Si es target bloquéndolo/ o a la inversa desbloquearlo).
    */
@@ -17163,7 +17358,7 @@ private async decryptPreviewString(
     if (!peerId) {
        return;
     }
-    if (this.bloqueadosIds.has(peerId)) {
+    if (this.yoLoBloqueeManual) {
       this.authService.desbloquearUsuario(peerId).subscribe({
         next: () => {
           this.bloqueadosIds.delete(peerId);
@@ -17173,10 +17368,22 @@ private async decryptPreviewString(
         error: (err) => alert("Error al desbloquear usuario")
       });
     } else {
-      this.authService.bloquearUsuario(peerId).subscribe({
+      if (this.bloqueadosPorDenunciaIds.has(peerId)) {
+        this.showToast(
+          'Este usuario está bloqueado por una denuncia.',
+          'info',
+          'Denuncias',
+          2400
+        );
+        this.cerrarMenuOpciones();
+        return;
+      }
+      this.authService.bloquearUsuario(peerId, 'MANUAL').subscribe({
         next: () => {
           this.bloqueadosIds.add(peerId);
+          this.bloqueadosPorDenunciaIds.delete(peerId);
           this.updateCachedBloqueados();
+          this.updateCachedBloqueadosPorDenuncia();
           this.cdr.markForCheck();
         },
         error: (err) => alert("Error al bloquear usuario")
@@ -17191,6 +17398,58 @@ private async decryptPreviewString(
    */
   private updateCachedBloqueados(): void {
     localStorage.setItem('bloqueadosIds', JSON.stringify(Array.from(this.bloqueadosIds)));
+  }
+
+  private updateCachedBloqueadosPorDenuncia(): void {
+    localStorage.setItem(
+      'bloqueadosPorDenunciaIds',
+      JSON.stringify(Array.from(this.bloqueadosPorDenunciaIds))
+    );
+  }
+
+  private applyBlockedStateFromUserDto(u: any): void {
+    const blockedIds = this.extractBlockedIdsFromUserDto(u);
+    const blockedByReportIds = this.extractBlockedByReportIdsFromUserDto(u);
+    this.bloqueadosIds = new Set(blockedIds);
+    this.bloqueadosPorDenunciaIds = new Set(blockedByReportIds);
+    this.updateCachedBloqueados();
+    this.updateCachedBloqueadosPorDenuncia();
+  }
+
+  private extractBlockedIdsFromUserDto(u: any): number[] {
+    const relations = Array.isArray(u?.bloqueados) ? u.bloqueados : [];
+    const relationIds = relations
+      .map((x: any) => Number(x?.userId || 0))
+      .filter((id: number) => Number.isFinite(id) && id > 0);
+    if (relationIds.length > 0) return Array.from(new Set(relationIds));
+
+    const legacy = Array.isArray(u?.bloqueadosIds) ? u.bloqueadosIds : [];
+    return Array.from(
+      new Set(
+        legacy
+          .map((x: any) => Number(x || 0))
+          .filter((id: number) => Number.isFinite(id) && id > 0)
+      )
+    );
+  }
+
+  private extractBlockedByReportIdsFromUserDto(u: any): number[] {
+    const relations = Array.isArray(u?.bloqueados) ? u.bloqueados : [];
+    const reportSources = new Set(['DENUNCIA', 'REPORT']);
+    return Array.from(
+      new Set(
+        relations
+          .map((x: any) => ({
+            id: Number(x?.userId || 0),
+            source: String(x?.source || '').trim().toUpperCase(),
+          }))
+          .filter(
+            (x: any) =>
+              Number.isFinite(x.id) && x.id > 0 && reportSources.has(x.source)
+          )
+          .map((x: any) => x.id)
+      )
+    );
   }
 
   /**

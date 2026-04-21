@@ -1,3 +1,8 @@
+export interface BlockedUserDTO {
+  userId: number;
+  source?: string | null;
+}
+
 export interface UsuarioDTO {
   id?: number;
   nombre: string;
@@ -10,5 +15,6 @@ export interface UsuarioDTO {
   hasPublicKey?: boolean;
   roles?: string[];
   bloqueadosIds?: number[];
+  bloqueados?: BlockedUserDTO[];
   meHanBloqueadoIds?: number[];
 }

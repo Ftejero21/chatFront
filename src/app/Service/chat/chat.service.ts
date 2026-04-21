@@ -79,6 +79,7 @@ export interface AdminDirectMessageRequestDTO {
   userIds: number[];
   contenido?: string;
   message?: string;
+  origen?: string;
   expiresAfterReadSeconds?: number;
   encryptedPayloads?: AdminDirectMessageEncryptedItemDTO[];
 }
@@ -220,6 +221,10 @@ export interface ChatMuteStateDTO {
   muted: boolean;
   mutedForever?: boolean;
   mutedUntil?: string | null;
+}
+
+export interface FavoriteChatStateDTO {
+  chatId?: number | null;
 }
 
 export interface GroupChatClosureRequestDTO {
@@ -576,6 +581,21 @@ export class ChatService {
 
   listMutedChats(): Observable<ChatMuteStateDTO[]> {
     return this.http.get<ChatMuteStateDTO[]>(`${this.baseUrl}/muted`);
+  }
+
+  getFavoriteChat(): Observable<FavoriteChatStateDTO> {
+    return this.http.get<FavoriteChatStateDTO>(`${this.baseUrl}/favorite`);
+  }
+
+  setFavoriteChat(chatId: number): Observable<FavoriteChatStateDTO> {
+    return this.http.post<FavoriteChatStateDTO>(
+      `${this.baseUrl}/${chatId}/favorite`,
+      {}
+    );
+  }
+
+  clearFavoriteChat(chatId: number): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${chatId}/favorite`);
   }
 
   cerrarChatGrupalAdmin(

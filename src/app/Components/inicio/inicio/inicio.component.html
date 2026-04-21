@@ -200,9 +200,9 @@
             <button
               type="button"
               class="chat-filter-btn"
-              [class.is-active]="isChatListFilterActive('LEIDOS')"
-              (click)="setChatListFilter('LEIDOS')">
-              Leidos
+              [class.is-active]="isChatListFilterActive('FAVORITOS')"
+              (click)="setChatListFilter('FAVORITOS')">
+              Favoritos
             </button>
             <button
               type="button"
@@ -274,6 +274,10 @@
                 <span *ngIf="!chat.esGrupo && chat.denunciado" class="pill pill--reported" title="Usuario denunciado">
                   <i class="bi bi-flag-fill" aria-hidden="true"></i>
                   Denunciado
+                </span>
+                <span *ngIf="!chat.esGrupo && !chat.denunciado && isForwardTargetBlocked(chat)" class="pill pill--blocked" title="Usuario bloqueado">
+                  <i class="bi bi-lock-fill" aria-hidden="true"></i>
+                  Bloqueado
                 </span>
                 <span *ngIf="chat.esGrupo" class="pill pill--group">Grupo</span>
               </div>
@@ -421,6 +425,15 @@
             >
               <i class="bi bi-lock-fill"></i>
             </span>
+
+            <span
+              *ngIf="!forwardModalOpen && isChatFavorite(chat)"
+              class="chat-favorite-indicator"
+              title="Chat favorito"
+              aria-label="Chat favorito"
+            >
+              <i class="bi bi-star-fill"></i>
+            </span>
             <div *ngIf="!forwardModalOpen" class="chat-pin-anchor" (click)="$event.stopPropagation()">
               <button
                 type="button"
@@ -433,6 +446,24 @@
                 <i class="bi" [ngClass]="openChatPinMenuChatId === chat.id ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
               </button>
               <div *ngIf="openChatPinMenuChatId === chat.id" class="chat-pin-menu">
+                <button
+                  *ngIf="!isChatFavorite(chat)"
+                  type="button"
+                  class="chat-pin-menu-btn"
+                  (click)="toggleFavoriteChat(chat, $event)"
+                >
+                  <i class="bi bi-star-fill"></i>
+                  Añadir a favoritos
+                </button>
+                <button
+                  *ngIf="isChatFavorite(chat)"
+                  type="button"
+                  class="chat-pin-menu-btn"
+                  (click)="toggleFavoriteChat(chat, $event)"
+                >
+                  <i class="bi bi-star"></i>
+                  Quitar de favoritos
+                </button>
                 <button
                   type="button"
                   class="chat-pin-menu-btn"
@@ -492,6 +523,22 @@
         </ng-container>
 
         <ng-template #emptyChatsState>
+          <div *ngIf="hasAnyChats; else noChatsAtAllState" class="chat-empty-filter-state">
+            <div class="chat-empty-filter-state__icon">
+              <i [class]="chatFilterEmptyIconClass" aria-hidden="true"></i>
+            </div>
+            <h3 class="chat-empty-filter-state__title">{{ chatFilterEmptyTitle }}</h3>
+            <p class="chat-empty-filter-state__description">{{ chatFilterEmptyDescription }}</p>
+            <button
+              type="button"
+              class="chat-empty-filter-state__cta"
+              (click)="setChatListFilter('TODOS')"
+            >
+              Ver todos los chats
+            </button>
+          </div>
+
+          <ng-template #noChatsAtAllState>
           <div class="chat-empty-state">
             <div class="chat-empty-state__illustration">
               <div class="chat-empty-state__pulse"></div>
@@ -544,6 +591,7 @@
               Explorar grupos pÃºblicos
             </button>
           </div>
+          </ng-template>
         </ng-template>
           </div>
         </ng-template>
@@ -594,6 +642,14 @@
             <div class="detalle-usuario-chat">
               <span class="nombre-usuario-chat">
                 {{ chatActual?.nombre }}
+                <span *ngIf="chatActual && !chatActual?.esGrupo && chatActual?.denunciado" class="pill pill--reported" title="Usuario denunciado">
+                  <i class="bi bi-flag-fill" aria-hidden="true"></i>
+                  Denunciado
+                </span>
+                <span *ngIf="chatActual && !chatActual?.esGrupo && !chatActual?.denunciado && chatEstaBloqueado" class="pill pill--blocked" title="Usuario bloqueado">
+                  <i class="bi bi-lock-fill" aria-hidden="true"></i>
+                  Bloqueado
+                </span>
                 <div *ngIf="chatActual?.esGrupo && chatActual?.usuarios?.length" class="grupo-miembros"
                   [attr.title]="getMiembrosLinea(chatActual?.usuarios || [])">
                   <ng-container *ngFor="let u of chatActual.usuarios; let last = last">
@@ -677,11 +733,11 @@
                   <span class="icono-reportar" aria-hidden="true"><i class="bi bi-flag-fill"></i></span>
                   Denunciar
                 </button>
-                <button class="dropdown-item" *ngIf="chatActual && !chatActual.esGrupo"
-                  [ngClass]="yoLoBloquee ? 'dropdown-item--desbloquear' : 'dropdown-item--bloquear'"
+                <button class="dropdown-item" *ngIf="chatActual && !chatActual.esGrupo && !chatActual?.denunciado"
+                  [ngClass]="yoLoBloqueeManual ? 'dropdown-item--desbloquear' : 'dropdown-item--bloquear'"
                   (mousedown)="toggleBloquearUsuario(); $event.stopPropagation()">
                   <span class="icono-bloquear" aria-hidden="true"><i class="bi bi-slash-circle"></i></span>
-                  {{ yoLoBloquee ? 'Desbloquear usuario' : 'Bloquear usuario' }}
+                  {{ yoLoBloqueeManual ? 'Desbloquear usuario' : 'Bloquear usuario' }}
                 </button>
                 <button class="dropdown-item dropdown-item--vaciar"
                   *ngIf="chatActual"
@@ -1586,23 +1642,23 @@
                 <textarea #messageInput [(ngModel)]="mensajeNuevo" (input)="onComposerInput()" (keydown)="onKeydown($event)" (keydown.enter)="onEnter($event)"
                   (click)="onMessageInputSelectionChange()" (keyup)="onMessageInputSelectionChange()"
                   (select)="onMessageInputSelectionChange()" (focus)="onMessageInputSelectionChange()"
-                  [placeholder]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario.' : 'EstÃ¡s bloqueado por este usuario.') : 'Escribe un mensaje...')"
+                  [placeholder]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario.' : 'Estás bloqueado por este usuario.') : 'Escribe un mensaje...')"
                   class="input-mensaje" [disabled]="chatEstaBloqueado || chatGrupalCerradoPorAdmin" [readonly]="haSalidoDelGrupo"
                   [class.input-mensaje--loading]="aiLoading"
                   [class.input-mensaje--salido]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin"
                   [class.input-mensaje--with-draft-prefix]="shouldShowComposerDraftPrefix()"
                   [class.input-mensaje--replying]="!!mensajeRespuestaObjetivo || !!mensajeEdicionObjetivo"
-                  [title]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'EstÃ¡s bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : ''))">
+                  [title]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : ''))">
                 </textarea>
               </div>
               <button class="btn-mic"
-                [title]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'EstÃ¡s bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Grabar audio'))"
+                [title]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Grabar audio'))"
                 (click)="startRecording()" [disabled]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin || noGroupRecipientsForSend"
                 [class.btn-disabled-block]="chatEstaBloqueado || chatGrupalCerradoPorAdmin">
                 <i class="fas fa-microphone"></i>
               </button>
               <button class="btn-enviar"
-                [title]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'EstÃ¡s bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Enviar mensaje'))"
+                [title]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Enviar mensaje'))"
                 (click)="enviarMensajeDesdeComposer()" [disabled]="attachmentUploading || aiLoading || chatEstaBloqueado || chatGrupalCerradoPorAdmin || haSalidoDelGrupo || noGroupRecipientsForSend"
                 [class.btn-disabled-block]="chatEstaBloqueado || chatGrupalCerradoPorAdmin">
                 <i class="fas fa-paper-plane"></i>

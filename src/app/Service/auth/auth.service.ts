@@ -143,8 +143,13 @@ export class AuthService {
     return this.http.get<any>(`${environment.backendBaseUrl}/api/keys/audit-public`);
   }
 
-  bloquearUsuario(bloqueadoId: number): Observable<void> {
-    return this.http.post<void>(`${this.baseUrl}/${bloqueadoId}/bloquear`, {});
+  bloquearUsuario(
+    bloqueadoId: number,
+    source?: 'DENUNCIA' | 'BLOQUEO_USUARIO' | 'REPORT' | 'MANUAL'
+  ): Observable<void> {
+    const normalizedSource = String(source || '').trim().toUpperCase();
+    const body = normalizedSource ? { source: normalizedSource } : {};
+    return this.http.post<void>(`${this.baseUrl}/${bloqueadoId}/bloquear`, body);
   }
 
   desbloquearUsuario(bloqueadoId: number): Observable<void> {
@@ -170,8 +175,16 @@ export class AuthService {
     return this.http.get<PageResponse<UsuarioDTO>>(`${this.baseUrl}/admin/recientes`, { params });
   }
 
-  banearUsuario(id: number, motivo: string): Observable<any> {
-  return this.http.post(`${this.baseUrl}/admin/${id}/ban?motivo=${encodeURIComponent(motivo)}`, {});
+  banearUsuario(id: number, motivo: string, origen?: string): Observable<any> {
+  const body: { motivo?: string; origen?: string } = {};
+  const motivoNorm = String(motivo || '').trim();
+  const origenNorm = String(origen || '').trim();
+  if (motivoNorm) body.motivo = motivoNorm;
+  if (origenNorm) body.origen = origenNorm;
+  return this.http.post(
+    `${this.baseUrl}/admin/${id}/ban?motivo=${encodeURIComponent(motivoNorm)}`,
+    body
+  );
   }
 
   desbanearUsuario(id: number): Observable<any> {

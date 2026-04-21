@@ -1,8 +1,8 @@
-<section id="complaints-view" class="space-y-6 w-full" [class.hidden-view]="!active">
+﻿<section id="complaints-view" class="space-y-6 w-full" [class.hidden-view]="!active">
   <div class="flex items-center gap-4" style="margin-bottom: 30px;">
     <button
       type="button"
-      (click)="backRequested.emit()"
+      (click)="showUserDetail ? userDetailBackRequested.emit() : backRequested.emit()"
       class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 shadow-sm transition-all active:scale-90"
     >
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -14,84 +14,272 @@
       <h3 class="text-2xl font-bold text-slate-800">
         Panel administrativo: <span class="logo-accent">Denuncias</span>
       </h3>
-      <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
+      <p class="text-sm text-slate-500 mt-1">{{ showUserDetail ? 'Detalle de usuario denunciado' : headerSubtitle }}</p>
     </div>
   </div>
 
-  <div class="glass-card p-6 text-slate-500 text-sm" *ngIf="loadingComplaints">
-    Cargando denuncias...
-  </div>
+  <ng-container *ngIf="showUserDetail; else complaintsListView">
+    <div class="complaint-detail-page">
+      <div class="complaint-record-inline">
+        <ng-container *ngIf="!userRecordLoading; else userRecordLoadingState">
+          <div class="complaint-record-inline__top-row">
+            <div class="complaint-record-inline__identity-wrap">
+              <div class="complaint-record-inline__avatar">{{ initials }}</div>
+              <div class="complaint-record-inline__identity">
+                <p class="complaint-record-inline__name">{{ resolvedName }}</p>
+                <p class="complaint-record-inline__meta">Usuario desde: {{ registrationDateLabel }}</p>
+              </div>
+            </div>
 
-  <div class="glass-card p-6 text-slate-500 text-sm" *ngIf="!loadingComplaints && complaintsItems.length === 0">
-    {{ complaintsEmptyText }}
-  </div>
+            <div class="complaint-record-inline__metrics">
+              <div class="complaint-record-inline__counter">
+                <div class="complaint-record-inline__counter-circle complaint-record-inline__counter-circle--red">
+                  {{ totalRecibidas }}
+                </div>
+                <p>Recibidas</p>
+              </div>
+              <div class="complaint-record-inline__counter">
+                <div class="complaint-record-inline__counter-circle complaint-record-inline__counter-circle--blue">
+                  {{ totalRealizadas }}
+                </div>
+                <p>Realizadas</p>
+              </div>
+            </div>
 
-  <div class="space-y-4" *ngIf="!loadingComplaints && complaintsItems.length > 0">
-    <article
-      *ngFor="let item of complaintsItems"
-      class="complaint-card"
-      [class.complaint-card--pending]="!item.leida"
-      (click)="complaintClicked.emit(item)"
-    >
-      <div class="complaint-card__indicator" [class.priority-green]="item.leida" [class.priority-red]="!item.leida"></div>
+            <div class="complaint-record-inline__actions">
+              <button
+                type="button"
+                class="complaint-record-inline__btn complaint-record-inline__btn--warning"
+                [disabled]="userId <= 0 || isAccountSuspended"
+                (click)="warningRequested.emit(userId)"
+              >
+                Enviar advertencia
+              </button>
+              <button
+                type="button"
+                class="complaint-record-inline__btn complaint-record-inline__btn--danger"
+                [disabled]="userId <= 0 || isAccountSuspended"
+                (click)="suspendRequested.emit(userId)"
+              >
+                Suspender cuenta
+              </button>
+              <button
+                type="button"
+                class="complaint-record-inline__btn complaint-record-inline__btn--neutral"
+                [disabled]="userId <= 0"
+                (click)="profileRequested.emit(userId)"
+              >
+                Ver perfil completo
+              </button>
+            </div>
+          </div>
 
-      <div class="complaint-card__header">
-        <div class="complaint-card__user-info">
-          <h3>
-            <button type="button" class="complaint-card__name-link" (click)="onReporterNameClick(item, $event)">
-              {{ getComplaintReporterLabel(item) }}
-            </button>
-          </h3>
-          <p>
-            Contra
-            <button type="button" class="complaint-card__name-link" (click)="onTargetNameClick(item, $event)">
-              {{ getComplaintTargetLabel(item) }}
-            </button>
-          </p>
+          <div class="complaint-record-inline__divider"></div>
+
+          <div class="complaint-record-inline__bottom-row">
+            <div class="complaint-record-inline__reason-wrap">
+              <p class="complaint-record-inline__section-title">Motivos del reporte</p>
+              <div *ngIf="groupedMotivoEntries.length === 0" class="complaint-record-inline__reason-empty">
+                Sin motivos registrados.
+              </div>
+              <div *ngFor="let entry of groupedMotivoEntries" class="complaint-record-inline__reason-item">
+                <div class="complaint-record-inline__reason-row">
+                  <span>{{ entry.label }}</span>
+                  <span class="complaint-record-inline__reason-count">{{ entry.count }} denuncias</span>
+                </div>
+                <div class="complaint-record-inline__bar">
+                  <div class="complaint-record-inline__bar-fill" [style.width.%]="entry.percent"></div>
+                </div>
+                <div class="complaint-record-inline__reason-percent">{{ entry.percent }}%</div>
+              </div>
+            </div>
+
+            <div class="complaint-record-inline__summary">
+              <p class="complaint-record-inline__section-title">Resumen de actividad</p>
+              <div class="complaint-record-inline__summary-grid">
+                <div class="complaint-record-inline__summary-item">
+                  <span class="complaint-record-inline__summary-label">Primera denuncia</span>
+                  <span class="complaint-record-inline__summary-value">{{ firstComplaintDateLabel }}</span>
+                </div>
+                <div class="complaint-record-inline__summary-item">
+                  <span class="complaint-record-inline__summary-label">Ultima denuncia</span>
+                  <span class="complaint-record-inline__summary-value">{{ lastComplaintDateLabel }}</span>
+                </div>
+                <div class="complaint-record-inline__summary-item">
+                  <span class="complaint-record-inline__summary-label">Denunciantes unicos</span>
+                  <span class="complaint-record-inline__summary-value">{{ uniqueReportersCount }}</span>
+                </div>
+                <div class="complaint-record-inline__summary-item">
+                  <span class="complaint-record-inline__summary-label">Estado de cuenta</span>
+                  <span class="complaint-record-inline__summary-value">
+                    <span class="complaint-record-inline__status-badge" [ngClass]="accountStatusClass">
+                      {{ accountStatusLabel }}
+                    </span>
+                  </span>
+                </div>
+              </div>
+
+              <div class="complaint-record-inline__actions-table">
+                <div class="complaint-record-inline__actions-head">
+                  <span>Acciones administrativas</span>
+                </div>
+                <div class="complaint-record-inline__actions-body" *ngIf="hasModerationHistory; else noActionsState">
+                  <div
+                    *ngFor="let h of moderationHistoryPreview"
+                    class="complaint-record-inline__actions-row"
+                  >
+                    <span
+                      class="complaint-record-inline__action-badge"
+                      [ngClass]="moderationTypeClass(h.tipo)"
+                    >
+                      {{ formatModerationType(h.tipo) }}
+                    </span>
+                    <span class="complaint-record-inline__action-date">
+                      {{ getModerationDateLabel(h) }}
+                    </span>
+                    <span
+                      *ngIf="h.motivo || h.descripcion"
+                      class="complaint-record-inline__action-description"
+                    >
+                      {{ h.motivo || h.descripcion }}
+                    </span>
+                  </div>
+                </div>
+                <ng-template #noActionsState>
+                  <div class="complaint-record-inline__actions-empty">{{ warningsInfoText }}</div>
+                </ng-template>
+              </div>
+            </div>
+          </div>
+        </ng-container>
+      </div>
+
+      <ng-template #userRecordLoadingState>
+        <div class="glass-card p-6 text-slate-500 text-sm">Cargando expediente...</div>
+      </ng-template>
+
+      <div class="glass-card p-6" *ngIf="!userRecordLoading">
+        <h4 class="complaint-received-title mb-4">
+          <span class="complaint-received-title__badge">Sección</span>
+          <span>Denuncias recibidas</span>
+        </h4>
+
+        <div class="text-slate-500 text-sm" *ngIf="receivedComplaints.length === 0">
+          No hay denuncias recibidas para mostrar.
         </div>
 
-        <div class="complaint-card__badge-container">
-          <span class="complaint-card__badge" [class.badge-green]="item.leida" [class.badge-red]="!item.leida">
-            {{ item.leida ? 'Leída' : 'Pendiente' }}
-          </span>
+        <div class="space-y-3" *ngIf="receivedComplaints.length > 0">
+          <article
+            *ngFor="let item of receivedComplaints"
+            class="complaint-card complaint-received-item"
+            [class.complaint-card--pending]="!item.leida"
+            (click)="complaintClicked.emit(item)"
+          >
+            <div class="complaint-card__indicator" [class.priority-green]="item.leida" [class.priority-red]="!item.leida"></div>
+
+            <div class="complaint-card__header">
+              <div class="complaint-card__user-info">
+                <h3>Denuncia registrada #DEN-{{ item.id || 0 }}</h3>
+                <p>Denunciante: {{ getComplaintReporterLabel(item) }}</p>
+              </div>
+              <div class="complaint-card__badge-container">
+                <span class="complaint-card__badge" [class.badge-green]="item.leida" [class.badge-red]="!item.leida">
+                {{ item.leida ? 'Leida' : 'Pendiente' }}
+              </span>
+              </div>
+            </div>
+
+            <p class="complaint-card__reason">{{ item.motivo || 'Sin motivo' }}</p>
+            <p class="complaint-card__message">"{{ item.detalle || 'Sin detalle.' }}"</p>
+
+            <div class="complaint-card__footer">
+              <p class="complaint-card__timestamp" *ngIf="item.createdAt">
+                {{ item.createdAt | date:'dd/MM/yyyy HH:mm' }}
+              </p>
+              <span class="complaint-card__action">Ver detalle</span>
+            </div>
+          </article>
         </div>
       </div>
+    </div>
+  </ng-container>
 
-      <div>
-        <span class="complaint-card__reason">{{ item.motivo || 'Sin motivo especificado.' }}</span>
-      </div>
+  <ng-template #complaintsListView>
+    <div class="glass-card p-6 text-slate-500 text-sm" *ngIf="loadingComplaints">
+      Cargando denuncias...
+    </div>
 
-      <div class="complaint-card__message">
-        "{{ item.detalle || 'Sin detalle.' }}"
-      </div>
+    <div class="glass-card p-6 text-slate-500 text-sm" *ngIf="!loadingComplaints && complaintsItems.length === 0">
+      {{ complaintsEmptyText }}
+    </div>
 
-      <div class="complaint-card__footer">
-        <div class="complaint-card__timestamp" *ngIf="item.createdAt">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          Enviada: {{ item.createdAt | date:'dd/MM/yyyy HH:mm' }}
+    <div class="space-y-4" *ngIf="!loadingComplaints && complaintsItems.length > 0">
+      <article
+        *ngFor="let item of complaintsItems"
+        class="complaint-card"
+        [class.complaint-card--pending]="!item.leida"
+        (click)="complaintClicked.emit(item)"
+      >
+        <div class="complaint-card__indicator" [class.priority-green]="item.leida" [class.priority-red]="!item.leida"></div>
+
+        <div class="complaint-card__header">
+          <div class="complaint-card__user-info">
+            <h3>
+              <button type="button" class="complaint-card__name-link" (click)="onReporterNameClick(item, $event)">
+                {{ getComplaintReporterLabel(item) }}
+              </button>
+            </h3>
+            <p>
+              Contra
+              <button type="button" class="complaint-card__name-link" (click)="onTargetNameClick(item, $event)">
+                {{ getComplaintTargetLabel(item) }}
+              </button>
+            </p>
+          </div>
+
+          <div class="complaint-card__badge-container">
+            <span class="complaint-card__badge" [class.badge-green]="item.leida" [class.badge-red]="!item.leida">
+              {{ item.leida ? 'Leida' : 'Pendiente' }}
+            </span>
+          </div>
         </div>
 
-        <button type="button" class="complaint-card__action">
-          Click para revisar detalle
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-      </div>
-    </article>
-  </div>
+        <div>
+          <span class="complaint-card__reason">{{ item.motivo || 'Sin motivo especificado.' }}</span>
+        </div>
 
-  <app-admin-pagination
-    *ngIf="!loadingComplaints && complaintsTotalElements > 0"
-    [currentPage]="complaintsPage"
-    [totalPages]="complaintsTotalPages"
-    [totalElements]="complaintsTotalElements"
-    [itemLabel]="'denuncias'"
-    [loading]="loadingComplaints"
-    [isLastPage]="complaintsIsLastPage"
-    (previous)="prevPageRequested.emit()"
-    (next)="nextPageRequested.emit()"
-  ></app-admin-pagination>
+        <div class="complaint-card__message">
+          "{{ item.detalle || 'Sin detalle.' }}"
+        </div>
+
+        <div class="complaint-card__footer">
+          <div class="complaint-card__timestamp" *ngIf="item.createdAt">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Enviada: {{ item.createdAt | date:'dd/MM/yyyy HH:mm' }}
+          </div>
+
+          <button type="button" class="complaint-card__action">
+            Click para revisar detalle
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      </article>
+    </div>
+
+    <app-admin-pagination
+      *ngIf="!loadingComplaints && complaintsTotalElements > 0"
+      [currentPage]="complaintsPage"
+      [totalPages]="complaintsTotalPages"
+      [totalElements]="complaintsTotalElements"
+      [itemLabel]="'denuncias'"
+      [loading]="loadingComplaints"
+      [isLastPage]="complaintsIsLastPage"
+      (previous)="prevPageRequested.emit()"
+      (next)="nextPageRequested.emit()"
+    ></app-admin-pagination>
+  </ng-template>
 </section>

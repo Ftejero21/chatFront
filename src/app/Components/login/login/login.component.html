@@ -173,32 +173,33 @@
       </form>
     </section>
 
-    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1080;">
-      <div
-        *ngFor="let t of toasts"
-        class="toast show align-items-center text-white border-0 mb-2"
-        role="alert"
-        aria-live="assertive"
-        aria-atomic="true"
-        [ngClass]="{
-          'bg-danger': t.variant === 'danger',
-          'bg-success': t.variant === 'success',
-          'bg-warning text-dark': t.variant === 'warning',
-          'bg-info': t.variant === 'info'
-        }"
-      >
-        <div class="d-flex">
-          <div class="toast-body">
-            <strong *ngIf="t.title">{{ t.title }}:</strong> {{ t.message }}
-          </div>
-          <button
-            type="button"
-            class="btn-close btn-close-white me-2 m-auto"
-            aria-label="Close"
-            (click)="dismissToast(t.id)"
-          ></button>
-        </div>
+  </div>
+</div>
+
+<div class="toast-container position-fixed top-0 end-0 p-2" style="z-index: 2147483647;">
+  <div
+    *ngFor="let t of toasts"
+    class="toast show align-items-center text-white border-0 mb-2"
+    role="alert"
+    aria-live="assertive"
+    aria-atomic="true"
+    [ngClass]="{
+      'bg-danger': t.variant === 'danger',
+      'bg-success': t.variant === 'success',
+      'bg-warning text-dark': t.variant === 'warning',
+      'bg-info': t.variant === 'info'
+    }"
+  >
+    <div class="d-flex">
+      <div class="toast-body">
+        <strong *ngIf="t.title">{{ t.title }}:</strong> {{ t.message }}
       </div>
+      <button
+        type="button"
+        class="btn-close btn-close-white me-2 m-auto"
+        aria-label="Close"
+        (click)="dismissToast(t.id)"
+      ></button>
     </div>
   </div>
 </div>

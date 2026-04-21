@@ -21,6 +21,7 @@ export class SessionService {
     'rememberMe',
     'usuarioFoto',
     'bloqueadosIds',
+    'bloqueadosPorDenunciaIds',
     'meHanBloqueadoIds',
     'leftGroupIds',
     'handledInviteIds',

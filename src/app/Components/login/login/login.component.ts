@@ -629,12 +629,14 @@ export class LoginComponent implements OnInit, OnDestroy {
     );
 
     if (usuario?.foto) localStorage.setItem('usuarioFoto', String(usuario.foto));
-    if (usuario?.bloqueadosIds) {
-      localStorage.setItem(
-        'bloqueadosIds',
-        JSON.stringify(usuario.bloqueadosIds)
-      );
-    }
+    localStorage.setItem(
+      'bloqueadosIds',
+      JSON.stringify(this.extractBlockedIds(usuario))
+    );
+    localStorage.setItem(
+      'bloqueadosPorDenunciaIds',
+      JSON.stringify(this.extractBlockedByReportIds(usuario))
+    );
     if (usuario?.meHanBloqueadoIds) {
       localStorage.setItem(
         'meHanBloqueadoIds',
@@ -647,12 +649,7 @@ export class LoginComponent implements OnInit, OnDestroy {
       if (!ready) return;
 
       if (source === 'login') {
-        this.showToast(
-          'Sesión iniciada correctamente (Claves E2E listas)',
-          'success',
-          'Éxito',
-          2000
-        );
+        this.toasts = [];
         const isAdmin = Array.isArray(usuario?.roles)
           ? usuario.roles.includes('ADMIN')
           : false;
@@ -661,8 +658,10 @@ export class LoginComponent implements OnInit, OnDestroy {
       }
 
       if (source === 'register') {
+        this.toasts = [];
         sessionStorage.setItem(this.OPEN_PROFILE_AFTER_REGISTER_KEY, 'true');
       }
+      this.toasts = [];
       this.router.navigate(['/inicio']);
     } catch (e) {
       console.error('Error criptográfico', e);
@@ -1077,6 +1076,50 @@ export class LoginComponent implements OnInit, OnDestroy {
       localStorage.setItem('forAdminPrivateKey', key);
       return;
     }
+  }
+
+  private extractBlockedIds(usuario: UsuarioDTO | null | undefined): number[] {
+    const relations = Array.isArray((usuario as any)?.bloqueados)
+      ? (usuario as any).bloqueados
+      : [];
+    const relationIds = relations
+      .map((x: any) => Number(x?.userId || 0))
+      .filter((id: number) => Number.isFinite(id) && id > 0);
+    if (relationIds.length > 0) return Array.from(new Set(relationIds));
+
+    const legacy = Array.isArray((usuario as any)?.bloqueadosIds)
+      ? (usuario as any).bloqueadosIds
+      : [];
+    return Array.from(
+      new Set(
+        legacy
+          .map((x: any) => Number(x || 0))
+          .filter((id: number) => Number.isFinite(id) && id > 0)
+      )
+    );
+  }
+
+  private extractBlockedByReportIds(
+    usuario: UsuarioDTO | null | undefined
+  ): number[] {
+    const relations = Array.isArray((usuario as any)?.bloqueados)
+      ? (usuario as any).bloqueados
+      : [];
+    const reportSources = new Set(['DENUNCIA', 'REPORT']);
+    return Array.from(
+      new Set(
+        relations
+          .map((x: any) => ({
+            id: Number(x?.userId || 0),
+            source: String(x?.source || '').trim().toUpperCase(),
+          }))
+          .filter(
+            (x: any) =>
+              Number.isFinite(x.id) && x.id > 0 && reportSources.has(x.source)
+          )
+          .map((x: any) => x.id)
+      )
+    );
   }
 
   private showToast(

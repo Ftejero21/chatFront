@@ -586,9 +586,17 @@
       [complaintsTotalPages]="complaintsTotalPages"
       [complaintsIsLastPage]="complaintsIsLastPage"
       [complaintsTotalElements]="complaintsTotalElements"
+      [showUserDetail]="complaintUserRecordOpen"
+      [userRecordLoading]="complaintUserRecordLoading"
+      [userRecord]="complaintUserRecord"
+      [userRecordFallbackName]="complaintUserRecordFallbackName"
       (backRequested)="showDashboard()"
+      (userDetailBackRequested)="closeComplaintUserRecord()"
       (complaintClicked)="onComplaintCardClick($event)"
       (userNameClicked)="openComplaintUserRecord($event)"
+      (warningRequested)="onComplaintUserWarning($event)"
+      (suspendRequested)="onComplaintUserSuspend($event)"
+      (profileRequested)="onComplaintUserProfile($event)"
       (prevPageRequested)="prevComplaintsPage()"
       (nextPageRequested)="nextComplaintsPage()"
 ></app-admin-complaints-section>
@@ -1057,16 +1065,6 @@
       [headerSubtitle]="headerSubtitle"
       (backRequested)="showDashboard()"
 ></app-admin-scheduled-section>
-  <app-admin-complaint-user-record-popup
-    [open]="complaintUserRecordOpen"
-    [loading]="complaintUserRecordLoading"
-    [expediente]="complaintUserRecord"
-    [fallbackName]="complaintUserRecordFallbackName"
-    (closed)="closeComplaintUserRecord()"
-    (warningRequested)="onComplaintUserWarning($event)"
-    (suspendRequested)="onComplaintUserSuspend($event)"
-    (profileRequested)="onComplaintUserProfile($event)"
-  ></app-admin-complaint-user-record-popup>
   <app-file-preview-viewer
     [open]="showAdminFilePreview"
     [fileUrl]="adminFilePreviewSrc"

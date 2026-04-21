@@ -29,7 +29,6 @@ import { ReportUserPopupComponent } from './Components/popup/report-user-popup/r
 import { AdminMessageComposerComponent } from './Components/administracion/admin-message-composer/admin-message-composer.component';
 import { AdminEmailPreviewPopupComponent } from './Components/popup/admin-email-preview-popup/admin-email-preview-popup.component';
 import { AdminScheduleSendPopupComponent } from './Components/popup/admin-schedule-send-popup/admin-schedule-send-popup.component';
-import { AdminComplaintUserRecordPopupComponent } from './Components/popup/admin-complaint-user-record-popup/admin-complaint-user-record-popup.component';
 import { AdminScheduledMessagesComponent } from './Components/administracion/admin-scheduled-messages/admin-scheduled-messages.component';
 import { AdminReportsSectionComponent } from './Components/administracion/admin-reports-section/admin-reports-section.component';
 import { AdminComplaintsSectionComponent } from './Components/administracion/admin-complaints-section/admin-complaints-section.component';
@@ -62,7 +61,6 @@ import { AdminPaginationComponent } from './Components/shared/admin-pagination/a
     AdminMessageComposerComponent,
     AdminEmailPreviewPopupComponent,
     AdminScheduleSendPopupComponent,
-    AdminComplaintUserRecordPopupComponent,
     AdminScheduledMessagesComponent,
     AdminReportsSectionComponent,
     AdminComplaintsSectionComponent,

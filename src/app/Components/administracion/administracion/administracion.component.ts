@@ -662,6 +662,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   }
 
   public showComplaintsView(): void {
+    this.closeComplaintUserRecord();
     this.isDashboardView = false;
     this.isReportsView = false;
     this.isComplaintsView = true;
@@ -4093,6 +4094,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   }
 
   showDashboard() {
+    this.closeComplaintUserRecord();
     this.isDashboardView = true;
     this.isReportsView = false;
     this.isComplaintsView = false;
@@ -5219,6 +5221,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       const response: AdminDirectMessageResponseDTO = await firstValueFrom(
         this.chatService.enviarMensajesDirectosAdmin({
           userIds: [recipientId],
+          origen: 'denuncias',
           encryptedPayloads: [{ userId: recipientId, contenido }],
         })
       );
@@ -5229,9 +5232,19 @@ export class AdministracionComponent implements OnInit, OnDestroy {
         const status = String(item?.status || '').trim().toUpperCase();
         return status === 'SENT' || status === 'SUCCESS' || status === 'OK';
       });
+      const failedByItem = responseItems.some((item) => {
+        if (item?.ok === false) return true;
+        const status = String(item?.status || '').trim().toUpperCase();
+        return status === 'FAILED' || status === 'ERROR';
+      });
       const sentCount = Math.max(Number(response?.sentCount || 0), sentByItem ? 1 : 0);
+      const explicitFailedCount = Number(response?.failedCount || 0);
+      const treatAsSuccessFrom200 =
+        response?.ok === true &&
+        !failedByItem &&
+        explicitFailedCount <= 0;
 
-      if (sentCount > 0) {
+      if (sentCount > 0 || treatAsSuccessFrom200) {
         await Swal.fire('Advertencia enviada', 'El mensaje de advertencia se envio correctamente.', 'success');
         return;
       }
@@ -5264,7 +5277,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
     const motivoInicial = this.buildAutoSuspendReason(userId);
     this.closeComplaintUserRecord();
-    await this.banUsuario(usuario, motivoInicial);
+    await this.banUsuario(usuario, motivoInicial, 'denuncias');
   }
 
   public onComplaintUserProfile(userIdRaw: number): void {
@@ -5296,10 +5309,19 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     return {
       userId: Number(raw?.userId || fallbackUserId),
       nombre: String(raw?.nombre || '').trim() || this.complaintUserRecordFallbackName || 'Usuario',
+      fechaRegistro: String(raw?.fechaRegistro || raw?.createdAt || raw?.usuarioDesde || '').trim() || null,
       totalDenunciasRecibidas: Math.max(0, Number(raw?.totalDenunciasRecibidas || 0)),
       totalDenunciasRealizadas: Math.max(0, Number(raw?.totalDenunciasRealizadas || 0)),
       conteoPorMotivo: map,
       ultimasCincoDenuncias: ultimas,
+      cuentaActiva:
+        typeof raw?.cuentaActiva === 'boolean'
+          ? raw.cuentaActiva
+          : (typeof raw?.activo === 'boolean' ? raw.activo : null),
+      estadoCuenta: String(raw?.estadoCuenta || raw?.estado || '').trim() || null,
+      historialModeracion: Array.isArray(raw?.historialModeracion)
+        ? raw.historialModeracion
+        : (Array.isArray(raw?.moderationHistory) ? raw.moderationHistory : []),
     };
   }
 
@@ -5476,7 +5498,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     });
   }
 
-   async banUsuario(usuario: any, motivoInicial: string = '') {
+   async banUsuario(usuario: any, motivoInicial: string = '', origen: string = '') {
     const { value: motivo } = await Swal.fire({
       title: '',
       html: `
@@ -5546,7 +5568,13 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
     if (!result.isConfirmed) return;
 
-    this.authService.banearUsuario(Number(usuario.id), (motivo || '').trim()).subscribe({
+    this.authService
+      .banearUsuario(
+        Number(usuario.id),
+        (motivo || '').trim(),
+        String(origen || '').trim() || undefined
+      )
+      .subscribe({
       next: () => {
         Swal.fire('Usuario baneado!', `${usuario.nombre} ha sido baneado correctamente.`, 'success');
         usuario.activo = false;
