@@ -303,7 +303,19 @@ export class AuthService {
     return this.http.post<{ mensaje: string }>(`${this.baseUrl}/perfil/password/cambiar`, { code, newPassword });
   }
 
-  actualizarPerfil(payload: { nombre: string; apellido: string; foto: string }): Observable<UsuarioDTO> {
+  actualizarPerfil(payload: {
+    nombre: string;
+    apellido: string;
+    foto: string;
+    dni: string;
+    telefono: string;
+    fechaNacimiento: string;
+    genero: string;
+    direccion: string;
+    nacionalidad: string;
+    ocupacion: string;
+    instagram: string;
+  }): Observable<UsuarioDTO> {
     return this.http.put<UsuarioDTO>(`${this.baseUrl}/perfil`, payload);
   }
 

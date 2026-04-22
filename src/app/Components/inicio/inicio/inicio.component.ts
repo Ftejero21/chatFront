@@ -10253,13 +10253,21 @@ private async decryptPreviewString(
       nombre: payload.nombre,
       apellido: payload.apellido,
       foto: payload.foto || '',
+      dni: payload.dni || '',
+      telefono: payload.telefono || '',
+      fechaNacimiento: payload.fechaNacimiento || '',
+      genero: payload.genero || '',
+      direccion: payload.direccion || '',
+      nacionalidad: payload.nacionalidad || '',
+      ocupacion: payload.ocupacion || '',
+      instagram: payload.instagram || '',
     };
     const emailActual = (this.perfilUsuario?.email || '').trim();
     const emailNuevo = (payload.email || '').trim();
     if (emailNuevo && emailNuevo !== emailActual) {
       Swal.fire(
         'Aviso',
-        'El endpoint actual de perfil no permite actualizar el email. Se guardarán nombre, apellidos y foto.',
+        'El endpoint actual de perfil no permite actualizar el email. Se guardarán nombre, apellidos, foto e información adicional.',
         'info'
       );
     }
@@ -10350,14 +10358,33 @@ private async decryptPreviewString(
   }
 
   private hasProfileDataChanges(payload: PerfilUsuarioSavePayload): boolean {
+    const perfil = (this.perfilUsuario || {}) as UsuarioDTO;
     const nombreActual = (this.perfilUsuario?.nombre || '').trim();
     const apellidoActual = (this.perfilUsuario?.apellido || '').trim();
     const fotoActual = (this.usuarioFotoUrl || this.perfilUsuario?.foto || '').trim();
+    const dniActual = String(perfil?.dni || perfil?.documento || '').trim();
+    const telefonoActual = String(perfil?.telefono || perfil?.phone || '').trim();
+    const fechaNacimientoActual = String(
+      perfil?.fechaNacimiento || perfil?.fecha_nacimiento || perfil?.birthDate || ''
+    ).trim();
+    const generoActual = String(perfil?.genero || perfil?.gender || '').trim();
+    const direccionActual = String(perfil?.direccion || perfil?.address || '').trim();
+    const nacionalidadActual = String(perfil?.nacionalidad || perfil?.nationality || '').trim();
+    const ocupacionActual = String(perfil?.ocupacion || perfil?.profesion || '').trim();
+    const instagramActual = String(perfil?.instagram || perfil?.instagramHandle || '').trim();
 
     return (
       (payload.nombre || '').trim() !== nombreActual ||
       (payload.apellido || '').trim() !== apellidoActual ||
-      (payload.foto || '').trim() !== fotoActual
+      (payload.foto || '').trim() !== fotoActual ||
+      (payload.dni || '').trim() !== dniActual ||
+      (payload.telefono || '').trim() !== telefonoActual ||
+      (payload.fechaNacimiento || '').trim() !== fechaNacimientoActual ||
+      (payload.genero || '').trim() !== generoActual ||
+      (payload.direccion || '').trim() !== direccionActual ||
+      (payload.nacionalidad || '').trim() !== nacionalidadActual ||
+      (payload.ocupacion || '').trim() !== ocupacionActual ||
+      (payload.instagram || '').trim() !== instagramActual
     );
   }
 
