@@ -2840,22 +2840,55 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     rawContenido: unknown,
     e2eAudioPayload?: AdminAudioE2EPayload | null
   ): string | null {
+    const serializedPayload = this.parseAdminPayload(
+      this.extractAdminPayloadCandidate(rawContenido)
+    );
+    const serializedType = String(serializedPayload?.type || '')
+      .trim()
+      .toUpperCase();
+    const serializedMime = String(
+      serializedPayload?.audioMime ??
+        serializedPayload?.mime ??
+        serializedPayload?.mediaMime ??
+        ''
+    )
+      .trim()
+      .toLowerCase();
+    const allowGenericMediaPath =
+      serializedType.includes('AUDIO') ||
+      serializedType === 'AUDIO' ||
+      serializedMime.startsWith('audio/');
+
     const candidates = [
       e2eAudioPayload?.audioUrl ??
         this.parseAdminAudioE2EPayload(rawContenido)?.audioUrl,
       payload?.audioUrl,
+      payload?.audio_url,
       payload?.urlAudio,
+      payload?.url_audio,
       payload?.audioPath,
       payload?.audio_path,
       payload?.mediaUrl,
+      payload?.media_url,
+      serializedPayload?.audioUrl,
+      serializedPayload?.audio_url,
+      serializedPayload?.urlAudio,
+      serializedPayload?.url_audio,
+      serializedPayload?.audioPath,
+      serializedPayload?.audio_path,
+      serializedPayload?.mediaUrl,
+      serializedPayload?.media_url,
+      serializedPayload?.fileUrl,
+      serializedPayload?.archivoUrl,
       payload?.url,
+      serializedPayload?.url,
       rawContenido,
     ];
 
     for (const candidate of candidates) {
       const raw = String(candidate ?? '').trim();
       if (!raw) continue;
-      if (!this.isLikelyAudioUrl(raw)) continue;
+      if (!this.isLikelyAudioUrl(raw, allowGenericMediaPath)) continue;
       const resolved = resolveMediaUrl(raw, environment.backendBaseUrl) || raw;
       if (resolved) return resolved;
     }
@@ -3398,7 +3431,10 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     return decryptPromise;
   }
 
-  private isLikelyAudioUrl(value: string): boolean {
+  private isLikelyAudioUrl(
+    value: string,
+    allowGenericMediaPath: boolean = false
+  ): boolean {
     const raw = String(value || '').trim();
     if (!raw) return false;
     const lower = raw.toLowerCase();
@@ -3407,6 +3443,16 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       lower.includes('/api/uploads/audio') ||
       lower.includes('/uploads/audio') ||
       lower.includes('/audio/')
+    ) {
+      return true;
+    }
+    if (
+      allowGenericMediaPath &&
+      (lower.includes('/api/uploads/media') ||
+        lower.includes('/uploads/media') ||
+        lower.includes('/api/uploads/file') ||
+        lower.includes('/uploads/file') ||
+        lower.includes('/files/'))
     ) {
       return true;
     }
@@ -5239,10 +5285,31 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       });
       const sentCount = Math.max(Number(response?.sentCount || 0), sentByItem ? 1 : 0);
       const explicitFailedCount = Number(response?.failedCount || 0);
+      const topLevelStatus = String((response as any)?.status || '')
+        .trim()
+        .toUpperCase();
+      const topLevelMessage = String(
+        response?.message || (response as any)?.mensaje || ''
+      )
+        .trim()
+        .toLowerCase();
+      const topLevelFailed =
+        topLevelStatus === 'FAILED' ||
+        topLevelStatus === 'ERROR' ||
+        /\b(error|fall[ao]|failed)\b/i.test(topLevelMessage);
+      const topLevelSuccess =
+        topLevelStatus === 'SENT' ||
+        topLevelStatus === 'SUCCESS' ||
+        topLevelStatus === 'OK' ||
+        /\b(ok|success|enviad[oa])\b/i.test(topLevelMessage);
       const treatAsSuccessFrom200 =
-        response?.ok === true &&
         !failedByItem &&
-        explicitFailedCount <= 0;
+        explicitFailedCount <= 0 &&
+        !topLevelFailed &&
+        (response?.ok === true ||
+          topLevelSuccess ||
+          sentCount > 0 ||
+          responseItems.length === 0);
 
       if (sentCount > 0 || treatAsSuccessFrom200) {
         await Swal.fire('Advertencia enviada', 'El mensaje de advertencia se envio correctamente.', 'success');
@@ -5251,6 +5318,10 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
       await Swal.fire('Envio fallido', 'No se pudo enviar la advertencia al usuario.', 'error');
     } catch (err) {
+      if (Number((err as any)?.status || 0) === 200) {
+        await Swal.fire('Advertencia enviada', 'El mensaje de advertencia se envio correctamente.', 'success');
+        return;
+      }
       console.error('Error enviando advertencia administrativa', err);
       await Swal.fire('Error', 'No se pudo enviar la advertencia al usuario.', 'error');
     } finally {
