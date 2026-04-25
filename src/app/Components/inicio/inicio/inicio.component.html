@@ -1541,7 +1541,7 @@
                 <button
                   type="button"
                   class="btn-compose-actions"
-                  [disabled]="attachmentUploading || haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin || noGroupRecipientsForSend"
+                  [disabled]="attachmentUploading || haSalidoDelGrupo || composerInteractionDisabled || noGroupRecipientsForSend"
                   [title]="attachmentUploading ? 'Subiendo archivo...' : 'Abrir acciones de mensaje'"
                   aria-label="Abrir acciones de mensaje"
                   (click)="toggleComposeActionsPopup($event)"
@@ -1580,8 +1580,8 @@
                   type="button"
                   class="btn-emoji"
                   [class.btn-emoji--active]="showEmojiPicker"
-                  [disabled]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin"
-                  [title]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin ? 'No disponible' : 'Abrir emoticonos'"
+                  [disabled]="haSalidoDelGrupo || composerInteractionDisabled"
+                  [title]="haSalidoDelGrupo || composerInteractionDisabled ? 'No disponible' : 'Abrir emoticonos'"
                   aria-label="Abrir emoticonos"
                   (click)="toggleEmojiPicker($event)"
                 >
@@ -1599,8 +1599,8 @@
                   type="button"
                   class="btn-temp-message"
                   [class.btn-temp-message--active]="isTemporaryMessageEnabledForActiveChat"
-                  [disabled]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin"
-                  [title]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin ? 'No disponible' : 'Mensajes temporales'"
+                  [disabled]="haSalidoDelGrupo || composerInteractionDisabled"
+                  [title]="haSalidoDelGrupo || composerInteractionDisabled ? 'No disponible' : 'Mensajes temporales'"
                   aria-label="Mensajes temporales"
                   (click)="toggleTemporaryMessagePopup($event)"
                 >
@@ -1642,25 +1642,25 @@
                 <textarea #messageInput [(ngModel)]="mensajeNuevo" (input)="onComposerInput()" (keydown)="onKeydown($event)" (keydown.enter)="onEnter($event)"
                   (click)="onMessageInputSelectionChange()" (keyup)="onMessageInputSelectionChange()"
                   (select)="onMessageInputSelectionChange()" (focus)="onMessageInputSelectionChange()"
-                  [placeholder]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario.' : 'Estás bloqueado por este usuario.') : 'Escribe un mensaje...')"
-                  class="input-mensaje" [disabled]="chatEstaBloqueado || chatGrupalCerradoPorAdmin" [readonly]="haSalidoDelGrupo"
+                  [placeholder]="composerPlaceholder"
+                  class="input-mensaje" [disabled]="composerInteractionDisabled" [readonly]="haSalidoDelGrupo"
                   [class.input-mensaje--loading]="aiLoading"
-                  [class.input-mensaje--salido]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin"
+                  [class.input-mensaje--salido]="haSalidoDelGrupo || composerInteractionDisabled"
                   [class.input-mensaje--with-draft-prefix]="shouldShowComposerDraftPrefix()"
                   [class.input-mensaje--replying]="!!mensajeRespuestaObjetivo || !!mensajeEdicionObjetivo"
-                  [title]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : ''))">
+                  [title]="composerDisabledReason ? composerDisabledReason : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : '')">
                 </textarea>
               </div>
               <button class="btn-mic"
-                [title]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Grabar audio'))"
-                (click)="startRecording()" [disabled]="haSalidoDelGrupo || chatEstaBloqueado || chatGrupalCerradoPorAdmin || noGroupRecipientsForSend"
-                [class.btn-disabled-block]="chatEstaBloqueado || chatGrupalCerradoPorAdmin">
+                [title]="composerDisabledReason ? composerDisabledReason : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Grabar audio')"
+                (click)="startRecording()" [disabled]="haSalidoDelGrupo || composerInteractionDisabled || noGroupRecipientsForSend"
+                [class.btn-disabled-block]="composerInteractionDisabled">
                 <i class="fas fa-microphone"></i>
               </button>
               <button class="btn-enviar"
-                [title]="chatGrupalCerradoPorAdmin ? chatGrupalCerradoMotivo : (chatEstaBloqueado ? (yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado') : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Enviar mensaje'))"
-                (click)="enviarMensajeDesdeComposer()" [disabled]="attachmentUploading || aiLoading || chatEstaBloqueado || chatGrupalCerradoPorAdmin || haSalidoDelGrupo || noGroupRecipientsForSend"
-                [class.btn-disabled-block]="chatEstaBloqueado || chatGrupalCerradoPorAdmin">
+                [title]="composerDisabledReason ? composerDisabledReason : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Enviar mensaje')"
+                (click)="enviarMensajeDesdeComposer()" [disabled]="attachmentUploading || aiLoading || composerInteractionDisabled || haSalidoDelGrupo || noGroupRecipientsForSend"
+                [class.btn-disabled-block]="composerInteractionDisabled">
                 <i class="fas fa-paper-plane"></i>
               </button>
             </div>

@@ -392,6 +392,8 @@ export class InicioComponent {
   public trackIndex = (_: number, __: unknown) => _;
 
   public mensajeNuevo: string = '';
+  public readonly adminDirectReplyDisabledPlaceholder =
+    'No se puede contestar a este mensaje ya que se trata de un Administrador.';
   public readonly incomingReactionChoices = ['??', '??', '??', '??', '??'];
   private readonly incomingReactionChoicesSet = new Set(
     this.incomingReactionChoices
@@ -817,6 +819,7 @@ export class InicioComponent {
   private temporarySecondsByChatId = new Map<number, number>();
   private mutedChatUntilByChatId = new Map<number, number | null>();
   private closedGroupReasonByChatId = new Map<number, string>();
+  private adminDirectReadOnlyChatIds = new Set<number>();
   private readonly DEFAULT_GROUP_CHAT_CLOSED_REASON =
     'Este chat ha sido cerrado por administracion.';
   private readonly starredMessageIds = new Set<number>();
@@ -1236,24 +1239,40 @@ export class InicioComponent {
               return;
             }
             if (this.isAdminDirectChatExpiredEvent(mensajeRaw)) {
+              this.debugAdminWarningFlow('ws-admin-expired-event-raw', {
+                payload: this.extractAdminWarningDebugMeta(mensajeRaw),
+              });
               this.ngZone.run(() => {
                 this.handleAdminDirectChatExpiredEvent(mensajeRaw);
               });
               return;
             }
             if (this.isAdminDirectChatListUpdatedEvent(mensajeRaw)) {
+              this.debugAdminWarningFlow('ws-admin-list-updated-event-raw', {
+                chatId: Number((mensajeRaw as any)?.chatId || 0) || null,
+                ultimoMensajeId:
+                  Number((mensajeRaw as any)?.ultimoMensajeId || 0) || null,
+              });
               this.ngZone.run(() => {
                 this.handleAdminDirectChatListUpdatedEvent(mensajeRaw);
               });
               return;
             }
             if (this.isAdminDirectChatRemovedEvent(mensajeRaw)) {
+              this.debugAdminWarningFlow('ws-admin-removed-event-raw', {
+                chatId: Number((mensajeRaw as any)?.chatId || 0) || null,
+              });
               this.ngZone.run(() => {
                 this.handleAdminDirectChatRemovedEvent(mensajeRaw);
               });
               return;
             }
             let mensaje = mensajeRaw as MensajeDTO;
+            if (this.looksLikeAdminWarningMessage(mensajeRaw)) {
+              this.debugAdminWarningFlow('ws-message-before-decrypt', {
+                payload: this.extractAdminWarningDebugMeta(mensajeRaw),
+              });
+            }
             const wsEmisorId = Number(
               (mensaje as any)?.emisorId ?? (mensaje as any)?.emisor?.id ?? 0
             );
@@ -1287,8 +1306,14 @@ export class InicioComponent {
               mensajeId: Number(mensaje?.id),
               source: 'ws-individual-file',
             });
+            if (this.looksLikeAdminWarningMessage(mensaje)) {
+              this.debugAdminWarningFlow('ws-message-after-decrypt', {
+                payload: this.extractAdminWarningDebugMeta(mensaje),
+              });
+            }
             mensaje = this.normalizeMensajeEditadoFlag(mensaje);
             this.ngZone.run(async () => {
+              this.applyAdminDirectReadOnlyFromMessage(mensaje);
               const isSystemIncoming = this.isSystemMessage(mensaje);
               const isOwnGroupExpulsion =
                 this.maybeApplyGroupExpulsionStateFromMessage(mensaje);
@@ -1700,6 +1725,11 @@ export class InicioComponent {
           this.usuarioActualId,
           (mensaje) => {
             if (mensaje.activo !== false) return;
+            if (this.looksLikeAdminWarningMessage(mensaje)) {
+              this.debugAdminWarningFlow('ws-delete-event', {
+                payload: this.extractAdminWarningDebugMeta(mensaje),
+              });
+            }
             this.ngZone.run(() => this.aplicarEliminacionEnUI(mensaje));
           }
         );
@@ -1811,6 +1841,17 @@ export class InicioComponent {
             (chat as any)?.ultimoMensajeData ??
             (chat as any)?.ultimoMensajePayload ??
             null;
+          const adminDirectReadOnlySnapshot = this.isAdminDirectReadOnlySnapshot(
+            chat,
+            lastMsgSnapshot
+          );
+          if (!esGrupo && adminDirectReadOnlySnapshot) {
+            this.markAdminDirectChatReadOnly(chat?.id);
+          }
+          const adminDirectReadOnly =
+            !esGrupo &&
+            (adminDirectReadOnlySnapshot ||
+              this.adminDirectReadOnlyChatIds.has(Number(chat?.id)));
 
             return {
             ...chat,
@@ -1910,6 +1951,7 @@ export class InicioComponent {
               (chat as any)?.ultimoMensajeEmisorNombre ??
               (chat as any)?.ultimaMensajeEmisorNombre ??
               null,
+            __adminDirectReadOnly: adminDirectReadOnly,
             chatCerrado: esGrupo ? this.closedGroupReasonByChatId.has(groupId) : false,
             chatCerradoMotivo: closedReason || null,
             };
@@ -1942,9 +1984,11 @@ export class InicioComponent {
           void this.syncChatItemLastPreviewMedia(chat, null, 'chat-list-initial');
         }
 
-        // Ajuste defensivo: recalcula no leidos reales en chats individuales
-        // por si el backend envia un contador agregado incorrecto.
-        this.recalcularNoLeidosDesdeHistorial();
+        // Evita side-effects al iniciar sesión:
+        // GET /api/chat/mensajes/{chatId} puede marcar mensajes como leídos en backend.
+        // Si un admin direct es temporal (expires-after-read), ese fetch de recálculo
+        // puede expirar/ocultar el mensaje antes de que el usuario abra el chat.
+        // Mantenemos unreadCount del snapshot de /usuario/{id}/todos.
 
         // Suscribirse a TODOS los grupos (una vez por grupo)
         const groupChatIds = this.chats
@@ -2784,6 +2828,14 @@ export class InicioComponent {
     const previousChatId = Number(this.chatActual?.id || 0);
     const previousWasGroup = !!this.chatActual?.esGrupo;
     const nextChatId = Number(chat?.id || 0);
+    this.debugAdminWarningFlow('open-chat', {
+      previousChatId: previousChatId > 0 ? previousChatId : null,
+      previousWasGroup,
+      nextChatId: nextChatId > 0 ? nextChatId : null,
+      nextIsGroup: !!chat?.esGrupo,
+      nextReceptorId: Number(chat?.receptor?.id || 0) || null,
+      nextChatReadOnly: this.isTruthyFlag(chat?.__adminDirectReadOnly),
+    });
     if (
       previousWasGroup &&
       Number.isFinite(previousChatId) &&
@@ -2849,6 +2901,10 @@ export class InicioComponent {
 
     // Helper: carga inicial paginada (page=0,size=50)
     const loadMessages = () => {
+      this.debugAdminWarningFlow('open-chat-load-history', {
+        chatId: nextChatId > 0 ? nextChatId : null,
+        esGrupo: !!chat?.esGrupo,
+      });
       this.loadInitialMessagesPage(chat, leftSet);
     };
 
@@ -4378,6 +4434,99 @@ private async decryptPreviewString(
     return isSystemMessageLike(mensaje);
   }
 
+  private looksLikeAdminWarningMessage(mensaje: any): boolean {
+    if (!mensaje) return false;
+    const eventCode = String(mensaje?.systemEvent ?? mensaje?.evento ?? '')
+      .trim()
+      .toUpperCase();
+    const senderName = String(
+      mensaje?.emisorNombre ?? mensaje?.senderName ?? ''
+    )
+      .trim()
+      .toLowerCase();
+    const adminFlag = [
+      mensaje?.adminMessage,
+      mensaje?.admin_message,
+      mensaje?.fromAdmin,
+      mensaje?.from_admin,
+    ].some((value) => this.isTruthyFlag(value));
+    const temporalFlag = [
+      mensaje?.mensajeTemporal,
+      mensaje?.mensaje_temporal,
+      mensaje?.temporal,
+      mensaje?.isTemporal,
+    ].some((value) => this.isTruthyFlag(value));
+    return (
+      adminFlag ||
+      temporalFlag ||
+      senderName === 'admin' ||
+      eventCode.startsWith('ADMIN_DIRECT_CHAT_')
+    );
+  }
+
+  private extractAdminWarningDebugMeta(mensaje: any): Record<string, unknown> {
+    const rawContent = mensaje?.contenido;
+    const contentType = rawContent === null ? 'null' : typeof rawContent;
+    const contentLen =
+      typeof rawContent === 'string' ? rawContent.length : undefined;
+    const expiresAtRaw =
+      mensaje?.expiraEn ??
+      mensaje?.expira_en ??
+      mensaje?.expiresAt ??
+      mensaje?.expires_at ??
+      mensaje?.expireAt ??
+      mensaje?.expire_at ??
+      null;
+    const expiresAtMs = this.parseTimestampToMs(expiresAtRaw);
+
+    return {
+      id: Number(mensaje?.id || 0) || null,
+      chatId: Number(mensaje?.chatId || 0) || null,
+      emisorId: Number(mensaje?.emisorId || mensaje?.emisor?.id || 0) || null,
+      receptorId:
+        Number(mensaje?.receptorId || mensaje?.receptor?.id || 0) || null,
+      activo: mensaje?.activo,
+      leido: mensaje?.leido,
+      adminMessage:
+        mensaje?.adminMessage ?? mensaje?.admin_message ?? mensaje?.fromAdmin,
+      mensajeTemporal:
+        mensaje?.mensajeTemporal ??
+        mensaje?.mensaje_temporal ??
+        mensaje?.temporal ??
+        mensaje?.isTemporal,
+      estadoTemporal: mensaje?.estadoTemporal ?? mensaje?.estado_temporal ?? null,
+      motivoEliminacion:
+        mensaje?.motivoEliminacion ?? mensaje?.motivo_eliminacion ?? null,
+      expiredByPolicy:
+        mensaje?.expiredByPolicy ??
+        mensaje?.expired_by_policy ??
+        mensaje?.__ultimoTemporalExpired ??
+        null,
+      expiraEn: expiresAtRaw,
+      expiraEnMs: Number.isFinite(expiresAtMs) ? Number(expiresAtMs) : null,
+      systemEvent: mensaje?.systemEvent ?? mensaje?.evento ?? null,
+      senderName: mensaje?.emisorNombre ?? mensaje?.senderName ?? null,
+      tipo: mensaje?.tipo ?? null,
+      contenidoTipo: contentType,
+      contenidoLen: contentLen,
+    };
+  }
+
+  private debugAdminWarningFlow(
+    stage: string,
+    details?: Record<string, unknown>
+  ): void {
+    const activeChatId = Number(this.chatActual?.id || 0) || null;
+    const selectedChatId = Number(this.chatSeleccionadoId || 0) || null;
+    console.log(`[ADMIN-WARNING][${stage}]`, {
+      ts: new Date().toISOString(),
+      userId: Number(this.usuarioActualId || 0) || null,
+      activeChatId,
+      selectedChatId,
+      ...(details || {}),
+    });
+  }
+
   private isAdminDirectChatExpiredEvent(payload: any): boolean {
     const eventCode = String(payload?.systemEvent || payload?.evento || '')
       .trim()
@@ -4406,9 +4555,34 @@ private async decryptPreviewString(
       : payload?.id != null
         ? [payload.id]
         : [];
+    this.debugAdminWarningFlow('ws-admin-expired-handle-start', {
+      chatId: Number.isFinite(chatId) && chatId > 0 ? chatId : null,
+      expiredIds,
+      payload: this.extractAdminWarningDebugMeta(payload),
+    });
     for (const rawId of expiredIds) {
       const id = Number(rawId);
       if (!Number.isFinite(id) || id <= 0) continue;
+      const expirationCandidate = this.mergeDeletionPayloadWithLocalContext({
+        ...(payload || {}),
+        id,
+        chatId,
+        adminMessage: true,
+        mensajeTemporal: true,
+      } as MensajeDTO);
+      if (!this.isExpiredAdminBroadcastMessage(expirationCandidate)) {
+        this.debugAdminWarningFlow('ws-admin-expired-skip-not-expired', {
+          chatId,
+          messageId: id,
+          candidate: this.extractAdminWarningDebugMeta(expirationCandidate),
+        });
+        continue;
+      }
+      this.debugAdminWarningFlow('ws-admin-expired-apply', {
+        chatId,
+        messageId: id,
+        candidate: this.extractAdminWarningDebugMeta(expirationCandidate),
+      });
       this.aplicarEliminacionEnUI({
         ...(payload || {}),
         id,
@@ -4432,6 +4606,10 @@ private async decryptPreviewString(
         this.chatSeleccionadoId = null;
       }
     }
+    this.debugAdminWarningFlow('ws-admin-expired-handle-end', {
+      chatId: Number.isFinite(chatId) && chatId > 0 ? chatId : null,
+      remainingVisibleMessages: this.mensajesSeleccionados.length,
+    });
     this.cdr.markForCheck();
   }
 
@@ -4468,6 +4646,9 @@ private async decryptPreviewString(
     item.__ultimoTemporalStatus = null;
     item.__ultimoTemporalExpired = false;
     item.__ultimoTemporalExpiresAt = null;
+    item.__adminDirectReadOnly =
+      this.adminDirectReadOnlyChatIds.has(chatId) ||
+      this.isTruthyFlag(item?.__adminDirectReadOnly);
 
     this.chats = updateChatPreview(
       this.chats,
@@ -4497,8 +4678,44 @@ private async decryptPreviewString(
     return value === true || value === 1 || value === '1' || value === 'true';
   }
 
+  private isExplicitInactiveFlag(value: unknown): boolean {
+    return value === false || value === 0 || value === '0' || value === 'false';
+  }
+
+  private resolveTemporalExpiresAtMs(mensaje: any): number | null {
+    if (!mensaje) return null;
+    const candidates = [
+      mensaje?.expiraEn,
+      mensaje?.expira_en,
+      mensaje?.expiresAt,
+      mensaje?.expires_at,
+      mensaje?.expireAt,
+      mensaje?.expire_at,
+      mensaje?.__ultimoTemporalExpiresAt,
+      mensaje?.ultimoMensajeExpiraEn,
+      mensaje?.ultimaMensajeExpiraEn,
+      mensaje?.chatUltimoMensajeExpiraEn,
+    ];
+    for (const candidate of candidates) {
+      const parsed = this.parseTimestampToMs(candidate);
+      if (Number.isFinite(parsed) && Number(parsed) > 0) {
+        return Number(parsed);
+      }
+    }
+    return null;
+  }
+
   private isExpiredAdminBroadcastMessage(mensaje: any): boolean {
-    if (!mensaje || !this.isTemporalExpiredMessage(mensaje)) return false;
+    if (!mensaje) return false;
+    const temporalExpiredLike = this.isTemporalExpiredMessage(mensaje);
+    if (!temporalExpiredLike) {
+      if (this.looksLikeAdminWarningMessage(mensaje)) {
+        this.debugAdminWarningFlow('expired-eval-not-temporal-expired-like', {
+          payload: this.extractAdminWarningDebugMeta(mensaje),
+        });
+      }
+      return false;
+    }
 
     const adminFlag = [
       mensaje?.adminMessage,
@@ -4520,7 +4737,38 @@ private async decryptPreviewString(
       .trim()
       .toLowerCase();
 
-    return (adminFlag || senderName === 'admin') && temporalFlag;
+    if (!(adminFlag || senderName === 'admin') || !temporalFlag) {
+      this.debugAdminWarningFlow('expired-eval-not-admin-temporal', {
+        adminFlag,
+        temporalFlag,
+        senderName,
+        payload: this.extractAdminWarningDebugMeta(mensaje),
+      });
+      return false;
+    }
+
+    const inactiveFlag = this.isExplicitInactiveFlag(mensaje?.activo);
+    const expiredByPolicy = this.isTruthyFlag(
+      mensaje?.expiredByPolicy ??
+        mensaje?.expired_by_policy ??
+        mensaje?.__ultimoTemporalExpired
+    );
+    const expiresAtMs = this.resolveTemporalExpiresAtMs(mensaje);
+    const expiredByTime =
+      Number.isFinite(expiresAtMs) && Number(expiresAtMs) > 0
+        ? Date.now() >= Number(expiresAtMs)
+        : false;
+
+    const result = inactiveFlag || expiredByPolicy || expiredByTime;
+    this.debugAdminWarningFlow('expired-eval-final', {
+      inactiveFlag,
+      expiredByPolicy,
+      expiredByTime,
+      expiresAtMs: Number.isFinite(expiresAtMs) ? Number(expiresAtMs) : null,
+      payload: this.extractAdminWarningDebugMeta(mensaje),
+      result,
+    });
+    return result;
   }
 
   private shouldHideMessageFromTimeline(mensaje: any): boolean {
@@ -5641,6 +5889,7 @@ private async decryptPreviewString(
     this.closedGroupReasonByChatId.delete(normalizedChatId);
     this.groupRecipientSeedByChatId.delete(normalizedChatId);
     this.groupHistoryHiddenByChatId.delete(normalizedChatId);
+    this.adminDirectReadOnlyChatIds.delete(normalizedChatId);
     this.pendingGroupTextSendByChatId.delete(normalizedChatId);
     this.retryingGroupTextSendByChatId.delete(normalizedChatId);
     this.groupTextSendInFlightByChatId.delete(normalizedChatId);
@@ -6807,19 +7056,54 @@ private async decryptPreviewString(
     source: string
   ): Promise<MensajeDTO[]> {
     const lista = Array.isArray(mensajes) ? [...mensajes] : [];
+    this.debugAdminWarningFlow('history-decrypt-start', {
+      source,
+      chatId,
+      esGrupo,
+      totalMensajes: lista.length,
+      adminLikeIds: lista
+        .filter((m) => !esGrupo && this.looksLikeAdminWarningMessage(m))
+        .map((m) => Number((m as any)?.id || 0))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    });
     for (const m of lista) {
+      const isAdminLike = !esGrupo && this.looksLikeAdminWarningMessage(m);
+      if (isAdminLike) {
+        this.debugAdminWarningFlow('history-row-before', {
+          source,
+          payload: this.extractAdminWarningDebugMeta(m),
+        });
+      }
       Object.assign(m, this.normalizeMensajeEditadoFlag(m));
       if (this.isSystemMessage(m)) {
         const hideOwnExpulsion = this.maybeApplyGroupExpulsionStateFromMessage(m);
         if (hideOwnExpulsion) {
           (m as any).__hideFromTimeline = true;
+          if (isAdminLike) {
+            this.debugAdminWarningFlow('history-row-hidden-system-expulsion', {
+              source,
+              payload: this.extractAdminWarningDebugMeta(m),
+            });
+          }
           continue;
         }
         if (this.isPrivateExpulsionNoticeSystemMessage(m)) {
           (m as any).__hideFromTimeline = true;
+          if (isAdminLike) {
+            this.debugAdminWarningFlow('history-row-hidden-private-expulsion', {
+              source,
+              payload: this.extractAdminWarningDebugMeta(m),
+            });
+          }
           continue;
         }
         m.contenido = String(m?.contenido ?? '').trim();
+        if (isAdminLike) {
+          this.debugAdminWarningFlow('history-row-system-visible', {
+            source,
+            payload: this.extractAdminWarningDebugMeta(m),
+          });
+        }
         continue;
       }
       if (Number((m as any)?.activo) === 0 && !this.isTemporalExpiredMessage(m)) {
@@ -6829,13 +7113,31 @@ private async decryptPreviewString(
         Object.assign(m, normalizedDeleted);
         if (this.shouldPurgeDeletedMessageFromTimeline(normalizedDeleted)) {
           (m as any).__hideFromTimeline = true;
+          if (isAdminLike) {
+            this.debugAdminWarningFlow('history-row-hidden-deleted-retention', {
+              source,
+              payload: this.extractAdminWarningDebugMeta(m),
+            });
+          }
         } else {
           m.contenido = String(m?.contenido ?? '').trim();
+          if (isAdminLike) {
+            this.debugAdminWarningFlow('history-row-deleted-visible', {
+              source,
+              payload: this.extractAdminWarningDebugMeta(m),
+            });
+          }
         }
         continue;
       }
       if (this.isExpiredAdminBroadcastMessage(m)) {
         (m as any).__hideFromTimeline = true;
+        if (isAdminLike) {
+          this.debugAdminWarningFlow('history-row-hidden-expired-admin', {
+            source,
+            payload: this.extractAdminWarningDebugMeta(m),
+          });
+        }
         continue;
       }
       const decryptInput = this.resolveDecryptInputFromMessageLike(m);
@@ -6864,10 +7166,28 @@ private async decryptPreviewString(
         mensajeId: Number(m?.id),
         source: `${source}-file`,
       });
+      if (isAdminLike) {
+        this.debugAdminWarningFlow('history-row-after-decrypt', {
+          source,
+          payload: this.extractAdminWarningDebugMeta(m),
+        });
+      }
     }
     const result = (lista as MensajeDTO[]).filter(
       (m) => !(m as any)?.__hideFromTimeline
     );
+    this.debugAdminWarningFlow('history-decrypt-end', {
+      source,
+      chatId,
+      esGrupo,
+      inputCount: lista.length,
+      visibleCount: result.length,
+      hiddenCount: Math.max(0, lista.length - result.length),
+      visibleAdminLikeIds: result
+        .filter((m) => !esGrupo && this.looksLikeAdminWarningMessage(m))
+        .map((m) => Number(m?.id || 0))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    });
     if (!esGrupo) return result;
     const filtered = result.filter(
       (m) => this.isSystemMessage(m) || !this.isEncryptedHiddenPlaceholder(m?.contenido)
@@ -6908,10 +7228,34 @@ private async decryptPreviewString(
     }
 
     const state = this.resetHistoryStateForConversation(chatId, esGrupo);
+    const endpoint = esGrupo
+      ? `/api/chat/mensajes/grupo/${chatId}?page=0&size=${this.HISTORY_PAGE_SIZE}`
+      : `/api/chat/mensajes/${chatId}?page=0&size=${this.HISTORY_PAGE_SIZE}`;
+    this.debugAdminWarningFlow('history-fetch-initial-start', {
+      endpoint,
+      chatId,
+      esGrupo,
+      chatReadOnly: this.chatEsSoloLecturaPorAdmin,
+      receptorId: Number(chat?.receptor?.id || 0) || null,
+    });
 
     this.getHistorySource$(chatId, esGrupo, 0, this.HISTORY_PAGE_SIZE).subscribe({
       next: async (mensajes: any[]) => {
         const fetchedCount = Array.isArray(mensajes) ? mensajes.length : 0;
+        const adminLikeRaw = (mensajes || []).filter((m: any) =>
+          !esGrupo && this.looksLikeAdminWarningMessage(m)
+        );
+        this.debugAdminWarningFlow('history-fetch-initial-response', {
+          endpoint,
+          chatId,
+          esGrupo,
+          fetchedCount,
+          adminLikeCount: adminLikeRaw.length,
+          adminLike: adminLikeRaw
+            .slice(0, 10)
+            .map((m: any) => this.extractAdminWarningDebugMeta(m)),
+        });
+        this.applyAdminDirectReadOnlyFromHistory(chatId, esGrupo, mensajes || []);
         const lista = await this.decryptHistoryPageMessages(
           mensajes || [],
           chatId,
@@ -6924,6 +7268,13 @@ private async decryptPreviewString(
           Number(this.chatActual.id) !== chatId ||
           !!this.chatActual.esGrupo !== esGrupo
         ) {
+          this.debugAdminWarningFlow('history-fetch-initial-aborted-chat-switched', {
+            endpoint,
+            chatId,
+            esGrupo,
+            currentActiveChatId: Number(this.chatActual?.id || 0) || null,
+            currentActiveIsGroup: !!this.chatActual?.esGrupo,
+          });
           return;
         }
 
@@ -6935,6 +7286,17 @@ private async decryptPreviewString(
         state.hasMore = fetchedCount === this.HISTORY_PAGE_SIZE;
         state.loadingMore = false;
         state.initialized = true;
+        this.debugAdminWarningFlow('history-fetch-initial-applied', {
+          endpoint,
+          chatId,
+          esGrupo,
+          fetchedCount,
+          visibleCount: merged.length,
+          visibleAdminLike: merged
+            .filter((m) => !esGrupo && this.looksLikeAdminWarningMessage(m))
+            .slice(0, 10)
+            .map((m) => this.extractAdminWarningDebugMeta(m)),
+        });
 
         if (!esGrupo) {
           const noLeidos = this.collectReadableMessageIds(
@@ -7004,6 +7366,13 @@ private async decryptPreviewString(
         state.loadingMore = false;
         state.initialized = false;
         this.endInitialMessagesLoading(chatId, esGrupo);
+        this.debugAdminWarningFlow('history-fetch-initial-error', {
+          endpoint,
+          chatId,
+          esGrupo,
+          status: Number(err?.status || 0) || null,
+          message: String(err?.message || err?.error?.mensaje || '').trim() || null,
+        });
         console.error('[INICIO] error al obtener mensajes:', err);
         const status = Number(err?.status || 0);
         if (status === 404) {
@@ -7053,10 +7422,30 @@ private async decryptPreviewString(
     state.loadingMore = true;
     const nextPage = state.page + 1;
     const previousHeight = this.contenedorMensajes?.nativeElement?.scrollHeight || 0;
+    const endpoint = esGrupo
+      ? `/api/chat/mensajes/grupo/${chatId}?page=${nextPage}&size=${this.HISTORY_PAGE_SIZE}`
+      : `/api/chat/mensajes/${chatId}?page=${nextPage}&size=${this.HISTORY_PAGE_SIZE}`;
+    this.debugAdminWarningFlow('history-fetch-older-start', {
+      endpoint,
+      chatId,
+      esGrupo,
+      nextPage,
+    });
 
     this.getHistorySource$(chatId, esGrupo, nextPage, this.HISTORY_PAGE_SIZE).subscribe({
       next: async (mensajes: any[]) => {
         const fetchedCount = Array.isArray(mensajes) ? mensajes.length : 0;
+        this.debugAdminWarningFlow('history-fetch-older-response', {
+          endpoint,
+          chatId,
+          esGrupo,
+          nextPage,
+          fetchedCount,
+          adminLikeCount: (mensajes || []).filter((m: any) =>
+            !esGrupo && this.looksLikeAdminWarningMessage(m)
+          ).length,
+        });
+        this.applyAdminDirectReadOnlyFromHistory(chatId, esGrupo, mensajes || []);
         const pageMessages = await this.decryptHistoryPageMessages(
           mensajes || [],
           chatId,
@@ -7071,6 +7460,13 @@ private async decryptPreviewString(
           Number(this.chatActual.id) !== chatId ||
           !!this.chatActual.esGrupo !== esGrupo
         ) {
+          this.debugAdminWarningFlow('history-fetch-older-aborted-chat-switched', {
+            endpoint,
+            chatId,
+            esGrupo,
+            nextPage,
+            currentActiveChatId: Number(this.chatActual?.id || 0) || null,
+          });
           state.loadingMore = false;
           return;
         }
@@ -7087,12 +7483,28 @@ private async decryptPreviewString(
         state.hasMore = fetchedCount === this.HISTORY_PAGE_SIZE;
         state.loadingMore = false;
         state.initialized = true;
+        this.debugAdminWarningFlow('history-fetch-older-applied', {
+          endpoint,
+          chatId,
+          esGrupo,
+          nextPage,
+          fetchedCount,
+          visibleCount: merged.length,
+        });
 
         this.cdr.markForCheck();
         this.retainScrollPositionAfterPrepend(previousHeight);
       },
       error: (err) => {
         state.loadingMore = false;
+        this.debugAdminWarningFlow('history-fetch-older-error', {
+          endpoint,
+          chatId,
+          esGrupo,
+          nextPage,
+          status: Number(err?.status || 0) || null,
+          message: err?.message || err?.error?.mensaje || String(err),
+        });
         console.error('[INICIO] error cargando más historial', {
           chatId,
           nextPage,
@@ -7798,6 +8210,7 @@ private async decryptPreviewString(
   public async enviarMensaje(): Promise<void> {
     if (!this.mensajeNuevo?.trim() || !this.chatActual) return;
     if (this.haSalidoDelGrupo) return; // Bloquea si estas fuera
+    if (this.chatEsSoloLecturaPorAdmin) return;
     if (this.chatGrupalCerradoPorAdmin) return;
 
     const contenido = this.mensajeNuevo.trim();
@@ -11044,6 +11457,10 @@ private async decryptPreviewString(
     chat.__ultimoAdminMessage = !!this.isTruthyFlag(
       mensaje?.adminMessage ?? mensaje?.admin_message
     );
+    if (!!chat && !chat?.esGrupo && chat.__ultimoAdminMessage === true) {
+      this.markAdminDirectChatReadOnly(chat?.id ?? mensaje?.chatId);
+      chat.__adminDirectReadOnly = true;
+    }
     chat.__ultimoTemporalEnabled = !!this.isTruthyFlag(
       mensaje?.mensajeTemporal ??
         mensaje?.mensaje_temporal ??
@@ -14495,6 +14912,12 @@ private async decryptPreviewString(
     const enrichedMessage = this.mergeDeletionPayloadWithLocalContext(mensaje);
     const deletedId = Number(enrichedMessage.id);
     const chatId = (enrichedMessage as any).chatId;
+    const shouldTrace = this.looksLikeAdminWarningMessage(enrichedMessage);
+    if (shouldTrace) {
+      this.debugAdminWarningFlow('ui-delete-start', {
+        payload: this.extractAdminWarningDebugMeta(enrichedMessage),
+      });
+    }
     const normalizedDeleted = this.normalizeDeletedMessageForRetention(
       { ...(enrichedMessage || {}) },
       Date.now()
@@ -14519,6 +14942,15 @@ private async decryptPreviewString(
           activo: false,
         };
     const shouldHideFromTimeline = this.shouldHideMessageFromTimeline(mergedPayload);
+    if (shouldTrace) {
+      this.debugAdminWarningFlow('ui-delete-decision', {
+        payload: this.extractAdminWarningDebugMeta(mergedPayload),
+        isTemporalExpired,
+        hideExpiredAdminBroadcast,
+        shouldHideFromTimeline,
+        mensajesSeleccionadosBefore: this.mensajesSeleccionados.length,
+      });
+    }
 
     // 1) Marca en hilo abierto
     const idxMsg = this.mensajesSeleccionados.findIndex(
@@ -14581,6 +15013,12 @@ private async decryptPreviewString(
         );
       } else {
         if (hideExpiredAdminBroadcast) {
+          if (shouldTrace) {
+            this.debugAdminWarningFlow('ui-delete-chat-hide', {
+              chatId: Number(chatId || 0) || null,
+              deletedId: Number.isFinite(deletedId) ? deletedId : null,
+            });
+          }
           this.handleChatNoLongerVisible(chatId, false);
         } else {
           this.chats = updateChatPreview(
@@ -14597,6 +15035,12 @@ private async decryptPreviewString(
     }
 
     // Si el chat NO esta abierto: refrescar desde servidor
+    if (shouldTrace) {
+      this.debugAdminWarningFlow('ui-delete-refresh-preview-from-server', {
+        chatId: Number(chatId || 0) || null,
+        deletedId: Number.isFinite(deletedId) ? deletedId : null,
+      });
+    }
     this.refrescarPreviewDesdeServidor(Number(chatId));
   }
 
@@ -14604,6 +15048,10 @@ private async decryptPreviewString(
    * Habla con los servidores de mensajería backend para refrescar y actualizar el resumen de "Último mensaje de chat"
    */
   private refrescarPreviewDesdeServidor(chatId: number): void {
+    this.debugAdminWarningFlow('preview-refresh-start', {
+      endpoint: `/api/chat/mensajes/${chatId}`,
+      chatId,
+    });
     this.chatService.listarMensajesPorChat(chatId).subscribe({
       next: (mensajes) => {
         const lastActivo = [...mensajes]
@@ -14615,6 +15063,18 @@ private async decryptPreviewString(
         const hasExpiredAdminBroadcast = [...mensajes].some((m: any) =>
           this.isExpiredAdminBroadcastMessage(m)
         );
+        this.debugAdminWarningFlow('preview-refresh-response', {
+          endpoint: `/api/chat/mensajes/${chatId}`,
+          chatId,
+          totalMensajes: Array.isArray(mensajes) ? mensajes.length : 0,
+          hasVisibleTimelineMessage,
+          hasExpiredAdminBroadcast,
+          lastActivoId: Number((lastActivo as any)?.id || 0) || null,
+          adminLike: (mensajes || [])
+            .filter((m: any) => this.looksLikeAdminWarningMessage(m))
+            .slice(0, 10)
+            .map((m: any) => this.extractAdminWarningDebugMeta(m)),
+        });
 
         const chatItem = this.chats.find(
           (c) => Number(c.id) === Number(chatId)
@@ -14646,6 +15106,12 @@ private async decryptPreviewString(
         }
       },
       error: (err) => {
+        this.debugAdminWarningFlow('preview-refresh-error', {
+          endpoint: `/api/chat/mensajes/${chatId}`,
+          chatId,
+          status: Number(err?.status || 0) || null,
+          message: err?.message || err?.error?.mensaje || String(err),
+        });
         if (Number(err?.status || 0) === 404) {
           this.handleChatNoLongerVisible(chatId, false);
           return;
@@ -15021,7 +15487,12 @@ private async decryptPreviewString(
    * Activa el micrófono en directo tras un permiso del usuario, y comienza cronómetro de grabación de la nota de voz.
    */
   public async startRecording(): Promise<void> {
-    if (this.haSalidoDelGrupo || this.chatEstaBloqueado || this.chatGrupalCerradoPorAdmin) {
+    if (
+      this.haSalidoDelGrupo ||
+      this.chatEstaBloqueado ||
+      this.chatEsSoloLecturaPorAdmin ||
+      this.chatGrupalCerradoPorAdmin
+    ) {
       return;
     }
     if (!this.recorderSupported) {
@@ -15838,6 +16309,7 @@ private async decryptPreviewString(
     if (
       this.haSalidoDelGrupo ||
       this.chatEstaBloqueado ||
+      this.chatEsSoloLecturaPorAdmin ||
       this.chatGrupalCerradoPorAdmin
     ) {
       return;
@@ -15863,7 +16335,14 @@ private async decryptPreviewString(
     fromHeaderMenu: boolean = false
   ): void {
     event?.stopPropagation();
-    if (!fromHeaderMenu && (this.haSalidoDelGrupo || this.chatEstaBloqueado)) return;
+    if (
+      !fromHeaderMenu &&
+      (this.haSalidoDelGrupo ||
+        this.chatEstaBloqueado ||
+        this.chatEsSoloLecturaPorAdmin)
+    ) {
+      return;
+    }
     this.activeMainView = 'chat';
     this.showTopbarProfileMenu = false;
     this.showChatListHeaderMenu = false;
@@ -16388,6 +16867,7 @@ private async decryptPreviewString(
     if (
       this.haSalidoDelGrupo ||
       this.chatEstaBloqueado ||
+      this.chatEsSoloLecturaPorAdmin ||
       this.chatGrupalCerradoPorAdmin
     ) {
       return;
@@ -16407,6 +16887,7 @@ private async decryptPreviewString(
       !emoji ||
       this.haSalidoDelGrupo ||
       this.chatEstaBloqueado ||
+      this.chatEsSoloLecturaPorAdmin ||
       this.chatGrupalCerradoPorAdmin
     ) {
       return;
@@ -16698,6 +17179,7 @@ private async decryptPreviewString(
   public async enviarMensajeDesdeComposer(): Promise<void> {
     if (
       this.haSalidoDelGrupo ||
+      this.chatEsSoloLecturaPorAdmin ||
       this.noGroupRecipientsForSend ||
       this.chatGrupalCerradoPorAdmin
     ) {
@@ -16793,6 +17275,7 @@ private async decryptPreviewString(
       this.attachmentUploading ||
       this.haSalidoDelGrupo ||
       this.chatEstaBloqueado ||
+      this.chatEsSoloLecturaPorAdmin ||
       this.chatGrupalCerradoPorAdmin ||
       this.noGroupRecipientsForSend
     );
@@ -17272,7 +17755,11 @@ private async decryptPreviewString(
    * Evento nativo de escritura dentro del campo `textarea`. Envía a webSockets avisos de que un individuo teclea.
    */
   public onKeydown(evt: any): void {
-    if (this.haSalidoDelGrupo || this.chatGrupalCerradoPorAdmin) {
+    if (
+      this.haSalidoDelGrupo ||
+      this.chatEsSoloLecturaPorAdmin ||
+      this.chatGrupalCerradoPorAdmin
+    ) {
       evt.preventDefault();
       return;
     }
@@ -17286,6 +17773,7 @@ private async decryptPreviewString(
   public onEnter(evt: any): void {
     if (
       this.haSalidoDelGrupo ||
+      this.chatEsSoloLecturaPorAdmin ||
       this.noGroupRecipientsForSend ||
       this.chatGrupalCerradoPorAdmin
     ) {
@@ -17328,6 +17816,111 @@ private async decryptPreviewString(
     const peerId = this.chatActual.receptor?.id;
     if (!peerId) return false;
     return this.bloqueadosIds.has(peerId) || this.meHanBloqueadoIds.has(peerId);
+  }
+
+  private normalizeValidChatId(chatIdRaw: unknown): number | null {
+    const chatId = Number(chatIdRaw);
+    if (!Number.isFinite(chatId) || chatId <= 0) return null;
+    return Math.round(chatId);
+  }
+
+  private hasAdminMessageFlag(source: any): boolean {
+    return [source?.adminMessage, source?.admin_message, source?.fromAdmin, source?.from_admin]
+      .some((value) => this.isTruthyFlag(value));
+  }
+
+  private markAdminDirectChatReadOnly(chatIdRaw: unknown): void {
+    const chatId = this.normalizeValidChatId(chatIdRaw);
+    if (!chatId) return;
+    this.adminDirectReadOnlyChatIds.add(chatId);
+
+    const chatItem = (this.chats || []).find((c: any) => Number(c?.id) === chatId);
+    if (chatItem && !chatItem?.esGrupo) {
+      (chatItem as any).__adminDirectReadOnly = true;
+    }
+    if (Number(this.chatActual?.id) === chatId && !this.chatActual?.esGrupo) {
+      (this.chatActual as any).__adminDirectReadOnly = true;
+    }
+  }
+
+  private isAdminDirectReadOnlySnapshot(chat: any, lastMsgSnapshot?: any): boolean {
+    if (!chat || !!chat?.esGrupo) return false;
+    return (
+      this.hasAdminMessageFlag(lastMsgSnapshot) ||
+      this.hasAdminMessageFlag(chat) ||
+      this.isTruthyFlag((chat as any)?.__adminDirectReadOnly) ||
+      this.isTruthyFlag((chat as any)?.__ultimoAdminMessage) ||
+      this.isTruthyFlag((chat as any)?.ultimoMensajeAdminMessage) ||
+      this.isTruthyFlag((chat as any)?.ultimaMensajeAdminMessage)
+    );
+  }
+
+  private applyAdminDirectReadOnlyFromHistory(
+    chatIdRaw: unknown,
+    esGrupo: boolean,
+    mensajes: any[]
+  ): void {
+    if (esGrupo || !Array.isArray(mensajes) || mensajes.length === 0) return;
+    if (!mensajes.some((m) => this.hasAdminMessageFlag(m))) return;
+    this.markAdminDirectChatReadOnly(chatIdRaw);
+  }
+
+  private applyAdminDirectReadOnlyFromMessage(mensaje: any): void {
+    if (!this.hasAdminMessageFlag(mensaje)) return;
+    const chatId = this.normalizeValidChatId(mensaje?.chatId);
+    if (!chatId) return;
+    const chatItem = (this.chats || []).find((c: any) => Number(c?.id) === chatId);
+    if (chatItem?.esGrupo) return;
+    this.markAdminDirectChatReadOnly(chatId);
+  }
+
+  public get chatEsSoloLecturaPorAdmin(): boolean {
+    if (!this.chatActual || this.chatActual?.esGrupo) return false;
+    const chatId = this.normalizeValidChatId(this.chatActual?.id);
+    if (!chatId) return false;
+    if (this.adminDirectReadOnlyChatIds.has(chatId)) return true;
+
+    const hasFromSnapshot = this.isAdminDirectReadOnlySnapshot(this.chatActual);
+    const hasFromLoadedMessages = (this.mensajesSeleccionados || []).some((m) =>
+      this.hasAdminMessageFlag(m)
+    );
+    return hasFromSnapshot || hasFromLoadedMessages;
+  }
+
+  public get composerInteractionDisabled(): boolean {
+    return (
+      this.chatEstaBloqueado ||
+      this.chatGrupalCerradoPorAdmin ||
+      this.chatEsSoloLecturaPorAdmin
+    );
+  }
+
+  public get composerPlaceholder(): string {
+    if (this.chatEsSoloLecturaPorAdmin) {
+      return this.adminDirectReplyDisabledPlaceholder;
+    }
+    if (this.chatGrupalCerradoPorAdmin) {
+      return this.chatGrupalCerradoMotivo;
+    }
+    if (this.chatEstaBloqueado) {
+      return this.yoLoBloquee
+        ? 'Has bloqueado a este usuario.'
+        : 'Estás bloqueado por este usuario.';
+    }
+    return 'Escribe un mensaje...';
+  }
+
+  public get composerDisabledReason(): string {
+    if (this.chatEsSoloLecturaPorAdmin) {
+      return this.adminDirectReplyDisabledPlaceholder;
+    }
+    if (this.chatGrupalCerradoPorAdmin) {
+      return this.chatGrupalCerradoMotivo;
+    }
+    if (this.chatEstaBloqueado) {
+      return this.yoLoBloquee ? 'Has bloqueado a este usuario' : 'Estás bloqueado';
+    }
+    return '';
   }
 
   public get noGroupRecipientsForSend(): boolean {
