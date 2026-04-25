@@ -4874,6 +4874,11 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     );
     const adminRsaKey = await this.cryptoService.importPublicKey(adminPubKeyBase64);
     const auditRsaKey = await this.cryptoService.importPublicKey(auditPubKeyBase64);
+    const senderProfileImageUrl =
+      resolveMediaUrl(
+        this.adminFotoUrl || localStorage.getItem('usuarioFoto') || '',
+        environment.backendBaseUrl
+      ) || '';
 
     return JSON.stringify({
       type: 'E2E',
@@ -4882,6 +4887,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       forEmisor: await this.cryptoService.encryptRSA(aesKeyRawBase64, adminRsaKey),
       forReceptor: await this.cryptoService.encryptRSA(aesKeyRawBase64, recipientRsaKey),
       forAdmin: await this.cryptoService.encryptRSA(aesKeyRawBase64, auditRsaKey),
+      ...(senderProfileImageUrl ? { senderProfileImageUrl } : {}),
     });
   }
 
