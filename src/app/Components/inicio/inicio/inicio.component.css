@@ -980,6 +980,20 @@
   z-index: 27;
 }
 
+.user-info-col {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: clamp(330px, 30vw, 430px);
+  z-index: 25;
+  box-shadow: -16px 0 28px -24px rgba(15, 23, 42, 0.45);
+  box-sizing: border-box;
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateX(0);
+}
+
 /* Unificado + relativo para panel flotante */
 .encabezado-chat-mensajes {
   display: flex;
@@ -1107,6 +1121,23 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+
+.detalle-usuario-chat--clickable {
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 2px 6px;
+  transition: background-color 0.16s ease;
+}
+
+.detalle-usuario-chat--clickable:hover {
+  background: #eff6ff;
+}
+
+.detalle-usuario-chat--clickable:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+  background: #eff6ff;
 }
 
 .nombre-usuario-chat {
@@ -1302,7 +1333,7 @@
 .compose-row {
   width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 10px;
 }
 
@@ -1446,7 +1477,7 @@
   min-width: 0;
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
 }
 
 .compose-draft-prefix {
@@ -1470,6 +1501,12 @@
 }
 
 .temporary-message-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.compose-ai-anchor {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -1625,6 +1662,122 @@
   background: #dbeafe;
   box-shadow: 0 8px 20px rgba(2, 6, 23, 0.12);
   transform: translateY(-1px);
+}
+
+.btn-compose-ai {
+  border: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 9999px;
+  display: grid;
+  place-items: center;
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: pointer;
+  transition:
+    transform 0.08s ease,
+    background 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.btn-compose-ai i {
+  font-size: 17px;
+}
+
+.btn-compose-ai:not(:disabled) {
+  background: #ede9fe;
+  color: #7c3aed;
+  box-shadow: 0 5px 14px rgba(124, 58, 237, 0.18);
+}
+
+.btn-compose-ai:not(:disabled):hover {
+  background: #ddd6fe;
+  color: #6d28d9;
+  transform: translateY(-1px);
+}
+
+.btn-compose-ai--active:not(:disabled) {
+  background: #7c3aed;
+  color: #ffffff;
+}
+
+.compose-ai-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 14px);
+  z-index: 46;
+  width: 260px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 16px 30px rgba(2, 6, 23, 0.18);
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.compose-ai-pop__title {
+  padding: 4px 8px 6px;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.compose-ai-option {
+  border: none;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 13px;
+  text-align: left;
+  padding: 9px 10px;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: center;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.compose-ai-option > i {
+  grid-row: 1 / span 2;
+  font-size: 14px;
+  color: #6366f1;
+}
+
+.compose-ai-option__main {
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.compose-ai-option__sub {
+  font-size: 10px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.compose-ai-option:hover {
+  background: #eef2ff;
+  color: #312e81;
+}
+
+.compose-ai-option--primary {
+  background: #7c3aed;
+  color: #ffffff;
+}
+
+.compose-ai-option--primary > i {
+  color: #ffffff;
+}
+
+.compose-ai-option--primary:hover {
+  background: #6d28d9;
+  color: #ffffff;
 }
 
 .compose-actions-pop {
@@ -1784,13 +1937,17 @@
 
 .input-mensaje {
   flex: 1;
+  min-height: 40px;
   height: 40px;
+  max-height: 260px;
   resize: none;
   border: 1px solid #cbd5e1;
   /* gris azulado */
   border-radius: 20px;
   padding: 8px 14px;
   font-size: 14px;
+  line-height: 1.35;
+  overflow-y: hidden;
   outline: none;
 }
 
@@ -1823,7 +1980,8 @@
 .btn-mic:disabled,
 .btn-emoji:disabled,
 .btn-temp-message:disabled,
-.btn-compose-actions:disabled {
+.btn-compose-actions:disabled,
+.btn-compose-ai:disabled {
   cursor: not-allowed !important;
   opacity: 0.5;
 }
@@ -4271,6 +4429,12 @@
   border-radius: 12px;
   border: 1px solid #dbeafe;
   box-shadow: 0 10px 24px rgba(2, 6, 23, 0.16);
+  cursor: zoom-in;
+}
+
+.msg-image:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
 }
 
 .msg-image-caption {
@@ -4739,6 +4903,68 @@
 .btn-opcion-ia:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, .25);
+}
+
+/* Override para usar el look del dropdown actual */
+.opciones-collapse .btn-opcion-ia {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 10px 12px;
+  min-height: 42px;
+  background: #ecfdf3;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  color: #166534;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  box-shadow: none;
+  transform: none;
+}
+
+.opciones-collapse .btn-opcion-ia i {
+  color: #16a34a;
+}
+
+.opciones-collapse .btn-opcion-ia__label {
+  flex: 0 1 auto;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.opciones-collapse .btn-opcion-ia__badge {
+  margin-left: 4px;
+  min-width: 30px;
+  height: 20px;
+  padding: 0 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
+  color: #ffffff;
+}
+
+.opciones-collapse .btn-opcion-ia:hover {
+  background: #dcfce7;
+  border-color: #4ade80;
+  box-shadow: none;
+  transform: none;
+}
+
+.opciones-collapse .btn-opcion-ia:focus-visible {
+  outline: 2px solid #22c55e;
+  outline-offset: 2px;
+  box-shadow: none;
 }
 
 /* Animación al abrir */
@@ -5816,7 +6042,8 @@
   .btn-enviar,
   .btn-emoji,
   .btn-temp-message,
-  .btn-compose-actions {
+  .btn-compose-actions,
+  .btn-compose-ai {
     width: 38px;
     height: 38px;
   }

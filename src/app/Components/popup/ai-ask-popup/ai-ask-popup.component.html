@@ -1,0 +1,106 @@
+<div
+  *ngIf="open"
+  class="ai-ask-popup-overlay"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Asistente IA"
+  (click)="onBackdropClick()"
+>
+  <div class="ai-ask-popup" (click)="$event.stopPropagation()">
+    <div class="ai-ask-popup__header">
+      <div class="ai-ask-popup__header-left">
+        <div class="ai-ask-popup__icon-glass">
+          <i class="bi bi-robot"></i>
+        </div>
+        <div class="ai-ask-popup__header-copy">
+          <span class="ai-ask-popup__badge">AI Assistant</span>
+          <h2 class="ai-ask-popup__title">Asistente IA</h2>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="ai-ask-popup__close-btn"
+        [disabled]="loading"
+        aria-label="Cerrar"
+        (click)="onClose()"
+      >
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+
+    <div class="ai-ask-popup__body">
+      <div class="ai-ask-popup__section">
+        <label class="ai-ask-popup__label">Mensaje de referencia</label>
+        <div class="ai-ask-popup__reference-box">
+          <p class="ai-ask-popup__reference-text">
+            <span class="ai-ask-popup__quote-mark">"</span>
+            {{ resolvedReferenceText }}
+            <span class="ai-ask-popup__quote-mark">"</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="ai-ask-popup__section">
+        <label for="aiAskInput" class="ai-ask-popup__label">
+          Pregunta a la IA sobre este mensaje
+        </label>
+        <div class="ai-ask-popup__textarea-wrap">
+          <textarea
+            #aiAskTextarea
+            id="aiAskInput"
+            rows="4"
+            class="ai-ask-popup__textarea custom-scrollbar"
+            placeholder="Escribe tu consulta aqui..."
+            [ngModel]="question"
+            [disabled]="loading"
+            (input)="onTextareaInput($event)"
+            (ngModelChange)="onQuestionChange($event)"
+          ></textarea>
+          <button
+            type="button"
+            class="ai-ask-popup__send-btn"
+            [disabled]="!canSubmit"
+            aria-label="Enviar pregunta a IA"
+            (click)="onSubmit()"
+          >
+            <i class="bi bi-send-fill"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="ai-ask-popup__actions-grid">
+        <button
+          type="button"
+          class="ai-ask-popup__action-btn ai-ask-popup__action-btn--verify"
+          [disabled]="loading"
+          (click)="onQuickAction('VERIFY')"
+        >
+          <i class="bi bi-shield-check"></i>
+          Verificar
+        </button>
+        <button
+          type="button"
+          class="ai-ask-popup__action-btn ai-ask-popup__action-btn--suggest"
+          [disabled]="loading"
+          (click)="onQuickAction('SUGGEST_REPLY')"
+        >
+          <i class="bi bi-stars"></i>
+          Sugerir respuesta
+        </button>
+      </div>
+
+      <div *ngIf="loading || hasResult" class="ai-ask-popup__result-box">
+        <p class="ai-ask-popup__result-label">Resultado</p>
+        <p class="ai-ask-popup__result-text">
+          {{ loading ? 'Consultando IA...' : result }}
+        </p>
+      </div>
+
+      <div *ngIf="error" class="ai-ask-popup__error-box">
+        {{ error }}
+      </div>
+    </div>
+
+    <div class="ai-ask-popup__bottom-line"></div>
+  </div>
+</div>

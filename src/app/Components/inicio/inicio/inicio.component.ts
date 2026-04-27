@@ -19,7 +19,7 @@ import {
 } from '../../../Service/WebSocket/web-socket.service';
 import { MensajeriaService } from '../../../Service/mensajeria/mensajeria.service';
 import { Client } from '@stomp/stompjs';
-import { finalize, firstValueFrom } from 'rxjs';
+import { Subscription, finalize, firstValueFrom } from 'rxjs';
 import { AuthService } from '../../../Service/auth/auth.service';
 import {
   avatarOrDefault,
@@ -66,6 +66,10 @@ import {
 } from '../../../utils/chat-utils';
 import { GroupInviteWS } from '../../../Interface/GroupInviteWS';
 import { NotificationService } from '../../../Service/Notification/notification.service';
+import {
+  BrowserNewMessageNotificationPayload,
+  BrowserNotificationService,
+} from '../../../Service/Notification/browser-notification.service';
 import { GroupInviteService } from '../../../Service/GroupInvite/group-invite.service';
 import { GroupInviteResponseWS } from '../../../Interface/GroupInviteResponseWS';
 import { NotificationDTO } from '../../../Interface/NotificationDTO';
@@ -80,7 +84,7 @@ import { ChatIndividualCreateDTO } from '../../../Interface/ChatIndividualCreate
 import { ChatIndividualDTO } from '../../../Interface/ChatIndividualDTO ';
 import { CallInviteWS } from '../../../Interface/CallInviteWS';
 import { MessagueSalirGrupoDTO } from '../../../Interface/MessagueSalirGrupoDTO';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import Swal from 'sweetalert2';
 import JSZip from 'jszip';
 import { PerfilUsuarioSavePayload } from '../perfil-usuario/perfil-usuario.component';
@@ -104,6 +108,7 @@ import {
   PollVotesPanelOption,
   PollVotesPanelVoter,
 } from '../../../Interface/PollVotesPanel';
+import { AiAskQuickAction } from '../../popup/ai-ask-popup/ai-ask-popup.component';
 
 // Bootstrap (modales)
 declare const bootstrap: any;
@@ -314,6 +319,7 @@ interface MuteDurationOption {
 }
 
 type ComposerActionType = 'archivo' | 'encuesta';
+type ComposerAiActionType = 'SPELLCHECK' | 'TONE' | 'FORMAT';
 
 interface ChatPollVoterView {
   userId: number;
@@ -413,6 +419,7 @@ export class InicioComponent {
   public recBars = Array.from({ length: 14 });
   public showEmojiPicker = false;
   public showComposeActionsPopup = false;
+  public showComposeAiPopup = false;
   public showTemporaryMessagePopup = false;
   public showReportChatClosurePopup = false;
   public reportChatClosureSending = false;
@@ -491,6 +498,8 @@ export class InicioComponent {
   private attachmentInputRef?: ElementRef<HTMLInputElement>;
   @ViewChild('composeActionsAnchor')
   private composeActionsAnchorRef?: ElementRef<HTMLElement>;
+  @ViewChild('composeAiAnchor')
+  private composeAiAnchorRef?: ElementRef<HTMLElement>;
   @ViewChild('emojiAnchor')
   private emojiAnchorRef?: ElementRef<HTMLElement>;
   @ViewChild('temporaryMessageAnchor')
@@ -535,6 +544,8 @@ export class InicioComponent {
   public aiQuestion = '¿Es esto verdad?';
   public aiLoading = false;
   public aiError: string | null = null;
+  public aiResult = '';
+  public aiPanelLoading = false;
   public remoteHasVideo = false;
 
   public topbarQuery: string = '';
@@ -716,6 +727,9 @@ export class InicioComponent {
   public showGroupInfoPanel = false;
   public showGroupInfoPanelMounted = false;
   private groupInfoCloseTimer: any = null;
+  public showUserInfoPanel = false;
+  public showUserInfoPanelMounted = false;
+  private userInfoCloseTimer: any = null;
   public showMessageSearchPanel = false;
   public showMessageSearchPanelMounted = false;
   private messageSearchCloseTimer: any = null;
@@ -728,10 +742,13 @@ export class InicioComponent {
   public highlightedMessageId: number | null = null;
   private highlightedMessageTimer: any = null;
   private messageSearchNavigationInFlight = false;
+  private messageScrollAnimationFrame: number | null = null;
   private pendingOpenFromStarredNavigation: {
     chatId: number;
     messageId: number;
   } | null = null;
+  private pendingOpenFromBrowserNotificationChatId: number | null = null;
+  private browserNotificationRouteSub?: Subscription;
   private composeCursorStart = 0;
   private composeCursorEnd = 0;
   private messageAreaDragDepth = 0;
@@ -794,6 +811,10 @@ export class InicioComponent {
   private incomingRingtoneActive = false;
   private readonly MESSAGE_NOTIFICATION_TONE_COOLDOWN_MS = 1200;
   private lastMessageNotificationToneAt = 0;
+  private readonly composerTextareaMinHeightPx = 40;
+  private readonly composerTextareaMaxHeightPx = 260;
+  private lastComposerTextareaValue = '';
+  private composerResizeQueued = false;
   private outgoingCallPendingAcceptance = false;
   private signalingBlockedCallIds = new Set<string>();
   private notifsLoadedOnce = false;
@@ -829,6 +850,7 @@ export class InicioComponent {
   private readonly ADMIN_DIRECT_CHAT_CACHE_KEY = 'adminDirectChatCacheByChat';
   private readonly ADMIN_DIRECT_MESSAGES_CACHE_KEY = 'adminDirectMessagesByChat';
   private readonly OPEN_PROFILE_AFTER_REGISTER_KEY = 'openProfileAfterRegister';
+  private readonly OPEN_CHAT_QUERY_PARAM = 'openChatId';
   private draftByChatId = new Map<number, string>();
   private temporarySecondsByChatId = new Map<number, number>();
   private mutedChatUntilByChatId = new Map<number, number | null>();
@@ -921,7 +943,9 @@ export class InicioComponent {
     private authService: AuthService,
     private complaintService: ComplaintService,
     private notificationService: NotificationService,
+    private browserNotificationService: BrowserNotificationService,
     private groupInviteService: GroupInviteService,
+    private route: ActivatedRoute,
     private router: Router,
     private sessionService: SessionService
   ) {
@@ -953,6 +977,8 @@ export class InicioComponent {
     }
 
     this.usuarioActualId = parseInt(id, 10);
+    this.browserNotificationService.requestPermissionIfNeeded();
+    this.bindBrowserNotificationRoute();
     if (openProfileAfterRegister) {
       sessionStorage.removeItem(this.OPEN_PROFILE_AFTER_REGISTER_KEY);
       this.openProfileView();
@@ -1331,6 +1357,7 @@ export class InicioComponent {
               });
             }
             mensaje = this.normalizeMensajeEditadoFlag(mensaje);
+            this.maybeShowBrowserNotificationForIncomingMessage(mensaje);
             this.ngZone.run(async () => {
               this.applyAdminDirectReadOnlyFromMessage(mensaje);
               const isSystemIncoming = this.isSystemMessage(mensaje);
@@ -2001,6 +2028,7 @@ export class InicioComponent {
         }
 
         this.applyDraftsToChatList();
+        this.tryOpenPendingBrowserNotificationChat();
         this.syncStarredMessagesWithChatSnapshots();
         this.prefetchHydratedStarredMessages();
 
@@ -2079,9 +2107,11 @@ export class InicioComponent {
                 mensajeId: Number(parsed?.id),
                 source: 'ws-group-file',
               });
+              const parsedNormalized = this.normalizeMensajeEditadoFlag(parsed);
+              this.maybeShowBrowserNotificationForIncomingMessage(parsedNormalized);
               this.ngZone.run(() => {
-                this.handleMensajeGrupal(parsed);
-                this.seedIncomingReactionsFromMessages([parsed]);
+                this.handleMensajeGrupal(parsedNormalized);
+                this.seedIncomingReactionsFromMessages([parsedNormalized]);
               });
             });
           });
@@ -2189,6 +2219,95 @@ export class InicioComponent {
         console.error('? Error chats:', err);
       },
     });
+  }
+
+  private bindBrowserNotificationRoute(): void {
+    if (this.browserNotificationRouteSub) return;
+    this.browserNotificationRouteSub = this.route.queryParamMap.subscribe(
+      (params) => {
+        const chatId = Number(params.get(this.OPEN_CHAT_QUERY_PARAM) || 0);
+        if (!Number.isFinite(chatId) || chatId <= 0) return;
+        this.pendingOpenFromBrowserNotificationChatId = Math.round(chatId);
+        this.tryOpenPendingBrowserNotificationChat();
+      }
+    );
+  }
+
+  private tryOpenPendingBrowserNotificationChat(): void {
+    const chatId = Number(this.pendingOpenFromBrowserNotificationChatId || 0);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+
+    const targetChat = (this.chats || []).find(
+      (c: any) => Number(c?.id) === Math.round(chatId)
+    );
+    if (!targetChat) return;
+
+    this.openChatsSidebarView();
+    this.activeMainView = 'chat';
+    if (Number(this.chatActual?.id) !== Math.round(chatId)) {
+      this.mostrarMensajes(targetChat);
+    }
+
+    this.pendingOpenFromBrowserNotificationChatId = null;
+    this.clearBrowserNotificationRouteParam();
+  }
+
+  private clearBrowserNotificationRouteParam(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        [this.OPEN_CHAT_QUERY_PARAM]: null,
+        ts: null,
+      },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  private maybeShowBrowserNotificationForIncomingMessage(
+    mensajeRaw: any
+  ): void {
+    const mensaje = this.normalizeMensajeEditadoFlag(mensajeRaw);
+    if (!mensaje) return;
+    if (this.isSystemMessage(mensaje)) return;
+    if (this.isMensajeEditado(mensaje)) return;
+    if (mensaje.activo === false && !this.isTemporalExpiredMessage(mensaje)) return;
+
+    const senderId = Number(
+      (mensaje as any)?.emisorId ?? (mensaje as any)?.emisor?.id ?? 0
+    );
+    if (!Number.isFinite(senderId) || senderId <= 0) return;
+    if (senderId === Number(this.usuarioActualId)) return;
+
+    const chatId = Number((mensaje as any)?.chatId ?? 0);
+    const payload: BrowserNewMessageNotificationPayload = {
+      messageId: Number((mensaje as any)?.id ?? 0) || null,
+      chatId: Number.isFinite(chatId) && chatId > 0 ? Math.round(chatId) : null,
+      senderId: Math.round(senderId),
+      currentUserId: Number(this.usuarioActualId || 0) || null,
+      senderName: this.buildIncomingNotificationSenderName(mensaje),
+      previewText: (() => {
+        const preview = String((mensaje as any)?.contenido || '').trim();
+        if (!preview) return null;
+        if (this.containsEncryptedHiddenPlaceholder(preview)) return null;
+        return preview;
+      })(),
+    };
+
+    this.browserNotificationService.showNewMessageNotification(payload);
+  }
+
+  private buildIncomingNotificationSenderName(mensaje: any): string | null {
+    const fromFlat = `${String(mensaje?.emisorNombre || '').trim()} ${String(
+      mensaje?.emisorApellido || ''
+    ).trim()}`.trim();
+    if (fromFlat) return fromFlat;
+
+    const nested = mensaje?.emisor;
+    const fromNested = `${String(nested?.nombre || '').trim()} ${String(
+      nested?.apellido || ''
+    ).trim()}`.trim();
+    return fromNested || null;
   }
 
   private bindBanWsListener(): void {
@@ -2888,6 +3007,8 @@ export class InicioComponent {
     this.mensajesSeleccionados = [];
     this.showGroupInfoPanel = false;
     this.showGroupInfoPanelMounted = false;
+    this.showUserInfoPanel = false;
+    this.showUserInfoPanelMounted = false;
     this.showMessageSearchPanel = false;
     this.showMessageSearchPanelMounted = false;
     this.showPollVotesPanel = false;
@@ -6405,6 +6526,7 @@ private async decryptPreviewString(
       this.showPinnedActionsMenu = false;
       this.activeMainView = 'chat';
       this.closeGroupInfoPanel();
+      this.closeUserInfoPanel();
       this.closeMessageSearchPanel();
       this.closePollVotesPanel();
       this.closeFilePreview();
@@ -8061,6 +8183,121 @@ private async decryptPreviewString(
     );
   }
 
+  private isPendingStarredNavigationTarget(messageIdRaw: unknown): boolean {
+    const messageId = Number(messageIdRaw);
+    const pending = this.pendingOpenFromStarredNavigation;
+    const activeChatId = Number(this.chatActual?.id);
+    if (!pending) return false;
+    if (!Number.isFinite(messageId) || messageId <= 0) return false;
+    if (!Number.isFinite(activeChatId) || activeChatId <= 0) return false;
+    return (
+      Number(pending.messageId) === Math.round(messageId) &&
+      Number(pending.chatId) === Math.round(activeChatId)
+    );
+  }
+
+  private injectMessageIntoActiveConversation(message: MensajeDTO): void {
+    if (!message) return;
+    const merged = mergeMessagesById(this.mensajesSeleccionados || [], [message], 'append');
+    this.mensajesSeleccionados = merged;
+    this.seedIncomingReactionsFromMessages(merged);
+
+    const chatId = Number(this.chatActual?.id);
+    const esGrupo = !!this.chatActual?.esGrupo;
+    if (Number.isFinite(chatId) && chatId > 0) {
+      const state = this.getHistoryStateForConversation(chatId, esGrupo);
+      if (state) {
+        state.messages = [...merged];
+        if (!state.initialized) state.initialized = true;
+      }
+    }
+
+    this.cdr.markForCheck();
+  }
+
+  private async fetchMessageByIdFromServerHistoryScan(
+    chatIdRaw: unknown,
+    messageIdRaw: unknown
+  ): Promise<MensajeDTO | null> {
+    const chatId = Number(chatIdRaw);
+    const messageId = Number(messageIdRaw);
+    if (!Number.isFinite(chatId) || chatId <= 0) return null;
+    if (!Number.isFinite(messageId) || messageId <= 0) return null;
+
+    const chatContext = this.resolveChatContextForMessage(chatId);
+    const esGrupo = !!chatContext?.esGrupo;
+    const seenFingerprints = new Set<string>();
+    const maxPages = 80;
+
+    for (let page = 0; page < maxPages; page++) {
+      let rawMessages: any[] = [];
+      try {
+        rawMessages = await firstValueFrom(
+          this.getHistorySource$(chatId, esGrupo, page, this.HISTORY_PAGE_SIZE)
+        );
+      } catch {
+        break;
+      }
+
+      const list = Array.isArray(rawMessages) ? rawMessages : [];
+      if (list.length === 0) break;
+
+      const firstId = Number(list[0]?.id || 0);
+      const lastId = Number(list[list.length - 1]?.id || 0);
+      const fingerprint = `${list.length}|${firstId}|${lastId}`;
+      if (seenFingerprints.has(fingerprint)) break;
+      seenFingerprints.add(fingerprint);
+
+      let decrypted: MensajeDTO[] = [];
+      try {
+        decrypted = await this.decryptHistoryPageMessages(
+          list,
+          chatId,
+          esGrupo,
+          esGrupo
+            ? `starred-open-scan-group-${page}`
+            : `starred-open-scan-individual-${page}`
+        );
+      } catch {
+        continue;
+      }
+
+      const found =
+        (decrypted || []).find((m) => Number(m?.id) === Math.round(messageId)) ||
+        null;
+      if (found) return found;
+
+      if (list.length < this.HISTORY_PAGE_SIZE) break;
+    }
+
+    return null;
+  }
+
+  private async tryHydratePendingStarredNavigationMessage(
+    messageIdRaw: unknown
+  ): Promise<boolean> {
+    const messageId = Number(messageIdRaw);
+    if (!this.isPendingStarredNavigationTarget(messageId)) return false;
+
+    const normalizedId = Math.round(messageId);
+    const fromCache = this.starredHydratedMessagesById.get(normalizedId);
+    if (fromCache) {
+      this.injectMessageIntoActiveConversation(fromCache);
+      return this.hasLoadedMessageById(normalizedId);
+    }
+
+    const chatId = Number(this.pendingOpenFromStarredNavigation?.chatId);
+    const fromServer = await this.fetchMessageByIdFromServerHistoryScan(
+      chatId,
+      normalizedId
+    );
+    if (!fromServer) return false;
+
+    this.starredHydratedMessagesById.set(normalizedId, fromServer);
+    this.injectMessageIntoActiveConversation(fromServer);
+    return this.hasLoadedMessageById(normalizedId);
+  }
+
   private async ensureMessageLoadedForSearchNavigation(
     messageId: number
   ): Promise<boolean> {
@@ -8119,10 +8356,13 @@ private async decryptPreviewString(
     );
   }
 
-  private async focusMessageInViewport(messageId: number): Promise<boolean> {
+  private async focusMessageInViewport(
+    messageId: number,
+    forceAnimatedTravel = false
+  ): Promise<boolean> {
     const maxAttempts = 6;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      if (this.scrollMessageElementIntoView(messageId)) {
+      if (this.scrollMessageElementIntoView(messageId, forceAnimatedTravel)) {
         this.flashSearchTarget(messageId);
         return true;
       }
@@ -8131,7 +8371,10 @@ private async decryptPreviewString(
     return false;
   }
 
-  private scrollMessageElementIntoView(messageId: number): boolean {
+  private scrollMessageElementIntoView(
+    messageId: number,
+    forceAnimatedTravel = false
+  ): boolean {
     const container = this.contenedorMensajes?.nativeElement as
       | HTMLElement
       | undefined;
@@ -8142,8 +8385,85 @@ private async decryptPreviewString(
     ) as HTMLElement | null;
     if (!target) return false;
 
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const currentTop = container.scrollTop;
+    const desiredTopRaw =
+      currentTop +
+      (targetRect.top - containerRect.top) -
+      container.clientHeight / 2 +
+      targetRect.height / 2;
+    const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    const desiredTop = Math.max(0, Math.min(maxTop, desiredTopRaw));
+
+    if (forceAnimatedTravel) {
+      this.nudgeScrollAwayFromTarget(container, desiredTop);
+      this.animateMessageContainerScroll(container, desiredTop, 760);
+      return true;
+    }
+
+    try {
+      container.scrollTo({ top: desiredTop, behavior: 'smooth' });
+    } catch {
+      this.animateMessageContainerScroll(container, desiredTop);
+    }
     return true;
+  }
+
+  private nudgeScrollAwayFromTarget(
+    container: HTMLElement,
+    targetTop: number
+  ): void {
+    const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    if (maxTop <= 0) return;
+
+    const nudge = Math.max(80, Math.min(200, Math.round(container.clientHeight * 0.22)));
+    const up = Math.max(0, Math.min(maxTop, targetTop - nudge));
+    const down = Math.max(0, Math.min(maxTop, targetTop + nudge));
+    const diffUp = Math.abs(targetTop - up);
+    const diffDown = Math.abs(targetTop - down);
+    const chosen = diffDown > diffUp ? down : up;
+
+    if (Math.abs(targetTop - chosen) >= 8) {
+      container.scrollTop = chosen;
+    }
+  }
+
+  private animateMessageContainerScroll(
+    container: HTMLElement,
+    targetTop: number,
+    durationMs: number = 560
+  ): void {
+    const startTop = container.scrollTop;
+    const distance = targetTop - startTop;
+    if (Math.abs(distance) < 1) {
+      container.scrollTop = targetTop;
+      return;
+    }
+
+    if (this.messageScrollAnimationFrame !== null) {
+      cancelAnimationFrame(this.messageScrollAnimationFrame);
+      this.messageScrollAnimationFrame = null;
+    }
+
+    const startedAt = performance.now();
+    const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
+
+    const step = (now: number): void => {
+      const progress = Math.max(
+        0,
+        Math.min(1, (now - startedAt) / Math.max(1, durationMs))
+      );
+      container.scrollTop = startTop + distance * easeOutCubic(progress);
+
+      if (progress < 1) {
+        this.messageScrollAnimationFrame = requestAnimationFrame(step);
+        return;
+      }
+      this.messageScrollAnimationFrame = null;
+    };
+
+    this.messageScrollAnimationFrame = requestAnimationFrame(step);
   }
 
   private flashSearchTarget(messageId: number): void {
@@ -9027,12 +9347,18 @@ private async decryptPreviewString(
   /**
    * Abre el panel auxiliar de la Inteligencia Artificial al hacer clic en las opciones del mensaje.
    */
-  public openAiPanelFromMessage(mensaje: MensajeDTO): void {
-    if (!this.orEmpty(this.aiQuote) && (mensaje.tipo || 'TEXT') === 'TEXT') {
-      this.aiQuote = mensaje.contenido || '';
-    }
-    this.aiQuestion = this.aiQuestion || '¿Es esto verdad?';
+  public openAiPanelFromMessage(mensaje: MensajeDTO, event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    const selectedText = String(this.aiQuote || '').trim();
+    const fallbackText = String(this.buildPinnedPreviewFromMessage(mensaje) || '').trim();
+    this.aiQuote = selectedText || fallbackText;
+    this.aiQuestion = String(this.aiQuestion || '').trim() || '¿Que deberia responder?';
+    this.aiResult = '';
     this.aiError = null;
+    this.aiPanelLoading = false;
+    this.openMensajeMenuId = null;
     this.aiPanelOpen = true;
   }
 
@@ -9040,11 +9366,60 @@ private async decryptPreviewString(
    * Cierra el panel de consulta de la Inteligencia Artificial.
    */
   public cancelAiPanel(): void {
+    if (this.aiPanelLoading) return;
     this.aiPanelOpen = false;
     this.aiError = null;
-    // si quieres resetear, descomenta:
-    // this.aiQuote = '';
-    // this.aiQuestion = '¿Es esto verdad?';
+    this.aiResult = '';
+  }
+
+  public onAiQuestionChange(next: string): void {
+    this.aiQuestion = String(next || '');
+  }
+
+  public onAiQuickAction(action: AiAskQuickAction): void {
+    if (action === 'VERIFY') {
+      this.aiQuestion = 'Verifica este mensaje y marca posibles riesgos o datos dudosos.';
+    } else {
+      this.aiQuestion = 'Sugiere una respuesta breve, clara y respetuosa para este mensaje.';
+    }
+    void this.submitAiQuestion(this.aiQuestion);
+  }
+
+  public async submitAiQuestion(rawQuestion?: string): Promise<void> {
+    if (this.aiPanelLoading) return;
+
+    const quote = String(this.aiQuote || '').trim();
+    const question = String(rawQuestion ?? this.aiQuestion ?? '').trim();
+    if (!quote || !question) return;
+
+    const chatId = Number(this.chatActual?.id || 0);
+    this.aiQuestion = question;
+    this.aiPanelLoading = true;
+    this.aiError = null;
+    this.aiResult = '';
+
+    try {
+      const response = await this.mensajeriaService.askAi({
+        quote,
+        question,
+        chatId: Number.isFinite(chatId) && chatId > 0 ? chatId : undefined,
+      });
+      this.aiResult = String(response?.answer || '').trim() || 'Sin respuesta.';
+    } catch (err: any) {
+      const status = Number(err?.status || 0);
+      const backendMsg = String(
+        err?.error?.mensaje || err?.error?.message || err?.message || ''
+      ).trim();
+      this.aiError =
+        status === 404
+          ? 'La API de IA no esta disponible en backend.'
+          : status === 403
+          ? 'No tienes permisos para usar esta funcion.'
+          : backendMsg || 'No se pudo consultar a la IA.';
+    } finally {
+      this.aiPanelLoading = false;
+      this.cdr.markForCheck();
+    }
   }
 
   /**
@@ -10454,6 +10829,112 @@ private async decryptPreviewString(
     return list.find((item) => Number(item?.id) === messageId) || null;
   }
 
+  private findLoadedMessageAcrossConversationsById(
+    messageIdRaw: unknown
+  ): MensajeDTO | null {
+    const messageId = Number(messageIdRaw);
+    if (!Number.isFinite(messageId) || messageId <= 0) return null;
+
+    const fromActive = this.findLoadedMessageById(messageId);
+    if (fromActive) return fromActive;
+
+    const fromHydrated = this.starredHydratedMessagesById.get(Math.round(messageId));
+    if (fromHydrated) return fromHydrated;
+
+    for (const state of this.historyStateByConversation.values()) {
+      const list = Array.isArray(state?.messages) ? state.messages : [];
+      const found =
+        list.find((item) => Number(item?.id) === Math.round(messageId)) || null;
+      if (found) return found;
+    }
+    return null;
+  }
+
+  private resolveChatIdForStarredNavigation(
+    item: StarredMessageItem,
+    messageIdRaw: unknown
+  ): number | null {
+    const messageId = Number(messageIdRaw);
+    const hydrated = this.findLoadedMessageAcrossConversationsById(messageId);
+    const hydratedChatId = Number(hydrated?.chatId);
+    const directChatId = Number(item?.chatId);
+    const fallbackChatId = Number(
+      (item as any)?.idChat ??
+        (item as any)?.chatID ??
+        (item as any)?.conversationId ??
+        (item as any)?.conversation_id ??
+        (item as any)?.roomId ??
+        (item as any)?.room_id
+    );
+
+    const candidates = [directChatId, hydratedChatId, fallbackChatId];
+    for (const candidate of candidates) {
+      if (Number.isFinite(candidate) && candidate > 0) {
+        return Math.round(candidate);
+      }
+    }
+    return null;
+  }
+
+  private findChatForStarredByMetadata(item: StarredMessageItem): any | null {
+    const list = Array.isArray(this.chats) ? this.chats : [];
+    if (list.length === 0) return null;
+
+    const senderId = Number(item?.emisorId);
+    if (Number.isFinite(senderId) && senderId > 0) {
+      const direct = list.find(
+        (chat: any) => !chat?.esGrupo && Number(chat?.receptor?.id) === senderId
+      );
+      if (direct) return direct;
+    }
+
+    const normalizedChatName = String(item?.chatNombre || '')
+      .trim()
+      .toLowerCase();
+    if (!normalizedChatName) return null;
+
+    const byName = list.find((chat: any) => {
+      const receptorFullName = `${chat?.receptor?.nombre || ''} ${
+        chat?.receptor?.apellido || ''
+      }`
+        .trim()
+        .toLowerCase();
+      const groupName = String(chat?.nombreGrupo || chat?.nombre || '')
+        .trim()
+        .toLowerCase();
+      return (
+        normalizedChatName === receptorFullName || normalizedChatName === groupName
+      );
+    });
+    return byName || null;
+  }
+
+  private async resolveChatForStarredNavigation(
+    item: StarredMessageItem,
+    messageIdRaw: unknown
+  ): Promise<any | null> {
+    const resolvedChatId = this.resolveChatIdForStarredNavigation(item, messageIdRaw);
+    if (resolvedChatId) {
+      const byId = this.resolveChatContextForMessage(resolvedChatId);
+      if (byId) return byId;
+    }
+
+    const byMetadata = this.findChatForStarredByMetadata(item);
+    if (byMetadata) return byMetadata;
+
+    if (!this.chatListLoading) {
+      this.listarTodosLosChats();
+    }
+    await this.waitForCondition(() => !this.chatListLoading, 12000);
+
+    if (resolvedChatId) {
+      const byIdAfterReload = this.resolveChatContextForMessage(resolvedChatId);
+      if (byIdAfterReload) return byIdAfterReload;
+    }
+
+    return this.findChatForStarredByMetadata(item);
+  }
+
   private async loadPinnedMessageForActiveChat(showErrorToast = false): Promise<void> {
     const chatId = Number(this.chatSeleccionadoId || this.chatActual?.id);
     if (!Number.isFinite(chatId) || chatId <= 0) {
@@ -10485,20 +10966,16 @@ private async decryptPreviewString(
   }
 
   public async abrirMensajeDestacado(item: StarredMessageItem): Promise<void> {
-    const chatId = Number(item?.chatId);
-    if (!Number.isFinite(chatId) || chatId <= 0) {
-      this.showToast(
-        'No se pudo abrir el mensaje destacado: chat no disponible.',
-        'warning',
-        'Destacados'
-      );
+    const targetId = Number(item?.messageId ?? (item as any)?.mensajeId);
+    if (!Number.isFinite(targetId) || targetId <= 0) {
       return;
     }
 
-    const chat = (this.chats || []).find((c: any) => Number(c?.id) === chatId);
-    if (!chat) {
+    const chat = await this.resolveChatForStarredNavigation(item, targetId);
+    const chatId = Number(chat?.id);
+    if (!chat || !Number.isFinite(chatId) || chatId <= 0) {
       this.showToast(
-        'No se encontró el chat del mensaje destacado.',
+        'No se pudo abrir el mensaje destacado: chat no disponible.',
         'warning',
         'Destacados'
       );
@@ -10508,14 +10985,16 @@ private async decryptPreviewString(
     this.openChatsSidebarView();
     this.activeMainView = 'chat';
 
-    const targetId = Number(item?.messageId);
-    if (!Number.isFinite(targetId) || targetId <= 0) return;
     this.pendingOpenFromStarredNavigation = {
       chatId: Math.round(chatId),
       messageId: Math.round(targetId),
     };
 
     this.mostrarMensajes(chat);
+    await this.waitForCondition(
+      () => Number(this.chatActual?.id) === Math.round(chatId),
+      5000
+    );
 
     try {
       await this.onMessageSearchResultSelect(targetId);
@@ -11038,6 +11517,13 @@ private async decryptPreviewString(
       }
     }
 
+    if (this.showComposeAiPopup) {
+      const composeAiAnchor = this.composeAiAnchorRef?.nativeElement;
+      if (!target || !composeAiAnchor || !composeAiAnchor.contains(target)) {
+        this.closeComposeAiPopup();
+      }
+    }
+
     if (this.showTemporaryMessagePopup) {
       const temporaryAnchor = this.temporaryMessageAnchorRef?.nativeElement;
       if (!target || !temporaryAnchor || !temporaryAnchor.contains(target)) {
@@ -11085,9 +11571,11 @@ private async decryptPreviewString(
     this.openReactionDetailsMessageId = null;
     this.mostrarMenuOpciones = false;
     this.closeComposeActionsPopup();
+    this.closeComposeAiPopup();
     this.closeEmojiPicker(true);
     this.closeTemporaryMessagePopup();
     this.closeGroupInfoPanel();
+    this.closeUserInfoPanel();
     this.closeMessageSearchPanel();
     this.closePollVotesPanel();
     this.closeFilePreview();
@@ -11570,8 +12058,20 @@ private async decryptPreviewString(
     return !!String(this.mensajeNuevo || '').trim();
   }
 
-  public onComposerInput(): void {
+  public onComposerInput(event?: Event): void {
     this.composerDraftPrefixVisible = false;
+    if (!String(this.mensajeNuevo || '').trim()) {
+      this.closeComposeAiPopup();
+    }
+    const textarea = event?.target as HTMLTextAreaElement | null;
+    this.resizeComposerTextarea(textarea);
+  }
+
+  public ngDoCheck(): void {
+    const currentValue = String(this.mensajeNuevo || '');
+    if (currentValue === this.lastComposerTextareaValue) return;
+    this.lastComposerTextareaValue = currentValue;
+    this.scheduleComposerTextareaResize();
   }
 
   private parseLastPreviewRawPayload(raw: unknown): any | null {
@@ -12310,6 +12810,7 @@ private async decryptPreviewString(
       this.closeGroupInfoPanel();
       return;
     }
+    this.closeUserInfoPanel();
     this.closeMessageSearchPanel();
     this.closePollVotesPanel();
 
@@ -12334,6 +12835,46 @@ private async decryptPreviewString(
     }, 230);
   }
 
+  public onDirectChatHeaderKeydown(event: KeyboardEvent): void {
+    if (!this.chatActual || this.chatActual?.esGrupo) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    this.toggleUserInfoPanel();
+  }
+
+  public toggleUserInfoPanel(event?: MouseEvent): void {
+    event?.stopPropagation();
+    if (!this.chatActual || this.chatActual?.esGrupo) return;
+    if (this.showUserInfoPanel) {
+      this.closeUserInfoPanel();
+      return;
+    }
+
+    this.closeGroupInfoPanel();
+    this.closeMessageSearchPanel();
+    this.closePollVotesPanel();
+
+    if (this.userInfoCloseTimer) {
+      clearTimeout(this.userInfoCloseTimer);
+      this.userInfoCloseTimer = null;
+    }
+    this.showUserInfoPanelMounted = true;
+    setTimeout(() => {
+      this.showUserInfoPanel = true;
+    }, 10);
+  }
+
+  public closeUserInfoPanel(): void {
+    this.showUserInfoPanel = false;
+    if (this.userInfoCloseTimer) clearTimeout(this.userInfoCloseTimer);
+    this.userInfoCloseTimer = setTimeout(() => {
+      if (!this.showUserInfoPanel) {
+        this.showUserInfoPanelMounted = false;
+      }
+      this.userInfoCloseTimer = null;
+    }, 230);
+  }
+
   public toggleMessageSearchPanel(event?: MouseEvent): void {
     event?.stopPropagation();
     this.mostrarMenuOpciones = false;
@@ -12344,6 +12885,7 @@ private async decryptPreviewString(
     }
 
     this.closeGroupInfoPanel();
+    this.closeUserInfoPanel();
     this.closePollVotesPanel();
     if (this.messageSearchCloseTimer) {
       clearTimeout(this.messageSearchCloseTimer);
@@ -12382,6 +12924,7 @@ private async decryptPreviewString(
     }
 
     this.closeGroupInfoPanel();
+    this.closeUserInfoPanel();
     this.closeMessageSearchPanel();
     if (this.pollVotesCloseTimer) {
       clearTimeout(this.pollVotesCloseTimer);
@@ -12425,11 +12968,21 @@ private async decryptPreviewString(
   public async onMessageSearchResultSelect(messageId: number): Promise<void> {
     const targetId = Number(messageId);
     if (!Number.isFinite(targetId) || targetId <= 0) return;
-    if (!this.chatActual || this.messageSearchNavigationInFlight) return;
+    if (this.messageSearchNavigationInFlight) {
+      const released = await this.waitForCondition(
+        () => !this.messageSearchNavigationInFlight,
+        12000
+      );
+      if (!released) return;
+    }
+    if (!this.chatActual) return;
 
     this.messageSearchNavigationInFlight = true;
     try {
-      const loaded = await this.ensureMessageLoadedForSearchNavigation(targetId);
+      let loaded = await this.ensureMessageLoadedForSearchNavigation(targetId);
+      if (!loaded && this.isPendingStarredNavigationTarget(targetId)) {
+        loaded = await this.tryHydratePendingStarredNavigationMessage(targetId);
+      }
       if (!loaded) {
         this.showToast(
           'No se encontro el mensaje dentro del historial disponible.',
@@ -12440,7 +12993,10 @@ private async decryptPreviewString(
       }
 
       this.closeMessageSearchPanel();
-      const focused = await this.focusMessageInViewport(targetId);
+      const focused = await this.focusMessageInViewport(
+        targetId,
+        this.isPendingStarredNavigationTarget(targetId)
+      );
       if (!focused) {
         this.showToast(
           'El mensaje fue encontrado pero no se pudo centrar en pantalla.',
@@ -12751,6 +13307,51 @@ private async decryptPreviewString(
     if (dtoName) return dtoName;
     const meta = this.resolveImageMetaForRender(m);
     return meta.imageNombre || 'Imagen';
+  }
+
+  private resolveImageMimeForPreview(m: MensajeDTO, imageSrcRaw: string): string {
+    const meta = this.resolveImageMetaForRender(m);
+    const explicitMime = String(m?.imageMime || meta.imageMime || '').trim();
+    if (explicitMime) return explicitMime;
+
+    const imageSrc = String(imageSrcRaw || '').trim();
+    const dataUrlMime = imageSrc.match(/^data:([^;,]+)[;,]/i)?.[1];
+    if (dataUrlMime) return String(dataUrlMime).trim().toLowerCase();
+
+    const imageName = String(meta.imageNombre || m?.imageNombre || '').trim().toLowerCase();
+    if (imageName.endsWith('.png')) return 'image/png';
+    if (imageName.endsWith('.webp')) return 'image/webp';
+    if (imageName.endsWith('.gif')) return 'image/gif';
+    if (imageName.endsWith('.bmp')) return 'image/bmp';
+    if (imageName.endsWith('.svg')) return 'image/svg+xml';
+    return 'image/jpeg';
+  }
+
+  public openImagePreview(
+    mensaje: MensajeDTO,
+    imageSrcRaw: string,
+    event?: Event
+  ): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    const imageSrc = String(imageSrcRaw || '').trim();
+    if (!imageSrc) {
+      const detail = String((mensaje as any)?.__attachmentLoadError || '').trim();
+      this.showToast(
+        detail || 'No se pudo abrir la previsualizacion de la imagen.',
+        'warning',
+        'Imagen'
+      );
+      return;
+    }
+
+    this.showFilePreview = true;
+    this.filePreviewSrc = imageSrc;
+    this.filePreviewName = this.getImageAlt(mensaje);
+    this.filePreviewSize = '';
+    this.filePreviewType = 'Imagen';
+    this.filePreviewMime = this.resolveImageMimeForPreview(mensaje, imageSrc);
   }
 
   private resolveFileMetaForRender(m: MensajeDTO): {
@@ -16777,6 +17378,54 @@ private async decryptPreviewString(
     return !!this.chatActual?.esGrupo;
   }
 
+  public get canUseComposerAiActions(): boolean {
+    const hasText = !!String(this.mensajeNuevo || '').trim();
+    if (!hasText) return false;
+    return !(
+      this.attachmentUploading ||
+      this.aiLoading ||
+      this.haSalidoDelGrupo ||
+      this.composerInteractionDisabled ||
+      this.noGroupRecipientsForSend
+    );
+  }
+
+  public get canSendComposerMessage(): boolean {
+    const hasText = !!String(this.mensajeNuevo || '').trim();
+    if (!hasText) return false;
+    return !(
+      this.attachmentUploading ||
+      this.aiLoading ||
+      this.composerInteractionDisabled ||
+      this.haSalidoDelGrupo ||
+      this.noGroupRecipientsForSend
+    );
+  }
+
+  public toggleComposeAiPopup(event: MouseEvent): void {
+    event.stopPropagation();
+    if (!this.canUseComposerAiActions) return;
+    if (this.showComposeAiPopup) {
+      this.closeComposeAiPopup();
+      return;
+    }
+    this.showChatListHeaderMenu = false;
+    this.closeComposeActionsPopup();
+    this.closeEmojiPicker();
+    this.closeTemporaryMessagePopup();
+    this.showComposeAiPopup = true;
+  }
+
+  public onComposerAiActionSelect(
+    _action: ComposerAiActionType,
+    event?: MouseEvent
+  ): void {
+    event?.stopPropagation();
+    if (!this.canUseComposerAiActions) return;
+    this.closeComposeAiPopup();
+    // UI only: acciones de IA pendientes de implementar.
+  }
+
   public toggleComposeActionsPopup(event: MouseEvent): void {
     event.stopPropagation();
     if (this.shouldDisableAttachmentAction()) return;
@@ -16785,6 +17434,7 @@ private async decryptPreviewString(
       return;
     }
     this.showChatListHeaderMenu = false;
+    this.closeComposeAiPopup();
     this.closeEmojiPicker();
     this.closeTemporaryMessagePopup();
     this.showComposeActionsPopup = true;
@@ -16808,6 +17458,7 @@ private async decryptPreviewString(
     event?.stopPropagation();
     this.openChatPinMenuChatId = null;
     this.closeComposeActionsPopup();
+    this.closeComposeAiPopup();
     this.closeEmojiPicker();
     this.closeTemporaryMessagePopup();
     this.showChatListHeaderMenu = !this.showChatListHeaderMenu;
@@ -16835,6 +17486,7 @@ private async decryptPreviewString(
     }
     this.showChatListHeaderMenu = false;
     this.closeComposeActionsPopup();
+    this.closeComposeAiPopup();
     this.closeEmojiPicker();
     this.closeTemporaryMessagePopup();
     this.closeScheduleMessageComposer();
@@ -16862,6 +17514,7 @@ private async decryptPreviewString(
     this.showTopbarProfileMenu = false;
     this.showChatListHeaderMenu = false;
     this.closeComposeActionsPopup();
+    this.closeComposeAiPopup();
     this.closeEmojiPicker();
     this.closeTemporaryMessagePopup();
     this.closeGroupPollComposer();
@@ -17336,6 +17989,7 @@ private async decryptPreviewString(
       return;
     }
     this.closeComposeActionsPopup();
+    this.closeComposeAiPopup();
     this.closeEmojiPicker();
     this.showTemporaryMessagePopup = true;
   }
@@ -17389,6 +18043,7 @@ private async decryptPreviewString(
     }
     this.onMessageInputSelectionChange();
     this.closeComposeActionsPopup();
+    this.closeComposeAiPopup();
     this.closeTemporaryMessagePopup();
     if (this.showEmojiPicker) {
       this.closeEmojiPicker();
@@ -17414,6 +18069,7 @@ private async decryptPreviewString(
     event?.stopPropagation();
     if (this.shouldDisableAttachmentAction()) return;
     this.closeComposeActionsPopup();
+    this.closeComposeAiPopup();
     this.closeEmojiPicker();
     this.closeTemporaryMessagePopup();
     this.attachmentInputRef?.nativeElement?.click();
@@ -17692,16 +18348,13 @@ private async decryptPreviewString(
   }
 
   public async enviarMensajeDesdeComposer(): Promise<void> {
-    if (
-      this.haSalidoDelGrupo ||
-      this.chatEsSoloLecturaPorAdmin ||
-      this.noGroupRecipientsForSend ||
-      this.chatGrupalCerradoPorAdmin
-    ) {
+    if (!this.canSendComposerMessage) {
       return;
     }
+    if (this.chatEsSoloLecturaPorAdmin || this.chatGrupalCerradoPorAdmin) return;
     if (this.attachmentUploading) return;
     this.closeComposeActionsPopup();
+    this.closeComposeAiPopup();
     this.closeEmojiPicker();
     this.closeTemporaryMessagePopup();
 
@@ -17746,6 +18399,10 @@ private async decryptPreviewString(
 
   private closeComposeActionsPopup(): void {
     this.showComposeActionsPopup = false;
+  }
+
+  private closeComposeAiPopup(): void {
+    this.showComposeAiPopup = false;
   }
 
   private closeEmojiPicker(immediate = false): void {
@@ -18266,6 +18923,35 @@ private async decryptPreviewString(
     return this.messageInputRef?.nativeElement || null;
   }
 
+  private scheduleComposerTextareaResize(): void {
+    if (this.composerResizeQueued) return;
+    this.composerResizeQueued = true;
+    setTimeout(() => {
+      this.composerResizeQueued = false;
+      this.resizeComposerTextarea();
+    }, 0);
+  }
+
+  private resizeComposerTextarea(textarea?: HTMLTextAreaElement | null): void {
+    const el = textarea || this.getMessageInputElement();
+    if (!el) return;
+    const isEmpty = !String(el.value || '').trim();
+    if (isEmpty) {
+      el.style.height = `${this.composerTextareaMinHeightPx}px`;
+      el.style.overflowY = 'hidden';
+      return;
+    }
+    el.style.height = 'auto';
+    const contentHeight = Number(el.scrollHeight || 0);
+    const nextHeight = Math.max(
+      this.composerTextareaMinHeightPx,
+      Math.min(contentHeight, this.composerTextareaMaxHeightPx)
+    );
+    el.style.height = `${nextHeight}px`;
+    el.style.overflowY =
+      contentHeight > this.composerTextareaMaxHeightPx ? 'auto' : 'hidden';
+  }
+
   /**
    * Evento nativo de escritura dentro del campo `textarea`. Envía a webSockets avisos de que un individuo teclea.
    */
@@ -18287,9 +18973,8 @@ private async decryptPreviewString(
    */
   public onEnter(evt: any): void {
     if (
-      this.haSalidoDelGrupo ||
+      !this.canSendComposerMessage ||
       this.chatEsSoloLecturaPorAdmin ||
-      this.noGroupRecipientsForSend ||
       this.chatGrupalCerradoPorAdmin
     ) {
       evt.preventDefault();
@@ -18599,6 +19284,10 @@ private async decryptPreviewString(
   }
 
   public ngOnDestroy(): void {
+    if (this.browserNotificationRouteSub) {
+      this.browserNotificationRouteSub.unsubscribe();
+      this.browserNotificationRouteSub = undefined;
+    }
     this.wsService.limpiarSuscripcionesChatUI();
     this.persistActiveChatDraft();
     this.stopProfileCodeCountdown();
@@ -18625,9 +19314,14 @@ private async decryptPreviewString(
     }
     if (this.chatsRefreshTimer) clearTimeout(this.chatsRefreshTimer);
     if (this.groupInfoCloseTimer) clearTimeout(this.groupInfoCloseTimer);
+    if (this.userInfoCloseTimer) clearTimeout(this.userInfoCloseTimer);
     if (this.messageSearchCloseTimer) clearTimeout(this.messageSearchCloseTimer);
     if (this.pollVotesCloseTimer) clearTimeout(this.pollVotesCloseTimer);
     if (this.highlightedMessageTimer) clearTimeout(this.highlightedMessageTimer);
+    if (this.messageScrollAnimationFrame !== null) {
+      cancelAnimationFrame(this.messageScrollAnimationFrame);
+      this.messageScrollAnimationFrame = null;
+    }
     for (const url of this.decryptedAudioUrlByCacheKey.values()) {
       try {
         URL.revokeObjectURL(url);

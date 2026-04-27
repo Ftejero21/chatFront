@@ -104,6 +104,14 @@ type AdminGroupView = AdminGroupListDTO & {
   nombre?: string | null;
 };
 
+type AdminRealtimeNotificationKind = 'DENUNCIA' | 'REPORTE';
+type AdminRealtimeNotification = {
+  kind: AdminRealtimeNotificationKind;
+  title: string;
+  message: string;
+  createdAt: number;
+};
+
 @Component({
   selector: 'app-administracion',
   templateUrl: './administracion.component.html',
@@ -221,11 +229,15 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   reportesHoyCount: number = 0;
   reportesHoyFechaReferencia: string = '';
   reportesHoyTimezone: string = '';
+  public mantenerNotificacionVisible: boolean = false;
+  public realtimeNotification: AdminRealtimeNotification | null = null;
   processingAppealId: number | null = null;
   private reportUserNamesById = new Map<number, string>();
   private reportesWsSub: StompSubscription | null = null;
   private denunciasWsSub: StompSubscription | null = null;
   private localComplaintEventsSub?: Subscription;
+  private realtimeNotificationTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly REALTIME_NOTIFICATION_DURATION_MS = 8000;
   private adminAuditPublicKeyInitPromise: Promise<void> | null = null;
   readonly appealFilterOptions = [
     { value: 'ABIERTOS', label: 'Pendientes + En revisión' },
@@ -311,6 +323,10 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     if (this.localComplaintEventsSub) {
       this.localComplaintEventsSub.unsubscribe();
       this.localComplaintEventsSub = undefined;
+    }
+    if (this.realtimeNotificationTimer) {
+      clearTimeout(this.realtimeNotificationTimer);
+      this.realtimeNotificationTimer = null;
     }
     if (this.adminCurrentAudioEl) {
       try {
@@ -484,6 +500,13 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     if (this.isReportsView) {
       this.cargarSolicitudesDesbaneo(this.appealPage);
     }
+    if (this.isCreatedWsEvent((event as any)?.event)) {
+      const nombreActor = this.normalizeDisplayName(
+        (event as any)?.usuarioNombre,
+        (event as any)?.usuarioApellido
+      );
+      this.showRealtimeNotification('REPORTE', nombreActor);
+    }
   }
 
   private inicializarWsDenunciasAdmin(): void {
@@ -518,6 +541,87 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.refreshComplaintsBadgeCount();
     if (this.isComplaintsView) {
       this.cargarDenunciasAdmin(this.complaintsPage);
+    }
+    if (this.isCreatedWsEvent((event as any)?.event)) {
+      const nombreActor = this.normalizeDisplayName(
+        (event as any)?.denuncianteNombre ?? (event as any)?.reporterName,
+        (event as any)?.denuncianteApellido ?? (event as any)?.reporterLastName
+      );
+      this.showRealtimeNotification('DENUNCIA', nombreActor);
+    }
+  }
+
+  private isCreatedWsEvent(eventRaw: unknown): boolean {
+    const eventName = String(eventRaw || '').trim().toUpperCase();
+    if (!eventName) return true;
+    return eventName.endsWith('_CREATED') || eventName === 'CREATED';
+  }
+
+  private normalizeDisplayName(
+    nombreRaw: unknown,
+    apellidoRaw?: unknown
+  ): string | null {
+    const nombre = String(nombreRaw || '').trim();
+    const apellido = String(apellidoRaw || '').trim();
+    const fullName = `${nombre}${apellido ? ` ${apellido}` : ''}`.trim();
+    return fullName || null;
+  }
+
+  private showRealtimeNotification(
+    kind: AdminRealtimeNotificationKind,
+    actorName?: string | null
+  ): void {
+    const cleanActor = String(actorName || '').trim();
+    const message =
+      kind === 'DENUNCIA'
+        ? cleanActor
+          ? `Nueva denuncia de usuario ${cleanActor}`
+          : 'Nueva denuncia recibida'
+        : cleanActor
+        ? `Nuevo reporte de usuario ${cleanActor}`
+        : 'Nuevo reporte recibido';
+
+    this.realtimeNotification = {
+      kind,
+      title: kind === 'DENUNCIA' ? 'Denuncia' : 'Reporte',
+      message,
+      createdAt: Date.now(),
+    };
+    this.scheduleRealtimeNotificationAutoHide();
+  }
+
+  private scheduleRealtimeNotificationAutoHide(): void {
+    if (this.realtimeNotificationTimer) {
+      clearTimeout(this.realtimeNotificationTimer);
+      this.realtimeNotificationTimer = null;
+    }
+    if (this.mantenerNotificacionVisible) return;
+    this.realtimeNotificationTimer = setTimeout(() => {
+      this.realtimeNotification = null;
+      this.realtimeNotificationTimer = null;
+    }, this.REALTIME_NOTIFICATION_DURATION_MS);
+  }
+
+  public dismissRealtimeNotification(event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.realtimeNotification = null;
+    if (this.realtimeNotificationTimer) {
+      clearTimeout(this.realtimeNotificationTimer);
+      this.realtimeNotificationTimer = null;
+    }
+  }
+
+  public onRealtimeNotificationClick(): void {
+    const current = this.realtimeNotification;
+    if (!current) return;
+    if (current.kind === 'DENUNCIA') {
+      this.showComplaintsView();
+    } else {
+      this.showReportes();
+    }
+    if (!this.mantenerNotificacionVisible) {
+      this.dismissRealtimeNotification();
     }
   }
 

@@ -2,6 +2,8 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable, firstValueFrom } from 'rxjs';
 import { environment } from '../../environments';
+import { AiAskRequestDTO } from '../../Interface/AiAskRequestDTO';
+import { AiAskResponseDTO } from '../../Interface/AiAskResponseDTO';
 
 @Injectable({
   providedIn: 'root',
@@ -200,6 +202,52 @@ export class MensajeriaService {
         await new Promise<void>((resolve) => setTimeout(resolve, 250 * attempt));
       }
     }
+  }
+
+  public async askAi(payload: AiAskRequestDTO): Promise<AiAskResponseDTO> {
+    const quote = String(payload?.quote || '').trim();
+    const question = String(payload?.question || '').trim();
+    const chatId = Number(payload?.chatId || 0);
+    if (!quote || !question) throw new Error('AI_ASK_PAYLOAD_INVALID');
+
+    const body: AiAskRequestDTO = {
+      quote,
+      question,
+      chatId: Number.isFinite(chatId) && chatId > 0 ? chatId : undefined,
+    };
+
+    const endpoints = [
+      `${this.backendBaseUrl}/api/ai/ask`,
+      `${this.backendBaseUrl}/api/ia/ask`,
+      `${this.backendBaseUrl}/api/mensajeria/ai/ask`,
+      `${this.backendBaseUrl}/api/mensajeria/ia/ask`,
+    ];
+
+    let lastError: any = null;
+    for (const endpoint of endpoints) {
+      try {
+        const response: any = await firstValueFrom(
+          this.http.post(endpoint, body, {
+            headers: this.buildAuthHeaders(),
+          })
+        );
+        const answer = String(
+          response?.answer || response?.respuesta || response?.message || response?.mensaje || ''
+        ).trim();
+        if (!answer) continue;
+        return { answer };
+      } catch (err: any) {
+        const status = Number(err?.status || 0);
+        // Si no existe endpoint, prueba el siguiente fallback.
+        if (status === 404 || status === 405) {
+          lastError = err;
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    throw lastError || new Error('AI_ASK_ENDPOINT_UNAVAILABLE');
   }
 
   private toFile(input: Blob | File, preferredName?: string): File {

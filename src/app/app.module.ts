@@ -36,6 +36,8 @@ import { AdminMessagesSectionComponent } from './Components/administracion/admin
 import { AdminScheduledSectionComponent } from './Components/administracion/admin-scheduled-section/admin-scheduled-section.component';
 import { UsersTableSkeletonComponent } from './Components/loaders/users-table-skeleton/users-table-skeleton.component';
 import { AdminPaginationComponent } from './Components/shared/admin-pagination/admin-pagination.component';
+import { UserInfoPanelComponent } from './Components/inicio/user-info-panel/user-info-panel.component';
+import { AiAskPopupComponent } from './Components/popup/ai-ask-popup/ai-ask-popup.component';
 
 @NgModule({
   declarations: [
@@ -65,7 +67,9 @@ import { AdminPaginationComponent } from './Components/shared/admin-pagination/a
     AdminReportsSectionComponent,
     AdminComplaintsSectionComponent,
     AdminMessagesSectionComponent,
-    AdminScheduledSectionComponent
+    AdminScheduledSectionComponent,
+    UserInfoPanelComponent,
+    AiAskPopupComponent
   ],
   imports: [
     BrowserModule,

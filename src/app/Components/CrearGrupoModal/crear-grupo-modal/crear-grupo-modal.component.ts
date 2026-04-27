@@ -51,7 +51,7 @@ export class CrearGrupoModalComponent implements OnInit {
     nombre: '',
     fotoDataUrl: null as string | null,
     descripcion: '',
-    visibilidad: 'PUBLICO' as 'PUBLICO' | 'PRIVADO',
+    visibilidad: 'PRIVADO' as 'PUBLICO' | 'PRIVADO',
     seleccionados: [] as UsuarioDTO[],
   };
 
@@ -195,7 +195,7 @@ export class CrearGrupoModalComponent implements OnInit {
       descripcion:
         (this.nuevoGrupo.descripcion || '').trim() ||
         `Grupo ${nombre} creado en TejeChat.`,
-      visibilidad: this.nuevoGrupo.visibilidad || 'PUBLICO',
+      visibilidad: this.nuevoGrupo.visibilidad || 'PRIVADO',
     };
 
     this.create.emit(dto);
@@ -207,7 +207,7 @@ export class CrearGrupoModalComponent implements OnInit {
       nombre: '',
       fotoDataUrl: null,
       descripcion: '',
-      visibilidad: 'PUBLICO',
+      visibilidad: 'PRIVADO',
       seleccionados: [],
     };
     this.busquedaUsuario = '';

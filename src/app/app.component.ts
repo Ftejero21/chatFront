@@ -5,6 +5,7 @@ import { SessionService } from './Service/session/session.service';
 import { Subscription } from 'rxjs';
 import { RateLimitService } from './Service/rate-limit/rate-limit.service';
 import { EmojiCatalogService } from './Service/emoji/emoji-catalog.service';
+import { BrowserNotificationService } from './Service/Notification/browser-notification.service';
 
 @Component({
   selector: 'app-root',
@@ -24,10 +25,12 @@ export class AppComponent implements OnInit, OnDestroy {
     private wsService: WebSocketService,
     private sessionService: SessionService,
     private rateLimitService: RateLimitService,
-    private emojiCatalogService: EmojiCatalogService
+    private emojiCatalogService: EmojiCatalogService,
+    private browserNotificationService: BrowserNotificationService
   ) {}
 
   ngOnInit() {
+    this.browserNotificationService.requestPermissionIfNeeded();
     void this.emojiCatalogService.preload().catch((err) => {
       console.error('No se pudo precargar el catálogo de emojis:', err);
     });

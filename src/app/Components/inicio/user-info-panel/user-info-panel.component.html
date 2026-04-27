@@ -1,0 +1,176 @@
+<div class="user-panel-container">
+  <header class="panel-header">
+    <div class="header-content">
+      <button type="button" class="close-btn" (click)="onClose()" aria-label="Cerrar">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+      <h1 class="header-title">Perfil de Usuario</h1>
+    </div>
+  </header>
+
+  <div class="scroll-content">
+    <div *ngIf="loadError" class="panel-alert panel-alert--error">{{ loadError }}</div>
+    <div *ngIf="loading" class="panel-alert panel-alert--loading">Cargando informacion del usuario...</div>
+
+    <section class="profile-hero">
+      <div class="avatar-wrapper">
+        <img [src]="userPhoto" class="main-avatar" alt="User avatar" />
+        <div class="status-indicator" [ngClass]="userStatusUiClass"></div>
+      </div>
+      <h2 class="profile-name">{{ userName }}</h2>
+      <p class="profile-bio">{{ profileBio }}</p>
+      <div class="badge-row">
+        <span class="status-pill" [ngClass]="userStatusUiClass">{{ userStatusLabel }}</span>
+      </div>
+    </section>
+
+    <section class="quick-actions-grid">
+      <h3 class="section-title">Actividad compartida</h3>
+
+      <div class="collapsible-card" [class.is-expanded]="mediaOpen">
+        <button class="collapse-trigger" (click)="toggleMedia()">
+          <div class="trigger-icon blue-gradient">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+          </div>
+          <div class="trigger-text">
+            <span class="label">Galeria Multimedia</span>
+            <span class="subtext">{{ sharedMediaSubtitle }}</span>
+          </div>
+          <svg class="chevron" [class.rotate]="mediaOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        <div class="collapse-content" *ngIf="mediaOpen">
+          <div *ngIf="mediaLoading" class="panel-alert panel-alert--loading">Cargando multimedia...</div>
+          <div *ngIf="!mediaLoading && mediaError" class="panel-alert panel-alert--error">{{ mediaError }}</div>
+
+          <div class="media-mini-list" *ngIf="!mediaLoading && !mediaError">
+            <div class="media-item-row" *ngFor="let item of mediaItems; trackBy: trackMediaItem">
+              <div class="item-info">
+                <span class="item-name" [title]="fileNameLabel(item)">{{ fileNameLabel(item) }}</span>
+                <span class="item-meta">
+                  {{ mediaDateLabel(item) || 'Fecha no disponible' }}
+                  <ng-container *ngIf="mediaSizeLabel(item.sizeBytes)"> · {{ mediaSizeLabel(item.sizeBytes) }}</ng-container>
+                  <ng-container *ngIf="isAudioItem(item) && mediaDurationLabel(item.durMs)"> · {{ mediaDurationLabel(item.durMs) }}</ng-container>
+                </span>
+              </div>
+              <button class="btn-open" type="button" (click)="openFileItem(item, $event)">Abrir</button>
+            </div>
+
+            <div class="empty-state" *ngIf="mediaItems.length === 0">
+              <p>No hay archivos multimedia recientes</p>
+            </div>
+
+            <button
+              *ngIf="mediaHasMore"
+              type="button"
+              class="btn-more"
+              [disabled]="mediaLoadingMore"
+              (click)="loadMoreMedia()">
+              {{ mediaLoadingMore ? 'Cargando...' : 'Cargar mas' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="collapsible-card" [class.is-expanded]="filesOpen">
+        <button class="collapse-trigger" (click)="toggleFiles()">
+          <div class="trigger-icon green-gradient">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+              <polyline points="13 2 13 9 20 9"></polyline>
+            </svg>
+          </div>
+          <div class="trigger-text">
+            <span class="label">Documentos y Enlaces</span>
+            <span class="subtext">{{ sharedFilesSubtitle }}</span>
+          </div>
+          <svg class="chevron" [class.rotate]="filesOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        <div class="collapse-content" *ngIf="filesOpen">
+          <div *ngIf="filesLoading" class="panel-alert panel-alert--loading">Cargando archivos...</div>
+          <div *ngIf="!filesLoading && filesError" class="panel-alert panel-alert--error">{{ filesError }}</div>
+
+          <div class="media-mini-list" *ngIf="!filesLoading && !filesError">
+            <div class="media-item-row" *ngFor="let item of filesItems; trackBy: trackFileItem">
+              <div class="item-info">
+                <span class="item-name" [title]="fileNameLabel(item)">{{ fileNameLabel(item) }}</span>
+                <span class="item-meta">
+                  {{ mediaDateLabel(item) || 'Fecha no disponible' }}
+                  <ng-container *ngIf="mediaSizeLabel(item.sizeBytes)"> · {{ mediaSizeLabel(item.sizeBytes) }}</ng-container>
+                </span>
+              </div>
+              <div class="row-actions">
+                <button class="btn-open" type="button" (click)="openFileItem(item, $event)">Abrir</button>
+                <button class="btn-open btn-open--secondary" type="button" (click)="downloadFileItem(item, $event)">Descargar</button>
+              </div>
+            </div>
+
+            <div class="empty-state" *ngIf="filesItems.length === 0">
+              <p>No hay documentos compartidos recientemente</p>
+            </div>
+
+            <button
+              *ngIf="filesHasMore"
+              type="button"
+              class="btn-more"
+              [disabled]="filesLoadingMore"
+              (click)="loadMoreFiles()">
+              {{ filesLoadingMore ? 'Cargando...' : 'Cargar mas' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="user-actions-card">
+        <button
+          type="button"
+          class="user-action-btn user-action-btn--mute"
+          (click)="onMuteNotifications()"
+        >
+          {{ muteButtonLabel }}
+        </button>
+        <button
+          type="button"
+          class="user-action-btn user-action-btn--block"
+          (click)="onBlockUser()"
+        >
+          {{ blockButtonLabel }}
+        </button>
+        <button
+          type="button"
+          class="user-action-btn user-action-btn--report"
+          [disabled]="isUserReported"
+          (click)="onReportUser()"
+        >
+          {{ isUserReported ? 'Usuario Denunciado' : 'Denunciar Usuario' }}
+        </button>
+      </div>
+    </section>
+
+    <section class="details-grid">
+      <h3 class="section-title">Informacion de Contacto</h3>
+
+      <div class="info-card">
+        <div class="info-item" *ngFor="let detail of userDetails">
+          <div class="info-label">
+            <span class="icon-small">{{ detail.icon }}</span>
+            {{ detail.label }}
+          </div>
+          <div class="info-value" [title]="detail.value">{{ detail.value }}</div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>

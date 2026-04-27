@@ -1075,6 +1075,45 @@
     (closed)="closeAdminFilePreview()"
   ></app-file-preview-viewer>
     </main>
+
+    <div
+      *ngIf="realtimeNotification as notification"
+      class="admin-realtime-toast"
+      [ngClass]="{
+        'admin-realtime-toast--complaint': notification.kind === 'DENUNCIA',
+        'admin-realtime-toast--report': notification.kind === 'REPORTE'
+      }"
+      role="button"
+      tabindex="0"
+      (click)="onRealtimeNotificationClick()"
+      (keydown.enter)="onRealtimeNotificationClick()"
+      (keydown.space)="onRealtimeNotificationClick(); $event.preventDefault()"
+    >
+      <div class="admin-realtime-toast__icon" aria-hidden="true">
+        <i
+          class="bi"
+          [ngClass]="
+            notification.kind === 'DENUNCIA'
+              ? 'bi-exclamation-octagon-fill'
+              : 'bi-flag-fill'
+          "
+        ></i>
+      </div>
+
+      <div class="admin-realtime-toast__content">
+        <span class="admin-realtime-toast__title">{{ notification.title }}</span>
+        <p class="admin-realtime-toast__text">{{ notification.message }}</p>
+      </div>
+
+      <button
+        type="button"
+        class="admin-realtime-toast__close"
+        aria-label="Cerrar notificación"
+        (click)="dismissRealtimeNotification($event)"
+      >
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
 </div>
 
 
