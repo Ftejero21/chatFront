@@ -38,6 +38,7 @@ import { UsersTableSkeletonComponent } from './Components/loaders/users-table-sk
 import { AdminPaginationComponent } from './Components/shared/admin-pagination/admin-pagination.component';
 import { UserInfoPanelComponent } from './Components/inicio/user-info-panel/user-info-panel.component';
 import { AiAskPopupComponent } from './Components/popup/ai-ask-popup/ai-ask-popup.component';
+import { AiTextAssistantPopupComponent } from './Components/popup/ai-text-assistant-popup/ai-text-assistant-popup.component';
 
 @NgModule({
   declarations: [
@@ -69,7 +70,8 @@ import { AiAskPopupComponent } from './Components/popup/ai-ask-popup/ai-ask-popu
     AdminMessagesSectionComponent,
     AdminScheduledSectionComponent,
     UserInfoPanelComponent,
-    AiAskPopupComponent
+    AiAskPopupComponent,
+    AiTextAssistantPopupComponent
   ],
   imports: [
     BrowserModule,

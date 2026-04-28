@@ -26,11 +26,13 @@ export class AiAskPopupComponent implements OnChanges {
   @Input() loading = false;
   @Input() result = '';
   @Input() error: string | null = null;
+  @Input() canApplyResult = false;
 
   @Output() closed = new EventEmitter<void>();
   @Output() questionChange = new EventEmitter<string>();
   @Output() submitted = new EventEmitter<string>();
   @Output() quickAction = new EventEmitter<AiAskQuickAction>();
+  @Output() applyResult = new EventEmitter<void>();
   @ViewChild('aiAskTextarea')
   private aiAskTextareaRef?: ElementRef<HTMLTextAreaElement>;
 
@@ -84,6 +86,11 @@ export class AiAskPopupComponent implements OnChanges {
   public onQuickAction(action: AiAskQuickAction): void {
     if (this.loading) return;
     this.quickAction.emit(action);
+  }
+
+  public onApplyResult(): void {
+    if (this.loading || !this.canApplyResult || !this.hasResult) return;
+    this.applyResult.emit();
   }
 
   private deferTextareaResize(): void {

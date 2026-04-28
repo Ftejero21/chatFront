@@ -292,6 +292,11 @@
   white-space: pre-wrap;
 }
 
+.ai-ask-popup__result-box .ai-ask-popup__action-btn {
+  width: fit-content;
+  margin: 14px auto 0;
+}
+
 .ai-ask-popup__error-box {
   border-radius: 12px;
   border: 1px solid #fecaca;

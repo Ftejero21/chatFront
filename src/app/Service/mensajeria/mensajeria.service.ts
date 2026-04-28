@@ -2,8 +2,8 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable, firstValueFrom } from 'rxjs';
 import { environment } from '../../environments';
-import { AiAskRequestDTO } from '../../Interface/AiAskRequestDTO';
-import { AiAskResponseDTO } from '../../Interface/AiAskResponseDTO';
+import { AiTextRequestDTO } from '../../Interface/AiTextRequestDTO';
+import { AiTextResponseDTO } from '../../Interface/AiTextResponseDTO';
 
 @Injectable({
   providedIn: 'root',
@@ -204,50 +204,22 @@ export class MensajeriaService {
     }
   }
 
-  public async askAi(payload: AiAskRequestDTO): Promise<AiAskResponseDTO> {
-    const quote = String(payload?.quote || '').trim();
-    const question = String(payload?.question || '').trim();
-    const chatId = Number(payload?.chatId || 0);
-    if (!quote || !question) throw new Error('AI_ASK_PAYLOAD_INVALID');
-
-    const body: AiAskRequestDTO = {
-      quote,
-      question,
-      chatId: Number.isFinite(chatId) && chatId > 0 ? chatId : undefined,
-    };
-
-    const endpoints = [
-      `${this.backendBaseUrl}/api/ai/ask`,
-      `${this.backendBaseUrl}/api/ia/ask`,
-      `${this.backendBaseUrl}/api/mensajeria/ai/ask`,
-      `${this.backendBaseUrl}/api/mensajeria/ia/ask`,
-    ];
-
-    let lastError: any = null;
-    for (const endpoint of endpoints) {
-      try {
-        const response: any = await firstValueFrom(
-          this.http.post(endpoint, body, {
-            headers: this.buildAuthHeaders(),
-          })
-        );
-        const answer = String(
-          response?.answer || response?.respuesta || response?.message || response?.mensaje || ''
-        ).trim();
-        if (!answer) continue;
-        return { answer };
-      } catch (err: any) {
-        const status = Number(err?.status || 0);
-        // Si no existe endpoint, prueba el siguiente fallback.
-        if (status === 404 || status === 405) {
-          lastError = err;
-          continue;
-        }
-        throw err;
-      }
+  public procesarTextoConIa(
+    request: AiTextRequestDTO
+  ): Observable<AiTextResponseDTO> {
+    const texto = String(request?.texto || '').trim();
+    const modo = String(request?.modo || '').trim();
+    if (!texto || !modo) {
+      throw new Error('AI_TEXT_PAYLOAD_INVALID');
     }
 
-    throw lastError || new Error('AI_ASK_ENDPOINT_UNAVAILABLE');
+    return this.http.post<AiTextResponseDTO>(
+      `${this.backendBaseUrl}/api/ai/texto`,
+      { texto, modo },
+      {
+        headers: this.buildAuthHeaders(),
+      }
+    );
   }
 
   private toFile(input: Blob | File, preferredName?: string): File {

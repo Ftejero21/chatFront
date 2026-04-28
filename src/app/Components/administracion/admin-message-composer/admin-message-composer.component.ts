@@ -1,5 +1,9 @@
 import { Component, ElementRef, EventEmitter, Input, OnChanges, Output, SimpleChanges, ViewChild } from '@angular/core';
 import { UsuarioDTO } from '../../../Interface/UsuarioDTO';
+import { MensajeriaService } from '../../../Service/mensajeria/mensajeria.service';
+import { AiTextMode } from '../../../Interface/AiTextMode';
+import { AiTextResponseDTO } from '../../../Interface/AiTextResponseDTO';
+import { firstValueFrom } from 'rxjs';
 
 export type AdminMessageComposerSubmitEvent = {
   mode: 'all' | 'selected';
@@ -40,8 +44,15 @@ export class AdminMessageComposerComponent implements OnChanges {
   showEmailPreview: boolean = false;
   showSchedulePopup: boolean = false;
   searchTerm: string = '';
+  mostrarPopupIaAdmin: boolean = false;
+  textoIaAdmin: string = '';
+  cargandoIaAdmin: boolean = false;
+  errorIaAdmin: string = '';
+  tipoFormularioIa: 'MENSAJE' | 'EMAIL' = 'MENSAJE';
   private emailDragDepth = 0;
   private usersSelectionInitialized = false;
+
+  constructor(private mensajeriaService: MensajeriaService) {}
 
   ngOnChanges(changes: SimpleChanges): void {
     if (
@@ -113,6 +124,16 @@ export class AdminMessageComposerComponent implements OnChanges {
       : 'Escribe el contenido del mensaje...';
   }
 
+  get adminIaPopupTitle(): string {
+    return this.tipoFormularioIa === 'EMAIL'
+      ? 'Asistente IA para email'
+      : 'Asistente IA para mensaje';
+  }
+
+  get adminIaSubmitLabel(): string {
+    return this.cargandoIaAdmin ? 'Generando...' : 'Formatear con IA';
+  }
+
   get selectedUsersCount(): number {
     return this.selectedUserIds.size;
   }
@@ -162,6 +183,19 @@ export class AdminMessageComposerComponent implements OnChanges {
 
   openSchedulePopup(): void {
     this.showSchedulePopup = true;
+  }
+
+  abrirPopupIaAdmin(tipo: 'MENSAJE' | 'EMAIL'): void {
+    if (this.cargandoIaAdmin) return;
+    this.tipoFormularioIa = tipo;
+    this.mostrarPopupIaAdmin = true;
+    this.errorIaAdmin = '';
+  }
+
+  cerrarPopupIaAdmin(): void {
+    if (this.cargandoIaAdmin) return;
+    this.mostrarPopupIaAdmin = false;
+    this.errorIaAdmin = '';
   }
 
   closeSchedulePopup(): void {
@@ -293,6 +327,73 @@ export class AdminMessageComposerComponent implements OnChanges {
     this.emitComposeEvent(this.sendRequested);
   }
 
+  async generarTextoAdminConIa(): Promise<void> {
+    const idea = String(this.textoIaAdmin || '').trim();
+    if (!idea || this.cargandoIaAdmin) {
+      if (!idea) this.errorIaAdmin = 'Escribe una idea primero.';
+      return;
+    }
+
+    this.cargandoIaAdmin = true;
+    this.errorIaAdmin = '';
+
+    try {
+      const response = await firstValueFrom(
+        this.mensajeriaService.procesarTextoConIa({
+          texto: this.buildAdminIaPrompt(idea),
+          modo:
+            this.tipoFormularioIa === 'EMAIL'
+              ? AiTextMode.GENERAR_EMAIL
+              : AiTextMode.GENERAR_RESPUESTA,
+        })
+      );
+
+      if (!response?.success) {
+        this.errorIaAdmin =
+          String(response?.mensaje || '').trim() || 'No se pudo generar el texto.';
+        return;
+      }
+
+      this.aplicarTextoGeneradoAdmin(response);
+      this.mostrarPopupIaAdmin = false;
+    } catch (err: any) {
+      this.errorIaAdmin = String(
+        err?.error?.mensaje || err?.error?.message || err?.message || ''
+      ).trim() || 'No se pudo generar el texto con IA.';
+    } finally {
+      this.cargandoIaAdmin = false;
+    }
+  }
+
+  aplicarTextoGeneradoAdmin(response: AiTextResponseDTO): void {
+    const textoGenerado = String(response?.textoGenerado || '').trim();
+    if (!textoGenerado) return;
+
+    if (this.tipoFormularioIa === 'EMAIL') {
+      const parsed = this.parsearEmailIa(textoGenerado);
+      if (parsed.subject) this.subjectText = parsed.subject;
+      if (parsed.body) {
+        this.messageText = parsed.body;
+        return;
+      }
+      this.messageText = textoGenerado;
+      return;
+    }
+
+    this.messageText = textoGenerado;
+  }
+
+  parsearEmailIa(textoGenerado: string): { subject: string; body: string } {
+    const raw = String(textoGenerado || '').trim();
+    const subjectMatch = raw.match(/ASUNTO:\s*([^\n\r]+)/i);
+    const bodyMatch = raw.match(/CUERPO:\s*([\s\S]*)$/i);
+
+    return {
+      subject: String(subjectMatch?.[1] || '').trim(),
+      body: String(bodyMatch?.[1] || '').trim(),
+    };
+  }
+
   private emitComposeEvent(
     emitter: EventEmitter<AdminMessageComposerSubmitEvent>,
     extra: Partial<AdminMessageComposerSubmitEvent> = {}
@@ -370,8 +471,20 @@ export class AdminMessageComposerComponent implements OnChanges {
     this.showEmailPreview = false;
     this.showSchedulePopup = false;
     this.searchTerm = '';
+    this.mostrarPopupIaAdmin = false;
+    this.textoIaAdmin = '';
+    this.cargandoIaAdmin = false;
+    this.errorIaAdmin = '';
     this.emailDragDepth = 0;
     this.emailDropActive = false;
     this.clearEmailAttachments();
+  }
+
+  private buildAdminIaPrompt(idea: string): string {
+    return this.tipoFormularioIa === 'EMAIL'
+      ? idea
+      : 'Genera un mensaje claro y natural a partir de esta idea: ' +
+          idea +
+          '. Devuelve solo el mensaje final.';
   }
 }

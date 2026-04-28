@@ -109,6 +109,7 @@ import {
   PollVotesPanelVoter,
 } from '../../../Interface/PollVotesPanel';
 import { AiAskQuickAction } from '../../popup/ai-ask-popup/ai-ask-popup.component';
+import { AiTextMode } from '../../../Interface/AiTextMode';
 
 // Bootstrap (modales)
 declare const bootstrap: any;
@@ -420,6 +421,7 @@ export class InicioComponent {
   public showEmojiPicker = false;
   public showComposeActionsPopup = false;
   public showComposeAiPopup = false;
+  public composerAiError: string | null = null;
   public showTemporaryMessagePopup = false;
   public showReportChatClosurePopup = false;
   public reportChatClosureSending = false;
@@ -538,14 +540,15 @@ export class InicioComponent {
   >();
 
   public aiPanelOpen = false;
-  /** Texto resaltado para la IA */
   public aiQuote = '';
-  /** Pregunta por defecto para la IA */
-  public aiQuestion = '¿Es esto verdad?';
   public aiLoading = false;
-  public aiError: string | null = null;
-  public aiResult = '';
-  public aiPanelLoading = false;
+  public cargandoIaInput = false;
+  public cargandoIaMensaje = false;
+  public mensajeSeleccionadoParaIa: MensajeDTO | null = null;
+  public preguntaIaMensaje = '';
+  public respuestaIaMensaje = '';
+  public errorIa: string | null = null;
+  public mostrarModalPreguntaIa = false;
   public remoteHasVideo = false;
 
   public topbarQuery: string = '';
@@ -9347,79 +9350,182 @@ private async decryptPreviewString(
   /**
    * Abre el panel auxiliar de la Inteligencia Artificial al hacer clic en las opciones del mensaje.
    */
-  public openAiPanelFromMessage(mensaje: MensajeDTO, event?: MouseEvent): void {
+  public preguntarIaSobreMensaje(mensaje: MensajeDTO, event?: MouseEvent): void {
     event?.preventDefault();
     event?.stopPropagation();
-
-    const selectedText = String(this.aiQuote || '').trim();
-    const fallbackText = String(this.buildPinnedPreviewFromMessage(mensaje) || '').trim();
-    this.aiQuote = selectedText || fallbackText;
-    this.aiQuestion = String(this.aiQuestion || '').trim() || '¿Que deberia responder?';
-    this.aiResult = '';
-    this.aiError = null;
-    this.aiPanelLoading = false;
+    this.aiQuote = String(mensaje?.contenido || '').trim();
+    this.mensajeSeleccionadoParaIa = mensaje;
+    this.preguntaIaMensaje = '';
+    this.respuestaIaMensaje = '';
+    this.errorIa = null;
+    this.cargandoIaMensaje = false;
     this.openMensajeMenuId = null;
+    this.mostrarModalPreguntaIa = true;
     this.aiPanelOpen = true;
   }
 
-  /**
-   * Cierra el panel de consulta de la Inteligencia Artificial.
-   */
-  public cancelAiPanel(): void {
-    if (this.aiPanelLoading) return;
+  public openAiPanelFromMessage(mensaje: MensajeDTO, event?: MouseEvent): void {
+    this.preguntarIaSobreMensaje(mensaje, event);
+  }
+
+  public cerrarModalIaMensaje(): void {
+    if (this.cargandoIaMensaje) return;
     this.aiPanelOpen = false;
-    this.aiError = null;
-    this.aiResult = '';
+    this.mostrarModalPreguntaIa = false;
+    this.errorIa = null;
+    this.respuestaIaMensaje = '';
+  }
+
+  public cancelAiPanel(): void {
+    this.cerrarModalIaMensaje();
   }
 
   public onAiQuestionChange(next: string): void {
-    this.aiQuestion = String(next || '');
+    this.preguntaIaMensaje = String(next || '');
   }
 
   public onAiQuickAction(action: AiAskQuickAction): void {
     if (action === 'VERIFY') {
-      this.aiQuestion = 'Verifica este mensaje y marca posibles riesgos o datos dudosos.';
-    } else {
-      this.aiQuestion = 'Sugiere una respuesta breve, clara y respetuosa para este mensaje.';
+      void this.verificarMensajeConIa();
+      return;
     }
-    void this.submitAiQuestion(this.aiQuestion);
+    this.preguntaIaMensaje = '¿Que le puedo responder de forma cariñosa?';
+    void this.confirmarPreguntaIa();
   }
 
-  public async submitAiQuestion(rawQuestion?: string): Promise<void> {
-    if (this.aiPanelLoading) return;
+  public submitAiQuestion(rawQuestion?: string): Promise<void> {
+    return this.confirmarPreguntaIa(rawQuestion);
+  }
 
-    const quote = String(this.aiQuote || '').trim();
-    const question = String(rawQuestion ?? this.aiQuestion ?? '').trim();
-    if (!quote || !question) return;
+  public async confirmarPreguntaIa(rawQuestion?: string): Promise<void> {
+    if (this.cargandoIaMensaje) return;
 
-    const chatId = Number(this.chatActual?.id || 0);
-    this.aiQuestion = question;
-    this.aiPanelLoading = true;
-    this.aiError = null;
-    this.aiResult = '';
+    const contenidoMensaje = String(
+      this.mensajeSeleccionadoParaIa?.contenido || ''
+    ).trim();
+    const pregunta = String(rawQuestion ?? this.preguntaIaMensaje ?? '').trim();
+    if (!pregunta) {
+      this.errorIa = 'Escribe una pregunta primero.';
+      return;
+    }
+    if (!contenidoMensaje) {
+      this.errorIa = 'No hay texto para analizar.';
+      return;
+    }
+
+    this.preguntaIaMensaje = pregunta;
+    this.cargandoIaMensaje = true;
+    this.errorIa = null;
+    this.respuestaIaMensaje = '';
 
     try {
-      const response = await this.mensajeriaService.askAi({
-        quote,
-        question,
-        chatId: Number.isFinite(chatId) && chatId > 0 ? chatId : undefined,
-      });
-      this.aiResult = String(response?.answer || '').trim() || 'Sin respuesta.';
+      const response = await firstValueFrom(
+        this.mensajeriaService.procesarTextoConIa({
+          texto: this.buildIaReplyPrompt(contenidoMensaje, pregunta),
+          modo: AiTextMode.RESPONDER,
+        })
+      );
+      if (response?.success) {
+        this.respuestaIaMensaje =
+          String(response?.textoGenerado || '').trim() || 'Sin respuesta.';
+      } else {
+        this.errorIa =
+          String(response?.mensaje || '').trim() || 'No se pudo consultar a la IA.';
+      }
     } catch (err: any) {
-      const status = Number(err?.status || 0);
-      const backendMsg = String(
-        err?.error?.mensaje || err?.error?.message || err?.message || ''
-      ).trim();
-      this.aiError =
-        status === 404
-          ? 'La API de IA no esta disponible en backend.'
-          : status === 403
-          ? 'No tienes permisos para usar esta funcion.'
-          : backendMsg || 'No se pudo consultar a la IA.';
+      this.errorIa = this.resolveComposerAiErrorMessage(err);
     } finally {
-      this.aiPanelLoading = false;
+      this.cargandoIaMensaje = false;
       this.cdr.markForCheck();
     }
+  }
+
+  private async verificarMensajeConIa(): Promise<void> {
+    if (this.cargandoIaMensaje) return;
+
+    const contenidoMensaje = String(
+      this.mensajeSeleccionadoParaIa?.contenido || ''
+    ).trim();
+    if (!contenidoMensaje) {
+      this.errorIa = 'No hay texto para verificar.';
+      return;
+    }
+
+    this.cargandoIaMensaje = true;
+    this.errorIa = null;
+    this.respuestaIaMensaje = '';
+
+    try {
+      const response = await firstValueFrom(
+        this.mensajeriaService.procesarTextoConIa({
+          texto: contenidoMensaje,
+          modo: AiTextMode.EXPLICAR,
+        })
+      );
+      if (response?.success) {
+        this.respuestaIaMensaje =
+          String(response?.textoGenerado || '').trim() || 'Sin respuesta.';
+      } else {
+        this.errorIa =
+          String(response?.mensaje || '').trim() || 'No se pudo verificar el mensaje.';
+      }
+    } catch (err: any) {
+      this.errorIa = this.resolveComposerAiErrorMessage(err);
+    } finally {
+      this.cargandoIaMensaje = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private buildIaReplyPrompt(
+    mensajeRecibido: string,
+    pregunta: string
+  ): string {
+    const historial = this.buildIaRecentChatContext();
+    return (
+      'Contexto de estilo:\n' +
+      'Estos son mensajes recientes del chat. Usa SOLO los mensajes del usuario actual para imitar su forma de escribir: tono, longitud, expresiones, emojis y faltas comunes. No copies mensajes literalmente.\n\n' +
+      `Historial reciente:\n${historial}\n\n` +
+      `Mensaje recibido:\n"${mensajeRecibido}"\n\n` +
+      `Peticion del usuario:\n"${pregunta}"\n\n` +
+      'Genera unicamente una respuesta directa que el usuario actual pueda enviar. No expliques nada. No digas "podrias responder". Devuelve solo el texto final.'
+    );
+  }
+
+  private buildIaRecentChatContext(): string {
+    const recent = (this.mensajesSeleccionados || [])
+      .filter((mensaje) => this.isValidIaContextMessage(mensaje))
+      .slice(-20)
+      .map((mensaje) => {
+        const sender =
+          Number(mensaje?.emisorId) === Number(this.usuarioActualId)
+            ? 'usuarioActual'
+            : 'otraPersona';
+        return `${sender}: ${this.normalizeIaContextMessageContent(mensaje?.contenido)}`;
+      });
+
+    return recent.length > 0 ? recent.join('\n') : 'Sin contexto reciente.';
+  }
+
+  private isValidIaContextMessage(mensaje: MensajeDTO | null | undefined): boolean {
+    const tipo = String(mensaje?.tipo || 'TEXT').trim().toUpperCase();
+    const contenido = String(mensaje?.contenido || '').trim();
+    return tipo === 'TEXT' && !!contenido;
+  }
+
+  private normalizeIaContextMessageContent(contenidoRaw: unknown): string {
+    const contenido = String(contenidoRaw || '').replace(/\s+/g, ' ').trim();
+    if (contenido.length <= 240) return contenido;
+    return `${contenido.slice(0, 237).trim()}...`;
+  }
+
+  public aplicarRespuestaIaAlInput(): void {
+    const texto = String(this.respuestaIaMensaje || '').trim();
+    if (!texto) return;
+    this.mensajeNuevo = texto;
+    this.scheduleComposerTextareaResize();
+    this.cerrarModalIaMensaje();
+    this.focusMessageInput(texto.length);
   }
 
   /**
@@ -17384,6 +17490,7 @@ private async decryptPreviewString(
     return !(
       this.attachmentUploading ||
       this.aiLoading ||
+      this.cargandoIaInput ||
       this.haSalidoDelGrupo ||
       this.composerInteractionDisabled ||
       this.noGroupRecipientsForSend
@@ -17413,17 +17520,99 @@ private async decryptPreviewString(
     this.closeComposeActionsPopup();
     this.closeEmojiPicker();
     this.closeTemporaryMessagePopup();
+    this.composerAiError = null;
     this.showComposeAiPopup = true;
   }
 
+  public abrirMenuIaInput(event: MouseEvent): void {
+    this.toggleComposeAiPopup(event);
+  }
+
   public onComposerAiActionSelect(
-    _action: ComposerAiActionType,
+    action: ComposerAiActionType,
     event?: MouseEvent
   ): void {
     event?.stopPropagation();
     if (!this.canUseComposerAiActions) return;
+    void this.procesarTextoInputConIa(this.mapComposerAiActionToMode(action));
+  }
+
+  public get composerAiLoadingLabel(): string {
+    return this.cargandoIaInput ? 'Procesando...' : 'Asistente de escritura';
+  }
+
+  private mapComposerAiActionToMode(action: ComposerAiActionType): AiTextMode {
+    switch (action) {
+      case 'SPELLCHECK':
+        return AiTextMode.CORREGIR;
+      case 'TONE':
+        return AiTextMode.REFORMULAR;
+      case 'FORMAT':
+        return AiTextMode.FORMAL;
+      default:
+        return AiTextMode.COMPLETAR_TEXTO;
+    }
+  }
+
+  public async procesarTextoInputConIa(modo: AiTextMode | string): Promise<void> {
     this.closeComposeAiPopup();
-    // UI only: acciones de IA pendientes de implementar.
+    const texto = String(this.mensajeNuevo || '').trim();
+    if (!texto) {
+      this.composerAiError = null;
+      this.showToast('Escribe algo primero.', 'info', 'IA', 2200);
+      return;
+    }
+    await this.procesarTextoComposerConIa(String(modo || '').trim());
+  }
+
+  private resolveComposerAiErrorMessage(err: any): string {
+    const status = Number(err?.status || 0);
+    const backendMsg = String(
+      err?.error?.mensaje || err?.error?.message || err?.message || ''
+    ).trim();
+
+    if (status === 401) return 'Sesion expirada. Inicia sesion de nuevo.';
+    if (status === 403) return 'No tienes permisos para usar IA en este chat.';
+    if (status === 429) return 'Demasiadas solicitudes. Reintenta en unos segundos.';
+    return backendMsg || 'No se pudo procesar el texto con IA.';
+  }
+
+  private async procesarTextoComposerConIa(modo: string): Promise<void> {
+    const texto = String(this.mensajeNuevo || '').trim();
+    if (!texto || this.aiLoading || this.cargandoIaInput) return;
+
+    this.aiLoading = true;
+    this.cargandoIaInput = true;
+    this.composerAiError = null;
+
+    try {
+      const response = await firstValueFrom(
+        this.mensajeriaService.procesarTextoConIa({
+          texto,
+          modo,
+        })
+      );
+
+      if (response?.success) {
+        this.mensajeNuevo = String(response?.textoGenerado || '').trim();
+        this.closeComposeAiPopup();
+        this.scheduleComposerTextareaResize();
+        this.focusMessageInput(this.mensajeNuevo.length);
+        return;
+      }
+
+      this.composerAiError =
+        String(response?.mensaje || '').trim() ||
+        'No se pudo procesar el texto con IA.';
+      this.showComposeAiPopup = true;
+    } catch (err: any) {
+      this.composerAiError = this.resolveComposerAiErrorMessage(err);
+      this.showComposeAiPopup = true;
+    } finally {
+      this.aiLoading = false;
+      this.cargandoIaInput = false;
+      this.cdr.markForCheck();
+    }
   }
 
   public toggleComposeActionsPopup(event: MouseEvent): void {
@@ -18403,6 +18592,7 @@ private async decryptPreviewString(
 
   private closeComposeAiPopup(): void {
     this.showComposeAiPopup = false;
+    this.composerAiError = null;
   }
 
   private closeEmojiPicker(immediate = false): void {
@@ -18935,21 +19125,17 @@ private async decryptPreviewString(
   private resizeComposerTextarea(textarea?: HTMLTextAreaElement | null): void {
     const el = textarea || this.getMessageInputElement();
     if (!el) return;
-    const isEmpty = !String(el.value || '').trim();
-    if (isEmpty) {
-      el.style.height = `${this.composerTextareaMinHeightPx}px`;
-      el.style.overflowY = 'hidden';
-      return;
-    }
-    el.style.height = 'auto';
-    const contentHeight = Number(el.scrollHeight || 0);
+    const minHeight = this.composerTextareaMinHeightPx;
+    const maxHeight = this.composerTextareaMaxHeightPx;
+    // Medir siempre desde la altura base evita crecer por la altura intrinseca del textarea.
+    el.style.height = `${minHeight}px`;
+    const contentHeight = Math.ceil(Number(el.scrollHeight || 0));
     const nextHeight = Math.max(
-      this.composerTextareaMinHeightPx,
-      Math.min(contentHeight, this.composerTextareaMaxHeightPx)
+      minHeight,
+      Math.min(contentHeight, maxHeight)
     );
     el.style.height = `${nextHeight}px`;
-    el.style.overflowY =
-      contentHeight > this.composerTextareaMaxHeightPx ? 'auto' : 'hidden';
+    el.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
   }
 
   /**

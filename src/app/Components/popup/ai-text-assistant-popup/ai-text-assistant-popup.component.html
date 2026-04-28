@@ -1,0 +1,90 @@
+<div
+  *ngIf="visible"
+  class="ai-text-popup-overlay"
+  role="dialog"
+  aria-modal="true"
+  [attr.aria-label]="titulo"
+  (click)="onClose()"
+>
+  <div class="ai-text-popup" (click)="$event.stopPropagation()">
+    <div class="ai-text-popup__header">
+      <div class="ai-text-popup__header-copy">
+        <span class="ai-text-popup__badge">AI Assistant</span>
+        <h3 class="ai-text-popup__title">{{ titulo }}</h3>
+      </div>
+      <button
+        type="button"
+        class="ai-text-popup__close"
+        [disabled]="cargandoIa"
+        aria-label="Cerrar"
+        (click)="onClose()"
+      >
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+
+    <div class="ai-text-popup__body">
+      <p class="ai-text-popup__description">{{ descripcion }}</p>
+
+      <div *ngIf="mostrarOpcionesRapidas" class="ai-text-popup__quick-actions">
+        <button
+          type="button"
+          class="ai-text-popup__quick-btn"
+          [disabled]="!canRunActions"
+          (click)="procesarTexto(aiTextMode.CORREGIR)"
+        >
+          <i class="bi bi-spellcheck"></i>
+          Mejorar ortografia
+        </button>
+        <button
+          type="button"
+          class="ai-text-popup__quick-btn"
+          [disabled]="!canRunActions"
+          (click)="procesarTexto(aiTextMode.REFORMULAR)"
+        >
+          <i class="bi bi-text-paragraph"></i>
+          Mejorar tono
+        </button>
+        <button
+          type="button"
+          class="ai-text-popup__quick-btn ai-text-popup__quick-btn--primary"
+          [disabled]="!canRunActions"
+          (click)="procesarTexto(aiTextMode.FORMAL)"
+        >
+          <i class="bi bi-stars"></i>
+          Formatear
+        </button>
+      </div>
+
+      <textarea
+        [(ngModel)]="textoIa"
+        class="ai-text-popup__textarea"
+        rows="7"
+        [disabled]="cargandoIa"
+        [placeholder]="placeholder"
+      ></textarea>
+
+      <div *ngIf="errorIa" class="ai-text-popup__error">
+        {{ errorIa }}
+      </div>
+
+      <div *ngIf="resultadoIa" class="ai-text-popup__result">
+        <p class="ai-text-popup__result-label">Resultado</p>
+        <p class="ai-text-popup__result-text">{{ resultadoIa }}</p>
+        <button
+          type="button"
+          class="ai-text-popup__use-btn"
+          [disabled]="!canUseResult"
+          (click)="onUseResult()"
+        >
+          Usar este mensaje
+        </button>
+      </div>
+
+      <div *ngIf="cargandoIa" class="ai-text-popup__loading">
+        <span class="ai-text-popup__spinner" aria-hidden="true"></span>
+        <span>Generando texto...</span>
+      </div>
+    </div>
+  </div>
+</div>

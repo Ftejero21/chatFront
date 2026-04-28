@@ -44,6 +44,7 @@ export class ScheduleMessageComposerComponent implements OnChanges {
   public scheduledTime = '';
   public minDate = '';
   public errorMessage = '';
+  public showAiAssistantPopup = false;
 
   public constructor() {
     this.resetDateToToday();
@@ -61,6 +62,20 @@ export class ScheduleMessageComposerComponent implements OnChanges {
 
   public onClose(): void {
     this.close.emit();
+  }
+
+  public openAiAssistantPopup(): void {
+    this.showAiAssistantPopup = true;
+  }
+
+  public closeAiAssistantPopup(): void {
+    this.showAiAssistantPopup = false;
+  }
+
+  public applyAiMessage(text: string): void {
+    this.draftMessage = String(text || '').trim();
+    this.showAiAssistantPopup = false;
+    this.errorMessage = '';
   }
 
   public get selectedCount(): number {

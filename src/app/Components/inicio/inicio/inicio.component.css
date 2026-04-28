@@ -1685,6 +1685,24 @@
   font-size: 17px;
 }
 
+.btn-compose-ai__spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: composeAiSpin 0.8s linear infinite;
+}
+
+@keyframes composeAiSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .btn-compose-ai:not(:disabled) {
   background: #ede9fe;
   color: #7c3aed;
@@ -1743,10 +1761,24 @@
   transition: background 0.2s ease, color 0.2s ease;
 }
 
+.compose-ai-option:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .compose-ai-option > i {
   grid-row: 1 / span 2;
   font-size: 14px;
   color: #6366f1;
+}
+
+.compose-ai-pop__error {
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 9px 10px;
 }
 
 .compose-ai-option__main {
@@ -1937,6 +1969,7 @@
 
 .input-mensaje {
   flex: 1;
+  box-sizing: border-box;
   min-height: 40px;
   height: 40px;
   max-height: 260px;

@@ -11,9 +11,20 @@
 
   <div class="schedule-modal-body">
     <section class="schedule-block">
-      <div class="schedule-block-label">
-        <i class="bi bi-chat-left-text-fill"></i>
-        <span>Contenido del mensaje</span>
+      <div class="schedule-block-header">
+        <div class="schedule-block-label">
+          <i class="bi bi-chat-left-text-fill"></i>
+          <span>Contenido del mensaje</span>
+        </div>
+        <button
+          type="button"
+          class="schedule-ia-btn"
+          title="Asistente IA"
+          aria-label="Asistente IA"
+          (click)="openAiAssistantPopup()"
+        >
+          <i class="bi bi-stars"></i>
+        </button>
       </div>
       <textarea
         [(ngModel)]="draftMessage"
@@ -103,4 +114,16 @@
       Podras editar o cancelar este envio desde la seccion de <strong>Programados</strong>.
     </p>
   </div>
+
+  <app-ai-text-assistant-popup
+    [visible]="showAiAssistantPopup"
+    titulo="Asistente IA"
+    descripcion="Pon con tus palabras lo que quieres enviar."
+    placeholder="Ej: recuerda al equipo que manana tenemos reunion a primera hora"
+    [textoInicial]="draftMessage"
+    tipoUso="PROGRAMAR_MENSAJE"
+    [mostrarOpcionesRapidas]="true"
+    (cerrar)="closeAiAssistantPopup()"
+    (usarTexto)="applyAiMessage($event)"
+  ></app-ai-text-assistant-popup>
 </div>

@@ -1216,10 +1216,10 @@
                         *ngIf="mensaje.emisorId !== usuarioActualId"
                         type="button"
                         class="btn-opcion-ia"
-                        (click)="openAiPanelFromMessage(mensaje, $event)"
+                        (click)="preguntarIaSobreMensaje(mensaje, $event)"
                       >
                         <i class="bi bi-robot"></i>
-                        <span class="btn-opcion-ia__label">Preguntar con IA</span>
+                        <span class="btn-opcion-ia__label">Preguntar a la IA</span>
                         <span class="btn-opcion-ia__badge">AI</span>
                       </button>
                       <button type="button" class="btn-opcion-responder" (click)="responderMensaje(mensaje, $event)">
@@ -1661,6 +1661,7 @@
                 <textarea #messageInput [(ngModel)]="mensajeNuevo" (input)="onComposerInput($event)" (keydown)="onKeydown($event)" (keydown.enter)="onEnter($event)"
                   (click)="onMessageInputSelectionChange()" (keyup)="onMessageInputSelectionChange()"
                   (select)="onMessageInputSelectionChange()" (focus)="onMessageInputSelectionChange()"
+                  rows="1"
                   [placeholder]="composerPlaceholder"
                   class="input-mensaje" [disabled]="composerInteractionDisabled" [readonly]="haSalidoDelGrupo"
                   [class.input-mensaje--loading]="aiLoading"
@@ -1676,20 +1677,24 @@
                   class="btn-compose-ai"
                   [class.btn-compose-ai--active]="showComposeAiPopup"
                   [disabled]="!canUseComposerAiActions"
-                  [title]="canUseComposerAiActions ? 'Asistente de escritura con IA' : 'Escribe un mensaje para usar IA'"
+                  [title]="canUseComposerAiActions ? (cargandoIaInput ? 'Procesando texto con IA...' : 'Asistente de escritura con IA') : 'No disponible'"
                   aria-label="Asistente de escritura con IA"
-                  (click)="toggleComposeAiPopup($event)"
+                  (click)="abrirMenuIaInput($event)"
                 >
-                  <i class="bi bi-stars"></i>
+                  <span *ngIf="cargandoIaInput; else composeAiIcon" class="btn-compose-ai__spinner" aria-hidden="true"></span>
+                  <ng-template #composeAiIcon>
+                    <i class="bi bi-stars"></i>
+                  </ng-template>
                 </button>
 
                 <div *ngIf="showComposeAiPopup" class="compose-ai-pop">
-                  <div class="compose-ai-pop__title">Asistente de escritura</div>
+                  <div class="compose-ai-pop__title">{{ composerAiLoadingLabel }}</div>
 
                   <button
                     type="button"
                     class="compose-ai-option"
-                    (click)="onComposerAiActionSelect('SPELLCHECK', $event)"
+                    [disabled]="cargandoIaInput"
+                    (click)="procesarTextoInputConIa('CORREGIR')"
                   >
                     <i class="bi bi-spellcheck"></i>
                     <span class="compose-ai-option__main">Corregir ortografia</span>
@@ -1699,7 +1704,8 @@
                   <button
                     type="button"
                     class="compose-ai-option"
-                    (click)="onComposerAiActionSelect('TONE', $event)"
+                    [disabled]="cargandoIaInput"
+                    (click)="procesarTextoInputConIa('REFORMULAR')"
                   >
                     <i class="bi bi-text-paragraph"></i>
                     <span class="compose-ai-option__main">Mejorar tono</span>
@@ -1709,11 +1715,29 @@
                   <button
                     type="button"
                     class="compose-ai-option compose-ai-option--primary"
-                    (click)="onComposerAiActionSelect('FORMAT', $event)"
+                    [disabled]="cargandoIaInput"
+                    (click)="procesarTextoInputConIa('FORMAL')"
                   >
                     <i class="bi bi-stars"></i>
-                    <span class="compose-ai-option__main">Formatear ahora</span>
+                    <span class="compose-ai-option__main">
+                      {{ cargandoIaInput ? 'Procesando...' : 'Formatear' }}
+                    </span>
                   </button>
+
+                  <button
+                    type="button"
+                    class="compose-ai-option"
+                    [disabled]="cargandoIaInput"
+                    (click)="procesarTextoInputConIa('COMPLETAR_TEXTO')"
+                  >
+                    <i class="bi bi-magic"></i>
+                    <span class="compose-ai-option__main">Completar con IA</span>
+                    <span class="compose-ai-option__sub">Continua la idea</span>
+                  </button>
+
+                  <div *ngIf="composerAiError" class="compose-ai-pop__error">
+                    {{ composerAiError }}
+                  </div>
                 </div>
               </div>
               <button class="btn-mic"
@@ -1850,14 +1874,16 @@
   (canceled)="closeReportUserPopup()"
 ></app-report-user-popup>
 <app-ai-ask-popup
-  [open]="aiPanelOpen"
-  [referenceText]="aiQuote"
-  [question]="aiQuestion"
-  [loading]="aiPanelLoading"
-  [result]="aiResult"
-  [error]="aiError"
-  (closed)="cancelAiPanel()"
+  [open]="mostrarModalPreguntaIa && aiPanelOpen"
+  [referenceText]="aiQuote || mensajeSeleccionadoParaIa?.contenido || ''"
+  [question]="preguntaIaMensaje"
+  [loading]="cargandoIaMensaje"
+  [result]="respuestaIaMensaje"
+  [error]="errorIa"
+  [canApplyResult]="!!respuestaIaMensaje"
+  (closed)="cerrarModalIaMensaje()"
   (questionChange)="onAiQuestionChange($event)"
-  (submitted)="submitAiQuestion($event)"
+  (submitted)="confirmarPreguntaIa($event)"
   (quickAction)="onAiQuickAction($event)"
+  (applyResult)="aplicarRespuestaIaAlInput()"
 ></app-ai-ask-popup>

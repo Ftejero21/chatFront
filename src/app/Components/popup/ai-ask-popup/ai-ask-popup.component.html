@@ -94,6 +94,15 @@
         <p class="ai-ask-popup__result-text">
           {{ loading ? 'Consultando IA...' : result }}
         </p>
+        <button
+          *ngIf="!loading && hasResult && canApplyResult"
+          type="button"
+          class="ai-ask-popup__action-btn ai-ask-popup__action-btn--suggest"
+          (click)="onApplyResult()"
+        >
+          <i class="bi bi-arrow-down-circle"></i>
+          Usar en el mensaje
+        </button>
       </div>
 
       <div *ngIf="error" class="ai-ask-popup__error-box">

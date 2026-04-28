@@ -129,7 +129,23 @@
     </div>
 
     <div *ngIf="deliveryType === 'email'" class="admin-message-field">
-      <label class="admin-message-label">Asunto</label>
+      <div class="admin-message-label-row">
+        <label class="admin-message-label">Asunto</label>
+        <button
+          type="button"
+          class="admin-message-ia-btn"
+          [disabled]="cargandoIaAdmin"
+          title="AI Assistant"
+          aria-label="AI Assistant"
+          (click)="abrirPopupIaAdmin('EMAIL')"
+        >
+          <span *ngIf="cargandoIaAdmin; else adminIaEmailIcon" class="admin-message-ia-btn__spinner" aria-hidden="true"></span>
+          <ng-template #adminIaEmailIcon>
+            <i class="bi bi-stars"></i>
+          </ng-template>
+          <span class="admin-message-ia-btn__text">IA ASSISTANCE</span>
+        </button>
+      </div>
       <input
         [(ngModel)]="subjectText"
         type="text"
@@ -138,7 +154,24 @@
       />
     </div>
 
-    <label class="admin-message-label">{{ messageLabel }}</label>
+    <div class="admin-message-label-row">
+      <label class="admin-message-label">{{ messageLabel }}</label>
+        <button
+        *ngIf="deliveryType === 'message'"
+        type="button"
+        class="admin-message-ia-btn"
+        [disabled]="cargandoIaAdmin"
+        title="AI Assistant"
+        aria-label="AI Assistant"
+        (click)="abrirPopupIaAdmin('MENSAJE')"
+      >
+        <span *ngIf="cargandoIaAdmin; else adminIaMessageIcon" class="admin-message-ia-btn__spinner" aria-hidden="true"></span>
+        <ng-template #adminIaMessageIcon>
+          <i class="bi bi-stars"></i>
+        </ng-template>
+        <span class="admin-message-ia-btn__text">IA ASSISTANCE</span>
+      </button>
+    </div>
     <div
       class="admin-message-editor"
       [class.is-email]="deliveryType === 'email'"
@@ -259,5 +292,69 @@
     (closed)="closeSchedulePopup()"
     (submitted)="confirmSchedule($event)"
   ></app-admin-schedule-send-popup>
+
+  <div
+    *ngIf="mostrarPopupIaAdmin"
+    class="admin-ia-popup-overlay"
+    role="dialog"
+    aria-modal="true"
+    [attr.aria-label]="adminIaPopupTitle"
+    (click)="cerrarPopupIaAdmin()"
+  >
+    <div class="admin-ia-popup" (click)="$event.stopPropagation()">
+      <div class="admin-ia-popup__header">
+        <div class="admin-ia-popup__header-copy">
+          <span class="admin-ia-popup__badge">AI Assistant</span>
+          <h3 class="admin-ia-popup__title">{{ adminIaPopupTitle }}</h3>
+        </div>
+        <button
+          type="button"
+          class="admin-ia-popup__close"
+          [disabled]="cargandoIaAdmin"
+          aria-label="Cerrar"
+          (click)="cerrarPopupIaAdmin()"
+        >
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+
+      <div class="admin-ia-popup__body">
+        <p class="admin-ia-popup__helper">Pon con tus palabras lo que quieres enviar</p>
+        <textarea
+          [(ngModel)]="textoIaAdmin"
+          class="admin-ia-popup__textarea"
+          rows="7"
+          [disabled]="cargandoIaAdmin"
+          [placeholder]="tipoFormularioIa === 'EMAIL'
+            ? 'Ej: escribe un email para avisar que su cuenta ha sido revisada y que puede volver a usar la aplicacion'
+            : 'Ej: dile que hemos recibido su solicitud y que la revisaremos pronto'"
+        ></textarea>
+
+        <div *ngIf="errorIaAdmin" class="admin-ia-popup__error">
+          {{ errorIaAdmin }}
+        </div>
+
+        <div class="admin-ia-popup__actions">
+          <button
+            type="button"
+            class="admin-ia-popup__cancel"
+            [disabled]="cargandoIaAdmin"
+            (click)="cerrarPopupIaAdmin()"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            class="admin-ia-popup__submit"
+            [disabled]="cargandoIaAdmin"
+            (click)="generarTextoAdminConIa()"
+          >
+            <span *ngIf="cargandoIaAdmin" class="admin-ia-popup__submit-spinner" aria-hidden="true"></span>
+            <span>{{ adminIaSubmitLabel }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 
 </section>
