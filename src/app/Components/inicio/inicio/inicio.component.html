@@ -700,6 +700,27 @@
           </div>
 
           <div class="header-actions">
+            <button
+              *ngIf="chatActual"
+              type="button"
+              class="btn-summary-ia"
+              [disabled]="cargandoResumenIa || showMessagesSkeleton"
+              [attr.title]="showMessagesSkeleton ? 'Cargando mensajes...' : (cargandoResumenIa ? 'Generando resumen...' : 'Resumir ultimos mensajes')"
+              aria-label="Resumir ultimos mensajes"
+              (click)="abrirResumenConversacion()"
+            >
+              <span
+                *ngIf="cargandoResumenIa; else resumenIaIcon"
+                class="btn-summary-ia__spinner"
+                aria-hidden="true"
+              ></span>
+              <ng-template #resumenIaIcon>
+                <i class="bi bi-stars" aria-hidden="true"></i>
+              </ng-template>
+              <span class="btn-summary-ia__label">
+                {{ cargandoResumenIa ? 'Resumiendo...' : 'Resumir ultimos mensajes' }}
+              </span>
+            </button>
             <button *ngIf="chatActual?.esGrupo" class="btn-icon header-add-user" type="button"
               [attr.aria-expanded]="showGroupInfoPanel"
               [disabled]="haSalidoDelGrupo"
@@ -1887,3 +1908,10 @@
   (quickAction)="onAiQuickAction($event)"
   (applyResult)="aplicarRespuestaIaAlInput()"
 ></app-ai-ask-popup>
+<app-ai-conversation-summary-popup
+  [open]="mostrarPopupResumenIa"
+  [loading]="cargandoResumenIa"
+  [summary]="resumenIa"
+  [error]="errorResumenIa"
+  (closed)="cerrarPopupResumenIa()"
+></app-ai-conversation-summary-popup>

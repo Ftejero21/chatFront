@@ -1,0 +1,66 @@
+<div
+  *ngIf="open"
+  class="ai-summary-popup-overlay"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Resumen de la conversacion"
+  (click)="onBackdropClick()"
+>
+  <div class="ai-summary-popup" (click)="$event.stopPropagation()">
+    <div class="ai-summary-popup__header">
+      <div class="ai-summary-popup__header-left">
+        <div class="ai-summary-popup__icon">
+          <i class="bi bi-stars"></i>
+        </div>
+        <div class="ai-summary-popup__header-copy">
+          <span class="ai-summary-popup__badge">AI Summary</span>
+          <h2 class="ai-summary-popup__title">Resumen de la conversacion</h2>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        class="ai-summary-popup__close-btn"
+        [disabled]="loading"
+        aria-label="Cerrar"
+        (click)="onClose()"
+      >
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+
+    <div class="ai-summary-popup__body">
+      <div *ngIf="loading" class="ai-summary-popup__state ai-summary-popup__state--loading">
+        <span class="ai-summary-popup__spinner" aria-hidden="true"></span>
+        <p>Generando resumen de los ultimos mensajes...</p>
+      </div>
+
+      <div
+        *ngIf="!loading && resolvedError"
+        class="ai-summary-popup__state ai-summary-popup__state--error"
+      >
+        <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+        <p>{{ resolvedError }}</p>
+      </div>
+
+      <div
+        *ngIf="!loading && !resolvedError"
+        class="ai-summary-popup__summary-card"
+      >
+        <p class="ai-summary-popup__label">Resumen generado</p>
+        <p class="ai-summary-popup__summary-text">{{ resolvedSummary }}</p>
+      </div>
+    </div>
+
+    <div class="ai-summary-popup__actions">
+      <button
+        type="button"
+        class="ai-summary-popup__action-btn"
+        [disabled]="loading"
+        (click)="onClose()"
+      >
+        Cerrar
+      </button>
+    </div>
+  </div>
+</div>

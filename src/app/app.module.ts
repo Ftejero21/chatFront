@@ -39,6 +39,7 @@ import { AdminPaginationComponent } from './Components/shared/admin-pagination/a
 import { UserInfoPanelComponent } from './Components/inicio/user-info-panel/user-info-panel.component';
 import { AiAskPopupComponent } from './Components/popup/ai-ask-popup/ai-ask-popup.component';
 import { AiTextAssistantPopupComponent } from './Components/popup/ai-text-assistant-popup/ai-text-assistant-popup.component';
+import { AiConversationSummaryPopupComponent } from './Components/popup/ai-conversation-summary-popup/ai-conversation-summary-popup.component';
 
 @NgModule({
   declarations: [
@@ -71,7 +72,8 @@ import { AiTextAssistantPopupComponent } from './Components/popup/ai-text-assist
     AdminScheduledSectionComponent,
     UserInfoPanelComponent,
     AiAskPopupComponent,
-    AiTextAssistantPopupComponent
+    AiTextAssistantPopupComponent,
+    AiConversationSummaryPopupComponent
   ],
   imports: [
     BrowserModule,

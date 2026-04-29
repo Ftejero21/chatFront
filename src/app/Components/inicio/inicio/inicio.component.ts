@@ -110,6 +110,11 @@ import {
 } from '../../../Interface/PollVotesPanel';
 import { AiAskQuickAction } from '../../popup/ai-ask-popup/ai-ask-popup.component';
 import { AiTextMode } from '../../../Interface/AiTextMode';
+import {
+  AiConversationMessageDTO,
+  AiConversationSummaryRequestDTO,
+} from '../../../Interface/AiConversationSummaryRequestDTO';
+import { AiService } from '../../../Service/ai/ai.service';
 
 // Bootstrap (modales)
 declare const bootstrap: any;
@@ -544,11 +549,15 @@ export class InicioComponent {
   public aiLoading = false;
   public cargandoIaInput = false;
   public cargandoIaMensaje = false;
+  public cargandoResumenIa = false;
   public mensajeSeleccionadoParaIa: MensajeDTO | null = null;
   public preguntaIaMensaje = '';
   public respuestaIaMensaje = '';
+  public resumenIa = '';
   public errorIa: string | null = null;
+  public errorResumenIa = '';
   public mostrarModalPreguntaIa = false;
+  public mostrarPopupResumenIa = false;
   public remoteHasVideo = false;
 
   public topbarQuery: string = '';
@@ -854,6 +863,12 @@ export class InicioComponent {
   private readonly ADMIN_DIRECT_MESSAGES_CACHE_KEY = 'adminDirectMessagesByChat';
   private readonly OPEN_PROFILE_AFTER_REGISTER_KEY = 'openProfileAfterRegister';
   private readonly OPEN_CHAT_QUERY_PARAM = 'openChatId';
+  private readonly resumenIaEstiloDefault: AiConversationSummaryRequestDTO['estilo'] =
+    'BREVE';
+  private readonly resumenIaMaxLineasDefault = 6;
+  private readonly resumenIaMaxMensajes = 100;
+  private readonly resumenIaMaxCaracteresPorMensaje = 200;
+  private resumenIaRequestSeq = 0;
   private draftByChatId = new Map<number, string>();
   private temporarySecondsByChatId = new Map<number, number>();
   private mutedChatUntilByChatId = new Map<number, number | null>();
@@ -940,6 +955,7 @@ export class InicioComponent {
     private chatService: ChatService,
     private wsService: WebSocketService,
     private mensajeriaService: MensajeriaService,
+    private aiService: AiService,
     private ngZone: NgZone,
     private cdr: ChangeDetectorRef,
     private cryptoService: CryptoService,
@@ -3004,6 +3020,11 @@ export class InicioComponent {
     this.activeMainView = 'chat';
     this.showTopbarProfileMenu = false;
     this.cancelarRespuestaMensaje();
+    this.resumenIaRequestSeq += 1;
+    this.mostrarPopupResumenIa = false;
+    this.cargandoResumenIa = false;
+    this.resumenIa = '';
+    this.errorResumenIa = '';
     this.chatSeleccionadoId = chat.id;
     this.chatActual = chat;
     this.beginInitialMessagesLoading(Number(chat?.id), !!chat?.esGrupo);
@@ -9368,6 +9389,62 @@ private async decryptPreviewString(
     this.preguntarIaSobreMensaje(mensaje, event);
   }
 
+  public async abrirResumenConversacion(): Promise<void> {
+    if (this.cargandoResumenIa) return;
+
+    const activeChatId = Number(this.chatActual?.id ?? this.chatSeleccionadoId ?? 0);
+    const requestSeq = ++this.resumenIaRequestSeq;
+    this.openMensajeMenuId = null;
+    this.mostrarMenuOpciones = false;
+    this.mostrarPopupResumenIa = true;
+    this.cargandoResumenIa = true;
+    this.resumenIa = '';
+    this.errorResumenIa = '';
+
+    const request = this.construirRequestResumenConversacion();
+    if (!request) {
+      this.cargandoResumenIa = false;
+      this.errorResumenIa = 'No hay mensajes recientes con texto para resumir.';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    try {
+      const response = await firstValueFrom(
+        this.aiService.resumirConversacion(request)
+      );
+      const currentChatId = Number(this.chatActual?.id ?? this.chatSeleccionadoId ?? 0);
+      if (
+        requestSeq !== this.resumenIaRequestSeq ||
+        currentChatId !== activeChatId
+      ) {
+        return;
+      }
+      const resumen = String(response?.resumen || '').trim();
+
+      if (response?.success && resumen) {
+        this.resumenIa = resumen;
+        return;
+      }
+
+      this.errorResumenIa =
+        String(response?.mensaje || '').trim() ||
+        'No se pudo generar el resumen.';
+    } catch (err: any) {
+      if (requestSeq !== this.resumenIaRequestSeq) return;
+      this.errorResumenIa = this.resolveResumenIaErrorMessage(err);
+    } finally {
+      if (requestSeq !== this.resumenIaRequestSeq) return;
+      this.cargandoResumenIa = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  public cerrarPopupResumenIa(): void {
+    if (this.cargandoResumenIa) return;
+    this.mostrarPopupResumenIa = false;
+  }
+
   public cerrarModalIaMensaje(): void {
     if (this.cargandoIaMensaje) return;
     this.aiPanelOpen = false;
@@ -9395,6 +9472,136 @@ private async decryptPreviewString(
 
   public submitAiQuestion(rawQuestion?: string): Promise<void> {
     return this.confirmarPreguntaIa(rawQuestion);
+  }
+
+  private construirRequestResumenConversacion():
+    | AiConversationSummaryRequestDTO
+    | null {
+    const chatId = Number(this.chatActual?.id ?? this.chatSeleccionadoId ?? 0);
+    if (!Number.isFinite(chatId) || chatId <= 0) return null;
+
+    const mensajes = this.construirMensajesResumenIa();
+    if (mensajes.length === 0) return null;
+
+    const esGrupo = !!this.chatActual?.esGrupo;
+    return {
+      tipoChat: esGrupo ? 'GRUPAL' : 'INDIVIDUAL',
+      chatId: esGrupo ? undefined : Math.round(chatId),
+      chatGrupalId: esGrupo ? Math.round(chatId) : undefined,
+      mensajes,
+      estilo: this.resumenIaEstiloDefault,
+      maxLineas: this.resumenIaMaxLineasDefault,
+    };
+  }
+
+  private construirMensajesResumenIa(): AiConversationMessageDTO[] {
+    const mensajes = Array.isArray(this.mensajesSeleccionados)
+      ? this.mensajesSeleccionados
+      : [];
+
+    return mensajes
+      .map((mensaje) => this.mapMensajeResumenIa(mensaje))
+      .filter((mensaje): mensaje is AiConversationMessageDTO => !!mensaje)
+      .slice(-this.resumenIaMaxMensajes);
+  }
+
+  private mapMensajeResumenIa(
+    mensaje: MensajeDTO | null | undefined
+  ): AiConversationMessageDTO | null {
+    if (!mensaje) return null;
+    if (mensaje.activo === false || isTemporalExpiredMessageLike(mensaje)) {
+      return null;
+    }
+    if (isSystemMessageLike(mensaje)) return null;
+
+    const contenido = this.extraerContenidoResumenIa(mensaje);
+    if (!contenido) return null;
+
+    const esUsuarioActual =
+      Number(mensaje?.emisorId) === Number(this.usuarioActualId);
+    const id = Number(mensaje?.id || 0);
+    const fecha = String(mensaje?.fechaEnvio || '').trim();
+    const payload: AiConversationMessageDTO = {
+      autor: this.resolveAutorResumenIa(mensaje, esUsuarioActual),
+      contenido,
+      esUsuarioActual,
+    };
+
+    if (Number.isFinite(id) && id > 0) {
+      payload.id = id;
+    }
+    if (fecha) {
+      payload.fecha = fecha;
+    }
+
+    return payload;
+  }
+
+  private extraerContenidoResumenIa(mensaje: MensajeDTO): string {
+    const pollQuestion = String(parsePollPayload(mensaje)?.question || '').trim();
+    if (pollQuestion) {
+      return this.normalizarContenidoResumenIa(pollQuestion);
+    }
+
+    const tipo = String(mensaje?.tipo || '').trim().toUpperCase();
+    const isMediaMessage =
+      tipo === 'AUDIO' ||
+      tipo === 'IMAGE' ||
+      tipo === 'FILE' ||
+      !!mensaje?.audioUrl ||
+      !!mensaje?.audioDataUrl ||
+      !!mensaje?.imageUrl ||
+      !!mensaje?.imageDataUrl ||
+      !!mensaje?.fileUrl ||
+      !!mensaje?.fileDataUrl;
+
+    const raw = isMediaMessage
+      ? String(mensaje?.contenido || '').trim()
+      : String(
+          mensaje?.contenidoBusqueda ??
+            mensaje?.contenido_busqueda ??
+            mensaje?.contenido ??
+            ''
+        ).trim();
+
+    return this.normalizarContenidoResumenIa(raw);
+  }
+
+  private normalizarContenidoResumenIa(value: string): string {
+    const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '';
+    return normalized.slice(0, this.resumenIaMaxCaracteresPorMensaje);
+  }
+
+  private resolveAutorResumenIa(
+    mensaje: MensajeDTO,
+    esUsuarioActual: boolean
+  ): string {
+    if (esUsuarioActual) return 'usuarioActual';
+
+    const fromMessage =
+      `${mensaje?.emisorNombre || ''} ${mensaje?.emisorApellido || ''}`.trim();
+    if (fromMessage) return fromMessage;
+
+    const member = this.findUserInCurrentChatById(Number(mensaje?.emisorId || 0));
+    const fromCurrentChat =
+      `${member?.nombre || ''} ${member?.apellido || ''}`.trim();
+    if (fromCurrentChat) return fromCurrentChat;
+
+    if (!this.chatActual?.esGrupo) {
+      const directName = String(this.chatActual?.nombre || '').trim();
+      if (directName) return directName;
+    }
+
+    return this.obtenerNombrePorId(Number(mensaje?.emisorId || 0)) || 'otraPersona';
+  }
+
+  private resolveResumenIaErrorMessage(err: any): string {
+    const base = this.resolveComposerAiErrorMessage(err);
+    if (base === 'No se pudo procesar el texto con IA.') {
+      return 'No se pudo generar el resumen.';
+    }
+    return base;
   }
 
   public async confirmarPreguntaIa(rawQuestion?: string): Promise<void> {
