@@ -61,7 +61,7 @@ export interface MensajeDTO {
   emisorNombre?: string | undefined;
   emisorApellido?: string | undefined;
   emisorFoto?: string;
-  tipo?: 'TEXT' | 'AUDIO' | 'IMAGE' | 'FILE' | 'SYSTEM' | 'POLL';
+  tipo?: 'TEXT' | 'AUDIO' | 'IMAGE' | 'STICKER' | 'FILE' | 'SYSTEM' | 'POLL';
   systemEvent?: string | null;
   esSistema?: boolean;
   reenviado?: boolean;
@@ -93,7 +93,7 @@ export interface MensajeDTO {
   expire_at?: string | null;
   expired_by_policy?: boolean;
   pollType?: 'POLL_V1' | string | null;
-  contentKind?: 'POLL' | string | null;
+  contentKind?: 'POLL' | 'STICKER' | string | null;
   poll?: MensajePollDTO | null;
   audioDataUrl?: string | null;
   audioUrl?: string | null;
@@ -103,6 +103,7 @@ export interface MensajeDTO {
   imageUrl?: string | null;
   imageMime?: string | null;
   imageNombre?: string | null;
+  stickerId?: number | null;
   fileDataUrl?: string | null;
   fileUrl?: string | null;
   fileMime?: string | null;

@@ -1,0 +1,145 @@
+:host {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.sticker-editor-screen {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  overflow: hidden;
+  user-select: none;
+}
+
+.sticker-editor-screen__topbar,
+.sticker-editor-screen__tools,
+.sticker-editor-screen__subtools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.sticker-editor-screen__topbar {
+  justify-content: flex-end;
+}
+
+.sticker-editor-screen__btn,
+.tool {
+  border: 1px solid #dbe3ef;
+  background: #fff;
+  color: #334155;
+  border-radius: 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tool.active {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.sticker-editor-screen__btn--primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.sticker-editor-screen__subtools .subgroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sticker-editor-screen__subtools input[type='text'],
+.sticker-editor-screen__subtools input[type='number'],
+.sticker-editor-screen__subtools select {
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  background: #fff;
+}
+
+.sticker-editor-screen__subtools input[type='range'] {
+  width: 120px;
+}
+
+.sticker-editor-screen__subtools .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #334155;
+  font-weight: 600;
+}
+
+.sticker-editor-screen__preview-wrap {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.72);
+  border: 1px solid #e2e8f0;
+  padding: 10px;
+  position: relative;
+}
+
+.sticker-editor-screen__canvas-stack {
+  position: relative;
+  width: min(100%, 100%);
+  height: min(100%, 100%);
+}
+
+.sticker-editor-screen__canvas {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  border-radius: 10px;
+}
+
+.sticker-editor-screen__canvas--overlay {
+  pointer-events: none;
+}
+
+.sticker-editor-screen__canvas--overlay.is-active {
+  pointer-events: auto;
+}
+
+.sticker-editor-screen__fields {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sticker-editor-screen__fields label {
+  font-size: 12px;
+  color: #475569;
+  font-weight: 700;
+}
+
+.sticker-editor-screen__fields input {
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 14px;
+}

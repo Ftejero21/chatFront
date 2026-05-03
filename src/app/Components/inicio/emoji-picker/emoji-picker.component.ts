@@ -1,19 +1,21 @@
 import {
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   EventEmitter,
+  Input,
   OnDestroy,
   OnInit,
   Output,
   ViewChild,
   computed,
   signal,
-  ChangeDetectionStrategy
 } from '@angular/core';
 import {
   EmojiCatalogService,
   EmojiLibraryItem,
 } from '../../../Service/emoji/emoji-catalog.service';
+import { StickerDTO } from '../../../Interface/StickerDTO';
 
 type EmojiTab = 'emoji' | 'gif' | 'sticker';
 
@@ -41,6 +43,12 @@ interface EmojiSection {
 export class EmojiPickerComponent implements OnInit, OnDestroy {
   @ViewChild('scrollContainer') private scrollContainerRef?: ElementRef<HTMLDivElement>;
   @Output() public emojiSelect = new EventEmitter<string>();
+  @Output() public stickerTabOpen = new EventEmitter<void>();
+  @Output() public stickerCreateClick = new EventEmitter<void>();
+  @Output() public stickerClick = new EventEmitter<StickerDTO>();
+  @Output() public stickerDeleteClick = new EventEmitter<number>();
+  @Input() public stickerItems: StickerDTO[] = [];
+  @Input() public stickerLoading = false;
 
   public readonly activeTab = signal<EmojiTab>('emoji');
   public readonly activeCategory = signal('recent');
@@ -133,6 +141,7 @@ export class EmojiPickerComponent implements OnInit, OnDestroy {
 
   public setActiveTab(tab: EmojiTab): void {
     this.activeTab.set(tab);
+    if (tab === 'sticker') this.stickerTabOpen.emit();
   }
 
   public updateSearch(event: Event): void {
@@ -195,6 +204,21 @@ export class EmojiPickerComponent implements OnInit, OnDestroy {
     const recent = this.recentEmojis().filter((item) => item !== value);
     this.recentEmojis.set(recent);
     localStorage.setItem(this.recentStorageKey, JSON.stringify(recent));
+  }
+
+  public onCreateStickerClick(): void {
+    this.stickerCreateClick.emit();
+  }
+
+  public onStickerClick(sticker: StickerDTO): void {
+    this.stickerClick.emit(sticker);
+  }
+
+  public onDeleteSticker(sticker: StickerDTO, event: MouseEvent): void {
+    event.stopPropagation();
+    const stickerId = Number(sticker?.id);
+    if (!Number.isFinite(stickerId) || stickerId <= 0) return;
+    this.stickerDeleteClick.emit(Math.round(stickerId));
   }
 
   private async loadEmojiData(): Promise<void> {
@@ -301,4 +325,3 @@ export class EmojiPickerComponent implements OnInit, OnDestroy {
     return this.toTwemojiUrl(fallbackEmoji);
   }
 }
-

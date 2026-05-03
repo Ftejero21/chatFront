@@ -35,41 +35,69 @@
       <div class="report-user-popup__body">
         <div class="report-user-popup__intro">
           <h3>Motivo de la denuncia</h3>
-          <p>Selecciona el motivo principal y anade detalles.</p>
+          <div *ngIf="aiLoading; else reportUserIntroReady" class="report-ai-loading-status">
+            <i class="bi bi-stars"></i>
+            <span>Analizando conversacion...</span>
+          </div>
+          <ng-template #reportUserIntroReady>
+            <p>
+              {{ aiMessage || 'Selecciona el motivo principal y anade detalles.' }}
+            </p>
+          </ng-template>
         </div>
 
-        <div class="report-user-popup__field">
-          <select
-            [ngModel]="motivo"
-            (ngModelChange)="onMotivoChange($event)"
-            [disabled]="sending"
-            class="report-user-popup__select"
-          >
-            <option value="" disabled>Selecciona un motivo...</option>
-            <option *ngFor="let option of reasonOptions" [value]="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-        </div>
+        <ng-container *ngIf="aiLoading; else reportUserFormFields">
+          <div class="report-user-popup__field">
+            <div class="report-ai-skeleton-select" aria-hidden="true">
+              <span class="report-ai-skeleton-line report-ai-skeleton-line-medium"></span>
+              <span class="report-ai-skeleton-line report-ai-skeleton-line-short"></span>
+            </div>
+          </div>
 
-        <div class="report-user-popup__field">
-          <textarea
-            class="report-user-popup__textarea"
-            [ngModel]="detalle"
-            (ngModelChange)="onDetalleChange($event)"
-            [disabled]="sending"
-            placeholder="Ej: Insultos reiterados, spam, comportamiento inapropiado..."
-          ></textarea>
-        </div>
+          <div class="report-user-popup__field">
+            <div class="report-ai-skeleton-textarea" aria-hidden="true">
+              <span class="report-ai-skeleton-line report-ai-skeleton-line-long"></span>
+              <span class="report-ai-skeleton-line report-ai-skeleton-line-long"></span>
+              <span class="report-ai-skeleton-line report-ai-skeleton-line-medium"></span>
+              <span class="report-ai-skeleton-line report-ai-skeleton-line-short"></span>
+            </div>
+          </div>
+        </ng-container>
+
+        <ng-template #reportUserFormFields>
+          <div class="report-user-popup__field">
+            <select
+              [ngModel]="motivo"
+              (ngModelChange)="onMotivoChange($event)"
+              [disabled]="sending"
+              class="report-user-popup__select"
+            >
+              <option value="" disabled>Selecciona un motivo...</option>
+              <option *ngFor="let option of reasonOptions" [value]="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
+
+          <div class="report-user-popup__field">
+            <textarea
+              class="report-user-popup__textarea"
+              [ngModel]="detalle"
+              (ngModelChange)="onDetalleChange($event)"
+              [disabled]="sending"
+              placeholder="Ej: Insultos reiterados, spam, comportamiento inapropiado..."
+            ></textarea>
+          </div>
+        </ng-template>
 
         <div class="report-user-popup__actions">
           <button
             type="button"
             class="report-user-popup__btn report-user-popup__btn--primary"
-            [disabled]="sending || !canSubmit"
+            [disabled]="sending || aiLoading || !canSubmit"
             (click)="onSubmit()"
           >
-            {{ sending ? 'Enviando...' : 'Continuar' }}
+            {{ aiLoading ? 'Analizando...' : (sending ? 'Enviando...' : 'Continuar') }}
           </button>
           <button
             type="button"

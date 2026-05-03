@@ -1,0 +1,54 @@
+<div
+  *ngIf="open"
+  class="sticker-pop__overlay"
+  (click)="onClose()"
+>
+  <div class="sticker-pop__backdrop"></div>
+
+  <div
+    class="sticker-pop__modal"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Sticker"
+    (click)="$event.stopPropagation()"
+  >
+    <button
+      type="button"
+      class="sticker-pop__close"
+      aria-label="Cerrar"
+      (click)="onClose()"
+    >
+      <i class="bi bi-x-lg"></i>
+    </button>
+
+    <div class="sticker-pop__image-wrap">
+      <img
+        [src]="stickerSrc"
+        alt="Sticker seleccionado"
+        class="sticker-pop__image"
+      />
+      <div class="sticker-pop__shine"></div>
+    </div>
+
+    <div class="sticker-pop__actions">
+      <button
+        type="button"
+        class="sticker-pop__btn sticker-pop__btn--primary"
+        [class.sticker-pop__btn--danger]="owned"
+        [disabled]="checking || saving || (owned && !canDelete)"
+        (click)="onPrimaryAction()"
+      >
+        {{
+          checking
+            ? 'Comprobando...'
+            : saving
+            ? (owned ? 'Borrando...' : 'Añadiendo...')
+            : owned
+            ? (canDelete ? 'Borrar de la colección' : 'Ya añadido')
+            : 'Añadir a la colección'
+        }}
+      </button>
+    </div>
+  </div>
+</div>
+

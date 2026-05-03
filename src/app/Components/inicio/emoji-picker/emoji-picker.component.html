@@ -99,6 +99,47 @@
               }
             </div>
           }
+        } @else if (activeTab() === 'sticker') {
+          <div class="sticker-panel">
+            <div class="sticker-panel__header">
+              <span class="sticker-panel__count">Mis stickers: {{ stickerItems.length }}</span>
+            </div>
+            <div class="sticker-grid">
+              <button type="button" class="sticker-create-btn" aria-label="Crear sticker" (click)="onCreateStickerClick()">
+                Crear
+              </button>
+              @for (sticker of stickerItems; track sticker.id) {
+                <div
+                  class="sticker-item"
+                  [attr.title]="sticker.nombre || 'Sticker'"
+                  role="button"
+                  tabindex="0"
+                  (click)="onStickerClick(sticker)"
+                  (keydown.enter)="onStickerClick(sticker)"
+                  (keydown.space)="onStickerClick(sticker)"
+                >
+                  <img
+                    class="sticker-item__img"
+                    [src]="sticker.imageUrl || sticker.url || sticker.stickerUrl || sticker.ruta || ''"
+                    [alt]="sticker.nombre || 'Sticker'"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                  <button
+                    type="button"
+                    class="sticker-item__delete"
+                    aria-label="Eliminar sticker"
+                    (click)="onDeleteSticker(sticker, $event)"
+                  >
+                    <i class="bi bi-trash3"></i>
+                  </button>
+                </div>
+              }
+            </div>
+            @if (stickerLoading) {
+              <div class="sticker-panel__loading">Cargando stickers...</div>
+            }
+          </div>
         } @else {
           <div class="tab-placeholder">
             <div class="tab-placeholder-title">

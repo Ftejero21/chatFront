@@ -146,6 +146,45 @@ function pickFirstStringValue(source: any, keys: string[]): string {
   return '';
 }
 
+function extractEnvelopeString(raw: unknown): string {
+  if (typeof raw === 'string' && raw.trim()) {
+    const trimmed = raw.trim();
+    const nested = parsePossiblySerializedE2EPayload(trimmed);
+    if (nested && typeof nested === 'object') {
+      return (
+        pickFirstStringValue(nested, [
+          'envelope',
+          'value',
+          'cipher',
+          'ciphertext',
+          'key',
+          'encryptedKey',
+          'encryptedAesKey',
+          'aesKeyEnvelope',
+          'data',
+          'forReceptor',
+          'forEmisor',
+          'forAdmin',
+        ]) || trimmed
+      );
+    }
+    return trimmed;
+  }
+  if (!raw || typeof raw !== 'object') return '';
+
+  return pickFirstStringValue(raw, [
+    'envelope',
+    'value',
+    'cipher',
+    'ciphertext',
+    'key',
+    'encryptedKey',
+    'encryptedAesKey',
+    'aesKeyEnvelope',
+    'data',
+  ]);
+}
+
 function normalizeE2ERecipientMap(raw: any): Record<string, string> {
   const result: Record<string, string> = {};
   if (!raw) return result;
@@ -155,13 +194,7 @@ function normalizeE2ERecipientMap(raw: any): Record<string, string> {
       const keyRaw =
         item?.userId ?? item?.usuarioId ?? item?.idUsuario ?? item?.id ?? item?.uid;
       const key = String(keyRaw ?? '').trim();
-      const value = pickFirstStringValue(item, [
-        'envelope',
-        'value',
-        'cipher',
-        'ciphertext',
-        'key',
-      ]);
+      const value = extractEnvelopeString(item);
       if (!key || !value) continue;
       result[key] = value;
     }
@@ -170,9 +203,9 @@ function normalizeE2ERecipientMap(raw: any): Record<string, string> {
 
   if (typeof raw === 'object') {
     for (const [k, v] of Object.entries(raw)) {
-      if (typeof v === 'string' && v.trim()) {
-        result[String(k)] = v.trim();
-      }
+      const value = extractEnvelopeString(v);
+      if (!value) continue;
+      result[String(k)] = value;
     }
   }
   return result;
@@ -238,23 +271,20 @@ function normalizeE2EPayloadShape(raw: any): any {
       candidate?.recipientEnvelopes ??
       candidate?.recipients
   );
-  const forEmisor = pickFirstStringValue(candidate, [
-    'forEmisor',
-    'forSender',
-    'for_emisor',
-    'senderEnvelope',
-  ]);
-  const forReceptor = pickFirstStringValue(candidate, [
-    'forReceptor',
-    'forRecipient',
-    'for_receptor',
-    'recipientEnvelope',
-  ]);
-  const forAdmin = pickFirstStringValue(candidate, [
-    'forAdmin',
-    'adminEnvelope',
-    'for_admin',
-  ]);
+  const forEmisor =
+    extractEnvelopeString(candidate?.forEmisor) ||
+    extractEnvelopeString(candidate?.forSender) ||
+    extractEnvelopeString(candidate?.for_emisor) ||
+    extractEnvelopeString(candidate?.senderEnvelope);
+  const forReceptor =
+    extractEnvelopeString(candidate?.forReceptor) ||
+    extractEnvelopeString(candidate?.forRecipient) ||
+    extractEnvelopeString(candidate?.for_receptor) ||
+    extractEnvelopeString(candidate?.recipientEnvelope);
+  const forAdmin =
+    extractEnvelopeString(candidate?.forAdmin) ||
+    extractEnvelopeString(candidate?.adminEnvelope) ||
+    extractEnvelopeString(candidate?.for_admin);
   const ciphertext = pickFirstStringValue(candidate, [
     'ciphertext',
     'cipherText',
@@ -2083,5 +2113,3 @@ export function parseAudioPreviewText(txt?: string): {
       label.toLowerCase() === 'tu',
   };
 }
-
-

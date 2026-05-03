@@ -209,13 +209,18 @@ export class MensajeriaService {
   ): Observable<AiTextResponseDTO> {
     const texto = String(request?.texto || '').trim();
     const modo = String(request?.modo || '').trim();
+    const idiomaDestino = String(request?.idiomaDestino || '').trim();
     if (!texto || !modo) {
       throw new Error('AI_TEXT_PAYLOAD_INVALID');
     }
 
     return this.http.post<AiTextResponseDTO>(
       `${this.backendBaseUrl}/api/ai/texto`,
-      { texto, modo },
+      {
+        texto,
+        modo,
+        ...(idiomaDestino ? { idiomaDestino } : {}),
+      },
       {
         headers: this.buildAuthHeaders(),
       }

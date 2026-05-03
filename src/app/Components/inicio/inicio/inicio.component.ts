@@ -90,6 +90,7 @@ import JSZip from 'jszip';
 import { PerfilUsuarioSavePayload } from '../perfil-usuario/perfil-usuario.component';
 import { PollDraftPayload } from '../poll-composer/poll-composer.component';
 import { ScheduleMessageDraftPayload } from '../schedule-message-composer/schedule-message-composer.component';
+import { AiPollDraftContextMessageDTO } from '../../../Interface/AiPollDraftRequestDTO';
 import { SessionService } from '../../../Service/session/session.service';
 import { ComplaintService } from '../../../Service/complaint/complaint.service';
 import { ChatListItemDTO } from '../../../Interface/ChatListItemDTO';
@@ -109,12 +110,26 @@ import {
   PollVotesPanelVoter,
 } from '../../../Interface/PollVotesPanel';
 import { AiAskQuickAction } from '../../popup/ai-ask-popup/ai-ask-popup.component';
+import { AiReportAnalysisRequestDTO } from '../../../Interface/AiReportAnalysisRequestDTO';
+import { AiReportAnalysisResponseDTO } from '../../../Interface/AiReportAnalysisResponseDTO';
+import { AiReportContextMessageDTO } from '../../../Interface/AiReportContextMessageDTO';
 import { AiTextMode } from '../../../Interface/AiTextMode';
 import {
-  AiConversationMessageDTO,
-  AiConversationSummaryRequestDTO,
-} from '../../../Interface/AiConversationSummaryRequestDTO';
+  AiEncryptedContextMessageDTO,
+  AiEncryptedConversationSummaryRequestDTO,
+} from '../../../Interface/AiEncryptedConversationSummaryRequestDTO';
+import { AiConversationSummaryResponseDTO } from '../../../Interface/AiConversationSummaryResponseDTO';
+import { AiConversationSummaryRequestDTO } from '../../../Interface/AiConversationSummaryRequestDTO';
+import {
+  AiQuickReplyContextDTO,
+  AiQuickRepliesChatType,
+  AiQuickRepliesRequestDTO,
+} from '../../../Interface/AiQuickRepliesRequestDTO';
+import { AiQuickRepliesResponseDTO } from '../../../Interface/AiQuickRepliesResponseDTO';
 import { AiService } from '../../../Service/ai/ai.service';
+import { StickerService } from '../../../Service/sticker/sticker.service';
+import { StickerDTO } from '../../../Interface/StickerDTO';
+import { StickerEditorSaveEvent } from '../sticker-editor-panel/sticker-editor-panel.component';
 
 // Bootstrap (modales)
 declare const bootstrap: any;
@@ -325,7 +340,132 @@ interface MuteDurationOption {
 }
 
 type ComposerActionType = 'archivo' | 'encuesta';
-type ComposerAiActionType = 'SPELLCHECK' | 'TONE' | 'FORMAT';
+type ComposerAiActionType = 'SPELLCHECK' | 'TONE' | 'FORMAT' | 'TRANSLATE';
+interface ComposeAiLanguageOption {
+  nombre: string;
+  codigo: string;
+  idiomaDestino: string;
+  destacado?: boolean;
+}
+
+const COMPOSE_AI_PRIMARY_TRANSLATION_LANGUAGES: ComposeAiLanguageOption[] = [
+  { nombre: 'Ingles', codigo: 'en', idiomaDestino: 'Ingles', destacado: true },
+  { nombre: 'Frances', codigo: 'fr', idiomaDestino: 'Frances', destacado: true },
+  { nombre: 'Aleman', codigo: 'de', idiomaDestino: 'Aleman', destacado: true },
+  { nombre: 'Italiano', codigo: 'it', idiomaDestino: 'Italiano', destacado: true },
+  { nombre: 'Portugues', codigo: 'pt', idiomaDestino: 'Portugues', destacado: true },
+  { nombre: 'Arabe', codigo: 'ar', idiomaDestino: 'Arabe', destacado: true },
+  { nombre: 'Chino simplificado', codigo: 'zh-CN', idiomaDestino: 'Chino simplificado', destacado: true },
+  { nombre: 'Japones', codigo: 'ja', idiomaDestino: 'Japones', destacado: true },
+  { nombre: 'Coreano', codigo: 'ko', idiomaDestino: 'Coreano', destacado: true },
+];
+
+const COMPOSE_AI_OTHER_TRANSLATION_LANGUAGES: ComposeAiLanguageOption[] = [
+  { nombre: 'Afrikaans', codigo: 'af', idiomaDestino: 'Afrikaans' },
+  { nombre: 'Albanes', codigo: 'sq', idiomaDestino: 'Albanes' },
+  { nombre: 'Amarico', codigo: 'am', idiomaDestino: 'Amarico' },
+  { nombre: 'Armenio', codigo: 'hy', idiomaDestino: 'Armenio' },
+  { nombre: 'Asames', codigo: 'as', idiomaDestino: 'Asames' },
+  { nombre: 'Azeri', codigo: 'az', idiomaDestino: 'Azeri' },
+  { nombre: 'Bambara', codigo: 'bm', idiomaDestino: 'Bambara' },
+  { nombre: 'Bengali', codigo: 'bn', idiomaDestino: 'Bengali' },
+  { nombre: 'Bielorruso', codigo: 'be', idiomaDestino: 'Bielorruso' },
+  { nombre: 'Birmano', codigo: 'my', idiomaDestino: 'Birmano' },
+  { nombre: 'Bosnio', codigo: 'bs', idiomaDestino: 'Bosnio' },
+  { nombre: 'Bulgaro', codigo: 'bg', idiomaDestino: 'Bulgaro' },
+  { nombre: 'Camboyano', codigo: 'km', idiomaDestino: 'Camboyano' },
+  { nombre: 'Catalan', codigo: 'ca', idiomaDestino: 'Catalan' },
+  { nombre: 'Cebuano', codigo: 'ceb', idiomaDestino: 'Cebuano' },
+  { nombre: 'Checo', codigo: 'cs', idiomaDestino: 'Checo' },
+  { nombre: 'Chichewa', codigo: 'ny', idiomaDestino: 'Chichewa' },
+  { nombre: 'Chino tradicional', codigo: 'zh-TW', idiomaDestino: 'Chino tradicional' },
+  { nombre: 'Cingales', codigo: 'si', idiomaDestino: 'Cingales' },
+  { nombre: 'Croata', codigo: 'hr', idiomaDestino: 'Croata' },
+  { nombre: 'Danes', codigo: 'da', idiomaDestino: 'Danes' },
+  { nombre: 'Divehi', codigo: 'dv', idiomaDestino: 'Divehi' },
+  { nombre: 'Eslovaco', codigo: 'sk', idiomaDestino: 'Eslovaco' },
+  { nombre: 'Esloveno', codigo: 'sl', idiomaDestino: 'Esloveno' },
+  { nombre: 'Estonio', codigo: 'et', idiomaDestino: 'Estonio' },
+  { nombre: 'Euskera', codigo: 'eu', idiomaDestino: 'Euskera' },
+  { nombre: 'Feroes', codigo: 'fo', idiomaDestino: 'Feroes' },
+  { nombre: 'Filipino', codigo: 'fil', idiomaDestino: 'Filipino' },
+  { nombre: 'Finlandes', codigo: 'fi', idiomaDestino: 'Finlandes' },
+  { nombre: 'Frison', codigo: 'fy', idiomaDestino: 'Frison' },
+  { nombre: 'Gallego', codigo: 'gl', idiomaDestino: 'Gallego' },
+  { nombre: 'Georgiano', codigo: 'ka', idiomaDestino: 'Georgiano' },
+  { nombre: 'Griego', codigo: 'el', idiomaDestino: 'Griego' },
+  { nombre: 'Gujarati', codigo: 'gu', idiomaDestino: 'Gujarati' },
+  { nombre: 'Haiti criollo', codigo: 'ht', idiomaDestino: 'Haiti criollo' },
+  { nombre: 'Hausa', codigo: 'ha', idiomaDestino: 'Hausa' },
+  { nombre: 'Hebreo', codigo: 'he', idiomaDestino: 'Hebreo' },
+  { nombre: 'Hindi', codigo: 'hi', idiomaDestino: 'Hindi' },
+  { nombre: 'Hmong', codigo: 'hmn', idiomaDestino: 'Hmong' },
+  { nombre: 'Holandes', codigo: 'nl', idiomaDestino: 'Holandes' },
+  { nombre: 'Hungaro', codigo: 'hu', idiomaDestino: 'Hungaro' },
+  { nombre: 'Igbo', codigo: 'ig', idiomaDestino: 'Igbo' },
+  { nombre: 'Indonesio', codigo: 'id', idiomaDestino: 'Indonesio' },
+  { nombre: 'Irlandes', codigo: 'ga', idiomaDestino: 'Irlandes' },
+  { nombre: 'Islandes', codigo: 'is', idiomaDestino: 'Islandes' },
+  { nombre: 'Javanes', codigo: 'jv', idiomaDestino: 'Javanes' },
+  { nombre: 'Kannada', codigo: 'kn', idiomaDestino: 'Kannada' },
+  { nombre: 'Kazajo', codigo: 'kk', idiomaDestino: 'Kazajo' },
+  { nombre: 'Kinyarwanda', codigo: 'rw', idiomaDestino: 'Kinyarwanda' },
+  { nombre: 'Kirgui', codigo: 'ky', idiomaDestino: 'Kirgui' },
+  { nombre: 'Kurdo', codigo: 'ku', idiomaDestino: 'Kurdo' },
+  { nombre: 'Lao', codigo: 'lo', idiomaDestino: 'Lao' },
+  { nombre: 'Latin', codigo: 'la', idiomaDestino: 'Latin' },
+  { nombre: 'Leton', codigo: 'lv', idiomaDestino: 'Leton' },
+  { nombre: 'Lituano', codigo: 'lt', idiomaDestino: 'Lituano' },
+  { nombre: 'Luxemburgues', codigo: 'lb', idiomaDestino: 'Luxemburgues' },
+  { nombre: 'Macedonio', codigo: 'mk', idiomaDestino: 'Macedonio' },
+  { nombre: 'Malagasy', codigo: 'mg', idiomaDestino: 'Malagasy' },
+  { nombre: 'Malayo', codigo: 'ms', idiomaDestino: 'Malayo' },
+  { nombre: 'Malayalam', codigo: 'ml', idiomaDestino: 'Malayalam' },
+  { nombre: 'Maltes', codigo: 'mt', idiomaDestino: 'Maltes' },
+  { nombre: 'Maori', codigo: 'mi', idiomaDestino: 'Maori' },
+  { nombre: 'Marati', codigo: 'mr', idiomaDestino: 'Marati' },
+  { nombre: 'Mongol', codigo: 'mn', idiomaDestino: 'Mongol' },
+  { nombre: 'Nepali', codigo: 'ne', idiomaDestino: 'Nepali' },
+  { nombre: 'Noruego', codigo: 'no', idiomaDestino: 'Noruego' },
+  { nombre: 'Odia', codigo: 'or', idiomaDestino: 'Odia' },
+  { nombre: 'Pasto', codigo: 'ps', idiomaDestino: 'Pasto' },
+  { nombre: 'Persa', codigo: 'fa', idiomaDestino: 'Persa' },
+  { nombre: 'Polaco', codigo: 'pl', idiomaDestino: 'Polaco' },
+  { nombre: 'Punjabi', codigo: 'pa', idiomaDestino: 'Punjabi' },
+  { nombre: 'Rumano', codigo: 'ro', idiomaDestino: 'Rumano' },
+  { nombre: 'Ruso', codigo: 'ru', idiomaDestino: 'Ruso' },
+  { nombre: 'Samoano', codigo: 'sm', idiomaDestino: 'Samoano' },
+  { nombre: 'Serbio', codigo: 'sr', idiomaDestino: 'Serbio' },
+  { nombre: 'Sesoto', codigo: 'st', idiomaDestino: 'Sesoto' },
+  { nombre: 'Shona', codigo: 'sn', idiomaDestino: 'Shona' },
+  { nombre: 'Sindhi', codigo: 'sd', idiomaDestino: 'Sindhi' },
+  { nombre: 'Somali', codigo: 'so', idiomaDestino: 'Somali' },
+  { nombre: 'Suajili', codigo: 'sw', idiomaDestino: 'Suajili' },
+  { nombre: 'Sueco', codigo: 'sv', idiomaDestino: 'Sueco' },
+  { nombre: 'Sundanes', codigo: 'su', idiomaDestino: 'Sundanes' },
+  { nombre: 'Tailandes', codigo: 'th', idiomaDestino: 'Tailandes' },
+  { nombre: 'Tamil', codigo: 'ta', idiomaDestino: 'Tamil' },
+  { nombre: 'Tartaro', codigo: 'tt', idiomaDestino: 'Tartaro' },
+  { nombre: 'Tayiko', codigo: 'tg', idiomaDestino: 'Tayiko' },
+  { nombre: 'Telugu', codigo: 'te', idiomaDestino: 'Telugu' },
+  { nombre: 'Tigriya', codigo: 'ti', idiomaDestino: 'Tigriya' },
+  { nombre: 'Turco', codigo: 'tr', idiomaDestino: 'Turco' },
+  { nombre: 'Turcomano', codigo: 'tk', idiomaDestino: 'Turcomano' },
+  { nombre: 'Ucraniano', codigo: 'uk', idiomaDestino: 'Ucraniano' },
+  { nombre: 'Urdu', codigo: 'ur', idiomaDestino: 'Urdu' },
+  { nombre: 'Uigur', codigo: 'ug', idiomaDestino: 'Uigur' },
+  { nombre: 'Uzbeko', codigo: 'uz', idiomaDestino: 'Uzbeko' },
+  { nombre: 'Valenciano', codigo: 'ca-ES-valencia', idiomaDestino: 'Valenciano' },
+  { nombre: 'Vietnamita', codigo: 'vi', idiomaDestino: 'Vietnamita' },
+  { nombre: 'Xhosa', codigo: 'xh', idiomaDestino: 'Xhosa' },
+  { nombre: 'Yoruba', codigo: 'yo', idiomaDestino: 'Yoruba' },
+  { nombre: 'Zulu', codigo: 'zu', idiomaDestino: 'Zulu' },
+];
+
+const COMPOSE_AI_TRANSLATION_LANGUAGES: ComposeAiLanguageOption[] = [
+  ...COMPOSE_AI_PRIMARY_TRANSLATION_LANGUAGES,
+  ...COMPOSE_AI_OTHER_TRANSLATION_LANGUAGES,
+];
 
 interface ChatPollVoterView {
   userId: number;
@@ -360,7 +500,18 @@ interface PollVoteEntryView {
  */
 export type EstadoUsuario = 'Conectado' | 'Desconectado' | 'Ausente';
 type ChatListFilter = 'TODOS' | 'NO_LEIDOS' | 'FAVORITOS' | 'GRUPOS';
-type SidebarSection = 'CHATS' | 'STARRED';
+type SidebarSection = 'CHATS' | 'STARRED' | 'PUBLIC';
+
+interface PublicChatListItem {
+  id: number;
+  nombre: string;
+  descripcion: string;
+  miembros: number;
+  badge: 'Publico';
+  initials: string;
+  gradient: string;
+  badgeColor: string;
+}
 
 /**
  * Extensión del DTO de usuario que incluye su estado actual.
@@ -414,6 +565,7 @@ export class InicioComponent {
 
   public trackMensaje = (_: number, m: MensajeDTO) => m.id ?? _;
   public trackIndex = (_: number, __: unknown) => _;
+  public trackQuickReply = (_: number, reply: string) => reply;
 
   public mensajeNuevo: string = '';
   public readonly adminDirectReplyDisabledPlaceholder =
@@ -424,21 +576,45 @@ export class InicioComponent {
   );
   public recBars = Array.from({ length: 14 });
   public showEmojiPicker = false;
+  public myStickers: StickerDTO[] = [];
+  public stickersLoading = false;
+  public stickerSaving = false;
+  public stickerEditorVisible = false;
+  public stickerDraftFile: File | null = null;
+  public stickerDraftPreviewUrl: string | null = null;
+  public stickerDraftName = '';
+  public showIncomingStickerSavePopup = false;
+  public incomingStickerPreviewSrc = '';
+  public incomingStickerSuggestedName = '';
+  public incomingStickerSaving = false;
+  public incomingStickerOwnedChecking = false;
+  public incomingStickerAlreadyOwned = false;
+  public incomingStickerSourceId: number | null = null;
+  public incomingStickerOwnedLocalId: number | null = null;
+  private stickerPreviewObjectUrls: string[] = [];
   public showComposeActionsPopup = false;
   public showComposeAiPopup = false;
+  public mostrarMenuIdiomasIa = false;
   public composerAiError: string | null = null;
+  public idiomaSeleccionadoIa: string | null = null;
+  public filtroIdiomasIa = '';
   public showTemporaryMessagePopup = false;
   public showReportChatClosurePopup = false;
   public reportChatClosureSending = false;
   public reportChatClosureText = '';
   public reportChatClosureTarget: any | null = null;
   public showReportUserPopup = false;
+  public reportUserAiLoading = false;
+  public reportUserAiMessage = '';
   public reportUserSending = false;
   public reportUserSuccess = false;
   public reportUserReason = '';
   public reportUserDetail = '';
   public reportUserTarget: any | null = null;
   public showGroupPollComposer = false;
+  public pollComposerIaChatGrupalId: number | null = null;
+  public pollComposerIaMensajesContexto: AiPollDraftContextMessageDTO[] = [];
+  public pollComposerAutogenerarIa = false;
   public showScheduleMessageComposer = false;
   public showChatListHeaderMenu = false;
   public showMuteDurationPicker = false;
@@ -482,6 +658,7 @@ export class InicioComponent {
     { value: 'Incitacion a actividades ilegales', label: 'Incitacion a actividades ilegales' },
     { value: 'Otro motivo', label: 'Otro motivo' },
   ];
+  private reportUserAiAnalysisSeq = 0;
   public attachmentUploading = false;
   public pendingAttachmentFile: File | null = null;
   public pendingAttachmentPreviewUrl: string | null = null;
@@ -503,6 +680,8 @@ export class InicioComponent {
   private messageInputRef?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('attachmentInput')
   private attachmentInputRef?: ElementRef<HTMLInputElement>;
+  @ViewChild('stickerFileInput')
+  private stickerFileInputRef?: ElementRef<HTMLInputElement>;
   @ViewChild('composeActionsAnchor')
   private composeActionsAnchorRef?: ElementRef<HTMLElement>;
   @ViewChild('composeAiAnchor')
@@ -525,6 +704,9 @@ export class InicioComponent {
   public showTopbarProfileMenu = false;
   public activeMainView: 'chat' | 'profile' = 'chat';
   public sidebarSection: SidebarSection = 'CHATS';
+  public publicChatsSearch = '';
+  public publicChats: PublicChatListItem[] = [];
+  public publicChatsLoading = false;
   public mensajesDestacados: StarredMessageItem[] = [];
   public starredPage = 0;
   public starredPageSize = 10;
@@ -545,11 +727,18 @@ export class InicioComponent {
   >();
 
   public aiPanelOpen = false;
+  public readonly aiTextMode = AiTextMode;
   public aiQuote = '';
   public aiLoading = false;
   public cargandoIaInput = false;
   public cargandoIaMensaje = false;
   public cargandoResumenIa = false;
+  public quickReplies: string[] = [];
+  public quickRepliesMessageId: number | null = null;
+  public cargandoQuickReplies = false;
+  public errorQuickReplies: string | null = null;
+  public quickRepliesChatKey: string | null = null;
+  public enviandoQuickReply = false;
   public mensajeSeleccionadoParaIa: MensajeDTO | null = null;
   public preguntaIaMensaje = '';
   public respuestaIaMensaje = '';
@@ -592,6 +781,20 @@ export class InicioComponent {
 
   public get isStarredView(): boolean {
     return this.sidebarSection === 'STARRED';
+  }
+
+  public get isPublicChatsView(): boolean {
+    return this.sidebarSection === 'PUBLIC';
+  }
+
+  public get filteredPublicChats(): PublicChatListItem[] {
+    const query = normalizeSearchText(this.publicChatsSearch || '');
+    if (!query) return this.publicChats;
+    return this.publicChats.filter((chat) =>
+      normalizeSearchText(
+        `${chat.nombre} ${chat.descripcion} ${chat.badge} ${chat.miembros}`
+      ).includes(query)
+    );
   }
 
   public get isStarredLoading(): boolean {
@@ -866,9 +1069,21 @@ export class InicioComponent {
   private readonly resumenIaEstiloDefault: AiConversationSummaryRequestDTO['estilo'] =
     'BREVE';
   private readonly resumenIaMaxLineasDefault = 6;
-  private readonly resumenIaMaxMensajes = 100;
-  private readonly resumenIaMaxCaracteresPorMensaje = 200;
+  private readonly resumenIaMaxMensajes = 50;
+  private readonly QUICK_REPLIES_MAX_VISIBLE = 3;
+  private readonly QUICK_REPLIES_DEBOUNCE_MS = 1500;
+  private readonly QUICK_REPLIES_COOLDOWN_MS = 2 * 60 * 1000;
+  private readonly QUICK_REPLIES_MIN_MESSAGE_CHARS = 8;
+  private readonly QUICK_REPLIES_MAX_CONTEXT_MESSAGES = 6;
+  private readonly QUICK_REPLIES_MAX_MESSAGE_CHARS = 120;
+  private readonly POLL_IA_MAX_CONTEXT_MESSAGES = 100;
+  private readonly POLL_IA_MAX_MESSAGE_CHARS = 200;
   private resumenIaRequestSeq = 0;
+  private quickRepliesRequestSeq = 0;
+  private quickRepliesDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private quickRepliesCache = new Map<string, string[]>();
+  private quickRepliesLastGeneratedByChat = new Map<string, number>();
+  private quickRepliesRequestSub?: Subscription;
   private draftByChatId = new Map<number, string>();
   private temporarySecondsByChatId = new Map<number, number>();
   private mutedChatUntilByChatId = new Map<number, number | null>();
@@ -964,6 +1179,7 @@ export class InicioComponent {
     private notificationService: NotificationService,
     private browserNotificationService: BrowserNotificationService,
     private groupInviteService: GroupInviteService,
+    private stickerService: StickerService,
     private route: ActivatedRoute,
     private router: Router,
     private sessionService: SessionService
@@ -1343,6 +1559,7 @@ export class InicioComponent {
               (mensaje as any)?.receptorId ?? (mensaje as any)?.receptor?.id ?? 0
             );
             const decryptInput = this.resolveDecryptInputFromMessageLike(mensaje);
+            this.preserveEncryptedPayloadForIaSummary(mensaje, decryptInput);
             this.applySenderProfilePhotoFromDecryptInput(mensaje, decryptInput);
             // NOTE: decrypting before entering ngZone run to keep it linear
             mensaje.contenido = await this.decryptContenido(
@@ -1460,6 +1677,14 @@ export class InicioComponent {
                 ) {
                   this.playUnreadMessageTone(item);
                 }
+                if (
+                  !isSystemIncoming &&
+                  !this.isMensajeEditado(mensaje) &&
+                  Number(mensaje.emisorId) !== Number(this.usuarioActualId) &&
+                  Number(mensaje.receptorId) === Number(this.usuarioActualId)
+                ) {
+                  this.promoteChatToTop(mensaje.chatId);
+                }
 
                 // preview in-place
                 const chat = this.chats.find((c) => c.id === mensaje.chatId);
@@ -1487,6 +1712,7 @@ export class InicioComponent {
                     if (!this.isMensajeEditado(mensaje) && !isSystemIncoming) {
                       item.unreadCount = (item.unreadCount || 0) + 1;
                       this.playUnreadMessageTone(item);
+                      this.promoteChatToTop(mensaje.chatId);
                     }
                     if (this.shouldRefreshPreviewWithIncomingMessage(item, mensaje)) {
                       const { preview, fecha, lastId } = computePreviewPatch(
@@ -1611,6 +1837,7 @@ export class InicioComponent {
                       if (!this.isMensajeEditado(mensaje) && !isSystemIncoming) {
                         item.unreadCount = (item.unreadCount || 0) + 1;
                         this.playUnreadMessageTone(item);
+                        this.promoteChatToTop(mensaje.chatId);
                       }
 
                       if (this.shouldRefreshPreviewWithIncomingMessage(item, mensaje)) {
@@ -1660,6 +1887,7 @@ export class InicioComponent {
                   }
                 }
                 this.seedIncomingReactionsFromMessages([mensaje]);
+                this.evaluarRespuestasRapidas();
               }
             });
           }
@@ -1818,6 +2046,11 @@ export class InicioComponent {
     if (this.chatListAccessForbidden) return;
 
     this.chatListLoading = true;
+    const existingChatsById = new Map<number, any>(
+      (this.chats || [])
+        .map((chat: any) => [Number(chat?.id), chat] as const)
+        .filter(([chatId]) => Number.isFinite(chatId) && chatId > 0)
+    );
     this.chatService
       .listarTodosLosChats()
       .pipe(
@@ -1831,6 +2064,8 @@ export class InicioComponent {
         const dedupedChats = dedupeChatListItemsById(chats || []);
         const mappedChats = dedupedChats
           .map((chat) => {
+          const chatId = Number(chat?.id || 0);
+          const existingChat = existingChatsById.get(chatId);
           const esGrupo = !chat.receptor;
           const groupId = Number(chat?.id);
           const seedIds = this.groupRecipientSeedByChatId.get(groupId) || [];
@@ -1931,7 +2166,7 @@ export class InicioComponent {
             ultimaMensaje: normalizedPreview,
             ultimaFecha: chat.ultimaFecha || null,
             lastPreviewId: chat.ultimaMensajeId ?? null,
-            unreadCount: chat.unreadCount ?? 0,
+            unreadCount: this.resolveInitialUnreadCount(chat, existingChat),
             ultimaMensajeId: chat.ultimaMensajeId ?? null,
             ultimaMensajeTipo: lastTipo || null,
             ultimaMensajeEmisorId:
@@ -2096,6 +2331,7 @@ export class InicioComponent {
               }
 
               const decryptInput = this.resolveDecryptInputFromMessageLike(mensaje);
+              this.preserveEncryptedPayloadForIaSummary(mensaje, decryptInput);
               const decryptedContenido = await this.decryptContenido(
                 decryptInput,
                 Number(
@@ -2238,6 +2474,86 @@ export class InicioComponent {
         console.error('? Error chats:', err);
       },
     });
+  }
+
+  private resolveInitialUnreadCount(chat: any, existingChat?: any): number {
+    const chatId = Number(chat?.id || 0);
+    const activeChatId = Number(this.chatActual?.id ?? this.chatSeleccionadoId ?? 0);
+    if (Number.isFinite(chatId) && chatId > 0 && chatId === activeChatId) {
+      return 0;
+    }
+
+    const backendUnread = this.extractBackendUnreadCount(chat);
+    const localUnread =
+      this.normalizeUnreadCount(existingChat?.unreadCount, 0) ?? 0;
+
+    if (backendUnread !== null) {
+      return Math.max(backendUnread, localUnread);
+    }
+
+    if (localUnread > 0) {
+      return localUnread;
+    }
+
+    return this.inferUnreadCountFromLastMessageSnapshot(chat);
+  }
+
+  private extractBackendUnreadCount(chat: any): number | null {
+    const candidates = [
+      chat?.unreadCount,
+      chat?.unread_count,
+      chat?.mensajesNoLeidos,
+      chat?.mensajesSinLeer,
+      chat?.noLeidos,
+      chat?.no_leidos,
+      chat?.totalNoLeidos,
+      chat?.totalUnread,
+      chat?.unreadMessages,
+      chat?.unreadMessagesCount,
+      chat?.pendingUnreadCount,
+    ];
+
+    for (const candidate of candidates) {
+      const normalized = this.normalizeUnreadCount(candidate, null);
+      if (normalized !== null) return normalized;
+    }
+
+    return null;
+  }
+
+  private inferUnreadCountFromLastMessageSnapshot(chat: any): number {
+    const lastMessage =
+      (chat as any)?.ultimoMensajeDto ??
+      (chat as any)?.ultimoMensajeData ??
+      (chat as any)?.ultimoMensajePayload ??
+      null;
+    if (!lastMessage) return 0;
+
+    const receptorId = Number(
+      lastMessage?.receptorId ??
+        lastMessage?.receptor?.id ??
+        chat?.receptor?.id ??
+        0
+    );
+    if (receptorId !== Number(this.usuarioActualId)) return 0;
+    if (lastMessage?.leido === true) return 0;
+    if (lastMessage?.activo === false) return 0;
+
+    return 1;
+  }
+
+  private normalizeUnreadCount(
+    value: unknown,
+    fallback: number | null = 0
+  ): number | null {
+    if (value === null || value === undefined || value === '') {
+      return fallback;
+    }
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return fallback;
+    }
+    return Math.round(parsed);
   }
 
   private bindBrowserNotificationRoute(): void {
@@ -3130,9 +3446,60 @@ export class InicioComponent {
     emisorId,
     receptorId,
     this.usuarioActualId,
-    this.cryptoService,
+  this.cryptoService,
     debugContext
   );
+}
+
+private extraerResumenPlanoIa(
+  response: AiConversationSummaryResponseDTO | null | undefined
+): string {
+  if (!response?.success) return '';
+
+  const resumen = String(response?.resumen || '').trim();
+  if (resumen) return resumen;
+
+  return String(response?.mensaje || '').trim();
+}
+
+private preserveEncryptedPayloadForIaSummary(
+  mensaje: MensajeDTO | Record<string, any> | null | undefined,
+  decryptInput: unknown
+): void {
+  if (!mensaje || !decryptInput) return;
+
+  const payloadText =
+    typeof decryptInput === 'string'
+      ? decryptInput.trim()
+      : decryptInput && typeof decryptInput === 'object'
+      ? JSON.stringify(decryptInput)
+      : '';
+  if (!payloadText) return;
+
+  try {
+    const parsed = JSON.parse(payloadText);
+    const payloadType = String(parsed?.type || '').trim().toUpperCase();
+    const looksEncrypted =
+      payloadType.startsWith('E2E') ||
+      (
+        typeof parsed?.ciphertext === 'string' &&
+        typeof parsed?.iv === 'string' &&
+        (
+          typeof parsed?.forEmisor === 'string' ||
+          typeof parsed?.forReceptor === 'string' ||
+          typeof parsed?.forAdmin === 'string' ||
+          (parsed?.forReceptores &&
+            typeof parsed.forReceptores === 'object' &&
+            Object.keys(parsed.forReceptores).length > 0)
+        )
+      );
+
+    if (looksEncrypted) {
+      (mensaje as any).__encryptedPayloadForIaSummary = payloadText;
+    }
+  } catch {
+    // no-op
+  }
 }
 
 private resolveDecryptInputFromMessageLike(messageLike: any): unknown {
@@ -4011,7 +4378,8 @@ private async decryptPreviewString(
     mensaje: MensajeDTO,
     debugContext?: E2EDebugContext
   ): Promise<void> {
-    if (String(mensaje?.tipo || 'TEXT').toUpperCase() !== 'IMAGE') return;
+    const tipo = String(mensaje?.tipo || 'TEXT').toUpperCase();
+    if (tipo !== 'IMAGE' && tipo !== 'STICKER') return;
 
     const payload = this.parseImageE2EPayload(mensaje?.contenido);
     if (!payload) {
@@ -7702,6 +8070,7 @@ private async decryptPreviewString(
       }
       Object.assign(m, this.normalizeMensajeEditadoFlag(m));
       const decryptInput = this.resolveDecryptInputFromMessageLike(m);
+      this.preserveEncryptedPayloadForIaSummary(m as any, decryptInput);
       this.applySenderProfilePhotoFromDecryptInput(m, decryptInput);
       if (this.isSystemMessage(m)) {
         const hideOwnExpulsion = this.maybeApplyGroupExpulsionStateFromMessage(m);
@@ -7947,6 +8316,7 @@ private async decryptPreviewString(
         }
         this.mensajesSeleccionados = merged;
         this.seedIncomingReactionsFromMessages(merged);
+        this.evaluarRespuestasRapidas();
         state.messages = [...merged];
         if (
           !esGrupo &&
@@ -9401,17 +9771,17 @@ private async decryptPreviewString(
     this.resumenIa = '';
     this.errorResumenIa = '';
 
-    const request = this.construirRequestResumenConversacion();
+    const request = this.construirRequestResumenConversacionEncrypted();
     if (!request) {
       this.cargandoResumenIa = false;
-      this.errorResumenIa = 'No hay mensajes recientes con texto para resumir.';
+      this.errorResumenIa = 'No hay mensajes cifrados recientes compatibles para resumir.';
       this.cdr.markForCheck();
       return;
     }
 
     try {
       const response = await firstValueFrom(
-        this.aiService.resumirConversacion(request)
+        this.aiService.resumirConversacionEncrypted(request)
       );
       const currentChatId = Number(this.chatActual?.id ?? this.chatSeleccionadoId ?? 0);
       if (
@@ -9420,7 +9790,7 @@ private async decryptPreviewString(
       ) {
         return;
       }
-      const resumen = String(response?.resumen || '').trim();
+      const resumen = this.extraerResumenPlanoIa(response);
 
       if (response?.success && resumen) {
         this.resumenIa = resumen;
@@ -9443,6 +9813,446 @@ private async decryptPreviewString(
   public cerrarPopupResumenIa(): void {
     if (this.cargandoResumenIa) return;
     this.mostrarPopupResumenIa = false;
+  }
+
+  public limpiarRespuestasRapidas(cancelPending = true): void {
+    if (this.quickRepliesDebounceTimer) {
+      clearTimeout(this.quickRepliesDebounceTimer);
+      this.quickRepliesDebounceTimer = null;
+    }
+    if (cancelPending) {
+      this.quickRepliesRequestSeq += 1;
+      this.quickRepliesRequestSub?.unsubscribe();
+      this.quickRepliesRequestSub = undefined;
+      this.cargandoQuickReplies = false;
+    }
+    this.quickReplies = [];
+    this.quickRepliesMessageId = null;
+    this.quickRepliesChatKey = null;
+    this.errorQuickReplies = null;
+    this.cdr.markForCheck();
+  }
+
+  public evaluarRespuestasRapidas(): void {
+    const chatKey = this.getChatKeyActual();
+    const ultimoMensaje = this.getUltimoMensajeRecibidoParaRespuestasRapidas();
+
+    if (!chatKey || !ultimoMensaje || !this.puedeGenerarRespuestasRapidas(ultimoMensaje)) {
+      this.limpiarRespuestasRapidas();
+      return;
+    }
+
+    const messageIdRaw = Number(ultimoMensaje?.id || 0);
+    const messageId =
+      Number.isFinite(messageIdRaw) && messageIdRaw > 0
+        ? Math.round(messageIdRaw)
+        : null;
+    const sameTarget =
+      this.quickRepliesChatKey === chatKey &&
+      this.quickRepliesMessageId === messageId;
+
+    if (messageId) {
+      const cached = this.quickRepliesCache.get(
+        this.getQuickRepliesCacheKey(chatKey, messageId)
+      );
+      if (cached && cached.length > 0) {
+        this.aplicarRespuestasRapidas(cached, chatKey, messageId);
+        return;
+      }
+    }
+
+    if (
+      sameTarget &&
+      (this.quickReplies.length > 0 ||
+        this.cargandoQuickReplies ||
+        !!this.quickRepliesDebounceTimer)
+    ) {
+      return;
+    }
+
+    this.quickReplies = [];
+    this.quickRepliesMessageId = messageId;
+    this.quickRepliesChatKey = chatKey;
+    this.errorQuickReplies = null;
+    this.programarGeneracionRespuestasRapidas(ultimoMensaje);
+  }
+
+  public async enviarRespuestaRapida(replyRaw: string): Promise<void> {
+    const reply = String(replyRaw || '').trim();
+    if (!reply || this.enviandoQuickReply || !this.canUseQuickReplySend) return;
+
+    const previousText = this.mensajeNuevo;
+    const previousCursorStart = this.composeCursorStart;
+    const previousCursorEnd = this.composeCursorEnd;
+
+    this.enviandoQuickReply = true;
+    this.limpiarRespuestasRapidas();
+    this.mensajeNuevo = reply;
+    this.composeCursorStart = reply.length;
+    this.composeCursorEnd = reply.length;
+
+    try {
+      await this.enviarMensajeDesdeComposer();
+    } catch (error) {
+      this.mensajeNuevo = previousText;
+      this.composeCursorStart = previousCursorStart;
+      this.composeCursorEnd = previousCursorEnd;
+      this.scheduleComposerTextareaResize();
+      this.focusMessageInput(previousCursorEnd);
+    } finally {
+      this.enviandoQuickReply = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private programarGeneracionRespuestasRapidas(mensaje: MensajeDTO): void {
+    const chatKey = this.getChatKeyActual();
+    if (!chatKey || !this.puedeGenerarRespuestasRapidas(mensaje)) {
+      this.limpiarRespuestasRapidas();
+      return;
+    }
+
+    if (this.quickRepliesDebounceTimer) {
+      clearTimeout(this.quickRepliesDebounceTimer);
+      this.quickRepliesDebounceTimer = null;
+    }
+
+    const delayMs = Math.max(
+      this.QUICK_REPLIES_DEBOUNCE_MS,
+      this.getQuickRepliesCooldownRemainingMs(chatKey)
+    );
+
+    this.quickRepliesDebounceTimer = setTimeout(() => {
+      this.quickRepliesDebounceTimer = null;
+      if (!this.esObjetivoRespuestasRapidasActual(mensaje, chatKey)) return;
+      this.cargarRespuestasRapidasParaMensaje(mensaje);
+    }, delayMs);
+  }
+
+  private puedeGenerarRespuestasRapidas(
+    mensaje: MensajeDTO | null | undefined
+  ): boolean {
+    if (!this.chatActual) return false;
+    if (!!String(this.mensajeNuevo || '').trim()) return false;
+    if (
+      this.enviandoQuickReply ||
+      this.attachmentUploading ||
+      this.aiLoading ||
+      this.cargandoIaInput ||
+      this.recording ||
+      !!this.pendingAttachmentFile ||
+      !!this.mensajeEdicionObjetivo ||
+      this.composerInteractionDisabled ||
+      this.haSalidoDelGrupo ||
+      this.noGroupRecipientsForSend
+    ) {
+      return false;
+    }
+    return this.esMensajeValidoParaRespuestasRapidas(mensaje);
+  }
+
+  private cargarRespuestasRapidasParaMensaje(mensaje: MensajeDTO): void {
+    const chatKey = this.getChatKeyActual();
+    if (!chatKey || !this.esObjetivoRespuestasRapidasActual(mensaje, chatKey)) return;
+
+    const request = this.construirRequestRespuestasRapidas(mensaje);
+    if (!request) {
+      this.limpiarRespuestasRapidas(false);
+      return;
+    }
+
+    const messageId = Number(request.messageId || 0);
+    const normalizedMessageId =
+      Number.isFinite(messageId) && messageId > 0 ? Math.round(messageId) : null;
+    const requestSeq = ++this.quickRepliesRequestSeq;
+
+    this.quickReplies = [];
+    this.quickRepliesChatKey = chatKey;
+    this.quickRepliesMessageId = normalizedMessageId;
+    this.errorQuickReplies = null;
+    this.cargandoQuickReplies = true;
+    this.quickRepliesLastGeneratedByChat.set(chatKey, Date.now());
+    this.quickRepliesRequestSub = this.aiService
+      .generarRespuestasRapidas(request)
+      .pipe(
+        finalize(() => {
+          if (requestSeq !== this.quickRepliesRequestSeq) return;
+          this.quickRepliesRequestSub = undefined;
+          this.cargandoQuickReplies = false;
+          this.cdr.markForCheck();
+        })
+      )
+      .subscribe({
+        next: (response: AiQuickRepliesResponseDTO) => {
+          if (requestSeq !== this.quickRepliesRequestSeq) return;
+          if (!this.esObjetivoRespuestasRapidasActual(mensaje, chatKey)) return;
+
+          const suggestions = this.normalizarSugerenciasRapidas(response?.sugerencias);
+          if (response?.success && suggestions.length > 0) {
+            if (normalizedMessageId) {
+              this.quickRepliesCache.set(
+                this.getQuickRepliesCacheKey(chatKey, normalizedMessageId),
+                suggestions
+              );
+            }
+            this.aplicarRespuestasRapidas(suggestions, chatKey, normalizedMessageId);
+            return;
+          }
+
+          this.errorQuickReplies = String(response?.mensaje || '').trim() || null;
+          this.quickReplies = [];
+        },
+        error: (err: any) => {
+          if (requestSeq !== this.quickRepliesRequestSeq) return;
+          this.errorQuickReplies = this.isQuickRepliesRateLimitError(err)
+            ? 'RATE_LIMIT'
+            : String(err?.error?.mensaje || err?.error?.message || err?.message || '').trim() ||
+              'ERROR';
+          this.quickReplies = [];
+        },
+      });
+  }
+
+  private construirRequestRespuestasRapidas(
+    mensaje: MensajeDTO
+  ): AiQuickRepliesRequestDTO | null {
+    const chatId = Number(this.chatActual?.id ?? this.chatSeleccionadoId ?? 0);
+    if (!Number.isFinite(chatId) || chatId <= 0) return null;
+
+    const mensajeRecibido = String(mensaje?.contenido || '').trim();
+    if (mensajeRecibido.length < this.QUICK_REPLIES_MIN_MESSAGE_CHARS) return null;
+
+    const tipoChat: AiQuickRepliesChatType = this.chatActual?.esGrupo
+      ? 'GRUPAL'
+      : 'INDIVIDUAL';
+    const messageIdRaw = Number(mensaje?.id || 0);
+    const messageId =
+      Number.isFinite(messageIdRaw) && messageIdRaw > 0
+        ? Math.round(messageIdRaw)
+        : undefined;
+    const contexto = this.construirContextoRespuestasRapidas(mensaje);
+
+    return {
+      mensajeRecibido,
+      tipoChat,
+      contexto: contexto.length > 0 ? contexto : undefined,
+      chatId: tipoChat === 'INDIVIDUAL' ? Math.round(chatId) : undefined,
+      chatGrupalId: tipoChat === 'GRUPAL' ? Math.round(chatId) : undefined,
+      messageId,
+    };
+  }
+
+  private construirContextoRespuestasRapidas(
+    mensajeObjetivo: MensajeDTO
+  ): AiQuickReplyContextDTO[] {
+    const mensajes = Array.isArray(this.mensajesSeleccionados)
+      ? this.mensajesSeleccionados
+      : [];
+    if (mensajes.length === 0) return [];
+
+    const targetId = Number(mensajeObjetivo?.id || 0);
+    const targetIndex =
+      Number.isFinite(targetId) && targetId > 0
+        ? mensajes.findIndex((item) => Number(item?.id) === Math.round(targetId))
+        : mensajes.length - 1;
+    const boundedIndex = targetIndex >= 0 ? targetIndex : mensajes.length - 1;
+
+    return mensajes
+      .slice(0, boundedIndex + 1)
+      .filter((item) => this.esMensajeValidoParaContextoRespuestasRapidas(item))
+      .slice(-this.QUICK_REPLIES_MAX_CONTEXT_MESSAGES)
+      .map((item) => ({
+        autor: this.resolveQuickReplyAuthor(item),
+        contenido: this.truncarTextoQuickReply(String(item?.contenido || '')),
+        esUsuarioActual: Number(item?.emisorId) === Number(this.usuarioActualId),
+      }));
+  }
+
+  private getChatKeyActual(): string | null {
+    const chatId = Number(this.chatActual?.id ?? this.chatSeleccionadoId ?? 0);
+    if (!this.chatActual) return null;
+    if (!Number.isFinite(chatId) || chatId <= 0) return null;
+    return `${this.chatActual?.esGrupo ? 'GRUPAL' : 'INDIVIDUAL'}:${Math.round(chatId)}`;
+  }
+
+  private getQuickRepliesCacheKey(chatKey: string, messageId: number): string {
+    return `${chatKey}|${Math.round(messageId)}`;
+  }
+
+  private getQuickRepliesCooldownRemainingMs(chatKey: string): number {
+    const lastGeneratedAt = Number(this.quickRepliesLastGeneratedByChat.get(chatKey) || 0);
+    if (!Number.isFinite(lastGeneratedAt) || lastGeneratedAt <= 0) return 0;
+    return Math.max(
+      0,
+      this.QUICK_REPLIES_COOLDOWN_MS - (Date.now() - lastGeneratedAt)
+    );
+  }
+
+  private getUltimoMensajeRecibidoParaRespuestasRapidas(): MensajeDTO | null {
+    const mensajes = Array.isArray(this.mensajesSeleccionados)
+      ? this.mensajesSeleccionados
+      : [];
+    if (mensajes.length === 0) return null;
+    const ultimoMensaje = mensajes[mensajes.length - 1] || null;
+    return this.esMensajeValidoParaRespuestasRapidas(ultimoMensaje)
+      ? ultimoMensaje
+      : null;
+  }
+
+  private esMensajeValidoParaRespuestasRapidas(
+    mensaje: MensajeDTO | null | undefined
+  ): boolean {
+    if (!mensaje) return false;
+    if (Number(mensaje?.emisorId) === Number(this.usuarioActualId)) return false;
+    if (this.isSystemMessage(mensaje)) return false;
+    if (this.isTemporalExpiredMessage(mensaje)) return false;
+    if (mensaje?.activo === false) return false;
+
+    const tipo = String(mensaje?.tipo || 'TEXT').trim().toUpperCase() || 'TEXT';
+    if (tipo !== 'TEXT') return false;
+    if (parsePollPayload(mensaje)) return false;
+    if (
+      mensaje?.audioUrl ||
+      mensaje?.audioDataUrl ||
+      mensaje?.imageUrl ||
+      mensaje?.imageDataUrl ||
+      mensaje?.fileUrl ||
+      mensaje?.fileDataUrl
+    ) {
+      return false;
+    }
+
+    const contenido = String(mensaje?.contenido || '').trim();
+    if (!contenido) return false;
+    if (contenido.length < this.QUICK_REPLIES_MIN_MESSAGE_CHARS) return false;
+    if (this.isEncryptedHiddenPlaceholder(contenido)) return false;
+    return true;
+  }
+
+  private esMensajeValidoParaContextoRespuestasRapidas(
+    mensaje: MensajeDTO | null | undefined
+  ): boolean {
+    if (!mensaje) return false;
+    if (this.isSystemMessage(mensaje)) return false;
+    if (this.isTemporalExpiredMessage(mensaje)) return false;
+    if (mensaje?.activo === false) return false;
+
+    const tipo = String(mensaje?.tipo || 'TEXT').trim().toUpperCase() || 'TEXT';
+    if (tipo !== 'TEXT') return false;
+    if (parsePollPayload(mensaje)) return false;
+    if (
+      mensaje?.audioUrl ||
+      mensaje?.audioDataUrl ||
+      mensaje?.imageUrl ||
+      mensaje?.imageDataUrl ||
+      mensaje?.fileUrl ||
+      mensaje?.fileDataUrl
+    ) {
+      return false;
+    }
+
+    const contenido = String(mensaje?.contenido || '').trim();
+    if (!contenido) return false;
+    if (this.isEncryptedHiddenPlaceholder(contenido)) return false;
+    return true;
+  }
+
+  private esObjetivoRespuestasRapidasActual(
+    mensaje: MensajeDTO,
+    chatKey: string
+  ): boolean {
+    if (this.getChatKeyActual() !== chatKey) return false;
+    const ultimoMensaje = this.getUltimoMensajeRecibidoParaRespuestasRapidas();
+    if (!ultimoMensaje) return false;
+
+    const targetId = Number(mensaje?.id || 0);
+    const currentId = Number(ultimoMensaje?.id || 0);
+    if (
+      Number.isFinite(targetId) &&
+      targetId > 0 &&
+      Number.isFinite(currentId) &&
+      currentId > 0
+    ) {
+      return Math.round(targetId) === Math.round(currentId);
+    }
+
+    return (
+      Number(mensaje?.emisorId) === Number(ultimoMensaje?.emisorId) &&
+      String(mensaje?.contenido || '').trim() ===
+        String(ultimoMensaje?.contenido || '').trim()
+    );
+  }
+
+  private aplicarRespuestasRapidas(
+    sugerencias: string[],
+    chatKey: string,
+    messageId: number | null
+  ): void {
+    this.quickReplies = sugerencias;
+    this.quickRepliesChatKey = chatKey;
+    this.quickRepliesMessageId = messageId;
+    this.errorQuickReplies = null;
+    this.cdr.markForCheck();
+  }
+
+  private normalizarSugerenciasRapidas(raw: unknown): string[] {
+    const list = Array.isArray(raw) ? raw : [];
+    const dedup = new Set<string>();
+
+    for (const item of list) {
+      const texto = String(item || '').replace(/\s+/g, ' ').trim();
+      if (!texto) continue;
+      dedup.add(texto);
+      if (dedup.size >= this.QUICK_REPLIES_MAX_VISIBLE) break;
+    }
+
+    return Array.from(dedup);
+  }
+
+  private truncarTextoQuickReply(textoRaw: string): string {
+    const texto = String(textoRaw || '').replace(/\s+/g, ' ').trim();
+    if (texto.length <= this.QUICK_REPLIES_MAX_MESSAGE_CHARS) return texto;
+    return `${texto.slice(0, this.QUICK_REPLIES_MAX_MESSAGE_CHARS).trimEnd()}...`;
+  }
+
+  private resolveQuickReplyAuthor(mensaje: MensajeDTO): string {
+    if (Number(mensaje?.emisorId) === Number(this.usuarioActualId)) return 'Tú';
+
+    const nombreDirecto =
+      `${mensaje?.emisorNombre || ''} ${mensaje?.emisorApellido || ''}`.trim();
+    if (nombreDirecto) return nombreDirecto;
+
+    const chatId = Number(this.chatActual?.id ?? mensaje?.chatId ?? 0);
+    const emisorId = Number(mensaje?.emisorId || 0);
+    if (Number.isFinite(chatId) && chatId > 0 && Number.isFinite(emisorId) && emisorId > 0) {
+      const groupName = this.resolveGroupMemberDisplayName(chatId, emisorId);
+      if (groupName) return groupName;
+    }
+
+    const receptorNombre =
+      `${this.chatActual?.receptor?.nombre || ''} ${this.chatActual?.receptor?.apellido || ''}`.trim();
+    return receptorNombre || 'Usuario';
+  }
+
+  private isQuickRepliesRateLimitError(err: any): boolean {
+    const status = Number(err?.status || 0);
+    if (status === 429) return true;
+
+    const code = String(err?.error?.codigo || err?.error?.code || '')
+      .trim()
+      .toUpperCase();
+    if (code.includes('RATE')) return true;
+
+    const message = String(
+      err?.error?.mensaje || err?.error?.message || err?.message || ''
+    )
+      .trim()
+      .toLowerCase();
+    return (
+      message.includes('rate limit') ||
+      message.includes('demasiadas solicitudes') ||
+      message.includes('too many requests')
+    );
   }
 
   public cerrarModalIaMensaje(): void {
@@ -9474,13 +10284,13 @@ private async decryptPreviewString(
     return this.confirmarPreguntaIa(rawQuestion);
   }
 
-  private construirRequestResumenConversacion():
-    | AiConversationSummaryRequestDTO
+  private construirRequestResumenConversacionEncrypted():
+    | AiEncryptedConversationSummaryRequestDTO
     | null {
     const chatId = Number(this.chatActual?.id ?? this.chatSeleccionadoId ?? 0);
     if (!Number.isFinite(chatId) || chatId <= 0) return null;
 
-    const mensajes = this.construirMensajesResumenIa();
+    const mensajes = this.construirMensajesResumenIaEncrypted();
     if (mensajes.length === 0) return null;
 
     const esGrupo = !!this.chatActual?.esGrupo;
@@ -9494,41 +10304,45 @@ private async decryptPreviewString(
     };
   }
 
-  private construirMensajesResumenIa(): AiConversationMessageDTO[] {
+  private construirMensajesResumenIaEncrypted(): AiEncryptedContextMessageDTO[] {
     const mensajes = Array.isArray(this.mensajesSeleccionados)
       ? this.mensajesSeleccionados
       : [];
 
     return mensajes
-      .map((mensaje) => this.mapMensajeResumenIa(mensaje))
-      .filter((mensaje): mensaje is AiConversationMessageDTO => !!mensaje)
+      .map((mensaje) => this.mapMensajeResumenIaEncrypted(mensaje))
+      .filter((mensaje): mensaje is AiEncryptedContextMessageDTO => !!mensaje)
       .slice(-this.resumenIaMaxMensajes);
   }
 
-  private mapMensajeResumenIa(
+  private mapMensajeResumenIaEncrypted(
     mensaje: MensajeDTO | null | undefined
-  ): AiConversationMessageDTO | null {
+  ): AiEncryptedContextMessageDTO | null {
     if (!mensaje) return null;
     if (mensaje.activo === false || isTemporalExpiredMessageLike(mensaje)) {
       return null;
     }
     if (isSystemMessageLike(mensaje)) return null;
 
-    const contenido = this.extraerContenidoResumenIa(mensaje);
-    if (!contenido) return null;
+    const encryptedPayload = this.extraerEncryptedPayloadResumenIa(mensaje);
+    if (!encryptedPayload) return null;
 
     const esUsuarioActual =
       Number(mensaje?.emisorId) === Number(this.usuarioActualId);
     const id = Number(mensaje?.id || 0);
+    const autorId = Number(mensaje?.emisorId || 0);
     const fecha = String(mensaje?.fechaEnvio || '').trim();
-    const payload: AiConversationMessageDTO = {
+    const payload: AiEncryptedContextMessageDTO = {
       autor: this.resolveAutorResumenIa(mensaje, esUsuarioActual),
-      contenido,
       esUsuarioActual,
+      encryptedPayload,
     };
 
     if (Number.isFinite(id) && id > 0) {
       payload.id = id;
+    }
+    if (Number.isFinite(autorId) && autorId > 0) {
+      payload.autorId = autorId;
     }
     if (fecha) {
       payload.fecha = fecha;
@@ -9537,40 +10351,45 @@ private async decryptPreviewString(
     return payload;
   }
 
-  private extraerContenidoResumenIa(mensaje: MensajeDTO): string {
-    const pollQuestion = String(parsePollPayload(mensaje)?.question || '').trim();
-    if (pollQuestion) {
-      return this.normalizarContenidoResumenIa(pollQuestion);
+  private extraerEncryptedPayloadResumenIa(mensaje: MensajeDTO): string {
+    const preservedPayload = String(
+      (mensaje as any)?.__encryptedPayloadForIaSummary || ''
+    ).trim();
+    const rawPayload = preservedPayload || this.resolveDecryptInputFromMessageLike(mensaje);
+    const payloadText =
+      preservedPayload
+        ? preservedPayload
+        : typeof rawPayload === 'string'
+        ? rawPayload.trim()
+        : rawPayload && typeof rawPayload === 'object'
+        ? JSON.stringify(rawPayload)
+        : '';
+    if (!payloadText) return '';
+
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(payloadText);
+    } catch {
+      return '';
     }
 
-    const tipo = String(mensaje?.tipo || '').trim().toUpperCase();
-    const isMediaMessage =
-      tipo === 'AUDIO' ||
-      tipo === 'IMAGE' ||
-      tipo === 'FILE' ||
-      !!mensaje?.audioUrl ||
-      !!mensaje?.audioDataUrl ||
-      !!mensaje?.imageUrl ||
-      !!mensaje?.imageDataUrl ||
-      !!mensaje?.fileUrl ||
-      !!mensaje?.fileDataUrl;
+    const payloadType = String(parsed?.type || '').trim().toUpperCase();
+    const isTextPayload =
+      payloadType === 'E2E' ||
+      payloadType === 'E2E_GROUP' ||
+      (!payloadType &&
+        typeof parsed?.ciphertext === 'string' &&
+        typeof parsed?.iv === 'string' &&
+        (
+          typeof parsed?.forReceptor === 'string' ||
+          typeof parsed?.forEmisor === 'string' ||
+          typeof parsed?.forAdmin === 'string' ||
+          (parsed?.forReceptores &&
+            typeof parsed.forReceptores === 'object' &&
+            Object.keys(parsed.forReceptores).length > 0)
+        ));
 
-    const raw = isMediaMessage
-      ? String(mensaje?.contenido || '').trim()
-      : String(
-          mensaje?.contenidoBusqueda ??
-            mensaje?.contenido_busqueda ??
-            mensaje?.contenido ??
-            ''
-        ).trim();
-
-    return this.normalizarContenidoResumenIa(raw);
-  }
-
-  private normalizarContenidoResumenIa(value: string): string {
-    const normalized = String(value || '').replace(/\s+/g, ' ').trim();
-    if (!normalized) return '';
-    return normalized.slice(0, this.resumenIaMaxCaracteresPorMensaje);
+    return isTextPayload ? payloadText : '';
   }
 
   private resolveAutorResumenIa(
@@ -9597,6 +10416,14 @@ private async decryptPreviewString(
   }
 
   private resolveResumenIaErrorMessage(err: any): string {
+    const message = String(err?.message || '').trim();
+    if (message === 'AI_SUMMARY_ENCRYPTED_PAYLOAD_MISSING') {
+      return 'Resumen no disponible en este momento.';
+    }
+    if (message === 'AI_SUMMARY_DECRYPT_FAILED') {
+      return 'No se pudo descifrar el resumen.';
+    }
+
     const base = this.resolveComposerAiErrorMessage(err);
     if (base === 'No se pudo procesar el texto con IA.') {
       return 'No se pudo generar el resumen.';
@@ -9962,6 +10789,9 @@ private async decryptPreviewString(
    */
   public eliminarMensaje(mensaje: MensajeDTO): void {
     if (!mensaje.id || mensaje.activo === false) return;
+    const messageId = Number(mensaje.id);
+    if (!Number.isFinite(messageId) || messageId <= 0) return;
+    const originalSnapshot: MensajeDTO = { ...(mensaje || {}) };
     const deletedAtMs = Date.now();
     this.aplicarEliminacionEnUI({
       ...(mensaje || {}),
@@ -9982,7 +10812,6 @@ private async decryptPreviewString(
       contenido: '',
     };
 
-    this.wsService.enviarEliminarMensaje(payloadEliminar);
     this.messageReactionsByMessageId.delete(Number(mensaje.id));
     if (this.openIncomingReactionPickerMessageId === Number(mensaje.id)) {
       this.openIncomingReactionPickerMessageId = null;
@@ -9994,6 +10823,45 @@ private async decryptPreviewString(
     if (Number(this.mensajeEdicionObjetivo?.id) === Number(mensaje.id)) {
       this.cancelarEdicionMensaje();
     }
+
+    this.chatService.eliminarMensaje(messageId).subscribe({
+      next: (deletedResponse) => {
+        const persistedDeletion: MensajeDTO = {
+          ...(payloadEliminar || {}),
+          ...(deletedResponse || {}),
+          id: messageId,
+          chatId:
+            (deletedResponse as any)?.chatId ??
+            mensaje.chatId ??
+            this.chatActual?.id,
+          activo: false,
+          __deletedAtMs:
+            (deletedResponse as any)?.__deletedAtMs ??
+            (deletedResponse as any)?.deletedAtMs ??
+            deletedAtMs,
+          deletedAt:
+            String(
+              (deletedResponse as any)?.deletedAt ??
+                (deletedResponse as any)?.deleted_at ??
+                (deletedResponse as any)?.fechaEliminacion ??
+                ''
+            ).trim() || new Date(deletedAtMs).toISOString(),
+        };
+        this.aplicarEliminacionEnUI(persistedDeletion);
+        this.wsService.enviarEliminarMensaje(persistedDeletion);
+      },
+      error: (err) => {
+        this.aplicarRestauracionEnUI(originalSnapshot);
+        const backendMsg = String(
+          err?.error?.mensaje || err?.error?.message || err?.message || ''
+        ).trim();
+        this.showToast(
+          backendMsg || 'No se pudo eliminar el mensaje.',
+          'warning',
+          'Mensajes'
+        );
+      },
+    });
   }
 
   private getMensajeCreatedAtMs(mensaje: MensajeDTO): number | null {
@@ -11866,6 +12734,34 @@ private async decryptPreviewString(
     this.activeMainView = 'chat';
   }
 
+  public openPublicChatsSidebarView(event?: MouseEvent): void {
+    event?.stopPropagation();
+    this.sidebarSection = 'PUBLIC';
+    this.activeMainView = 'chat';
+    this.showTopbarProfileMenu = false;
+    this.showChatListHeaderMenu = false;
+    this.openChatPinMenuChatId = null;
+    this.openMensajeMenuId = null;
+    this.showPinnedActionsMenu = false;
+    this.showPinDurationPicker = false;
+    this.showMuteDurationPicker = false;
+    this.muteDurationTargetChat = null;
+    this.pinTargetMessage = null;
+    this.openIncomingReactionPickerMessageId = null;
+    this.openReactionDetailsMessageId = null;
+    this.mostrarMenuOpciones = false;
+    this.closeComposeActionsPopup();
+    this.closeComposeAiPopup();
+    this.closeEmojiPicker(true);
+    this.closeTemporaryMessagePopup();
+    this.closeGroupInfoPanel();
+    this.closeUserInfoPanel();
+    this.closeMessageSearchPanel();
+    this.closePollVotesPanel();
+    this.closeFilePreview();
+    this.loadPublicChatsFromBackend();
+  }
+
   public openStarredSidebarView(event?: MouseEvent): void {
     event?.stopPropagation();
     this.sidebarSection = 'STARRED';
@@ -11892,6 +12788,98 @@ private async decryptPreviewString(
     this.closeMessageSearchPanel();
     this.closePollVotesPanel();
     this.closeFilePreview();
+  }
+
+  public onPublicChatsSearch(event: Event): void {
+    const target = event.target as HTMLInputElement | null;
+    this.publicChatsSearch = String(target?.value || '');
+  }
+
+  public entrarChatPublico(chat: PublicChatListItem, event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.showToast(
+      `Integracion pendiente para entrar a "${chat.nombre}".`,
+      'info',
+      'Chats publicos',
+      2200
+    );
+  }
+
+  private loadPublicChatsFromBackend(): void {
+    if (this.publicChatsLoading) return;
+    this.publicChatsLoading = true;
+    this.chatService
+      .listarTodosLosChats()
+      .pipe(
+        finalize(() => {
+          this.publicChatsLoading = false;
+        })
+      )
+      .subscribe({
+        next: (items) => {
+          const source = Array.isArray(items) ? items : [];
+          this.publicChats = source
+            .filter((chat: any) => this.isPublicGroupChat(chat))
+            .map((chat: any) => this.mapPublicChatCard(chat));
+        },
+        error: () => {
+          this.publicChats = [];
+        },
+      });
+  }
+
+  private isPublicGroupChat(chat: any): boolean {
+    const isGroup =
+      chat?.esGrupo === true ||
+      chat?.grupo === true ||
+      chat?.isGroup === true ||
+      chat?.tipo === 'GRUPAL' ||
+      chat?.tipoChat === 'GRUPAL' ||
+      chat?.nombreGrupo != null;
+    if (!isGroup) return false;
+
+    return (
+      chat?.publico === true ||
+      chat?.esPublico === true ||
+      chat?.isPublic === true ||
+      chat?.chatPublico === true ||
+      String(chat?.visibilidad || '').toUpperCase() === 'PUBLICO' ||
+      String(chat?.visibility || '').toUpperCase() === 'PUBLIC'
+    );
+  }
+
+  private mapPublicChatCard(chat: any): PublicChatListItem {
+    const id = Number(chat?.id || 0);
+    const nombre = String(
+      chat?.nombreGrupo || chat?.nombre || `Grupo ${id}`
+    ).trim() || `Grupo ${id}`;
+    const descripcion =
+      String(
+        chat?.descripcion || chat?.descripcionGrupo || 'Grupo publico de la comunidad.'
+      ).trim() || 'Grupo publico de la comunidad.';
+    const miembrosRaw = Number(
+      chat?.miembrosCount || chat?.miembros?.length || chat?.usuarios?.length || 0
+    );
+    const miembros = Number.isFinite(miembrosRaw) && miembrosRaw > 0 ? miembrosRaw : 0;
+    const initials =
+      nombre
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase() || '')
+        .join('') || 'GP';
+
+    return {
+      id,
+      nombre,
+      descripcion,
+      miembros,
+      badge: 'Publico',
+      initials,
+      gradient: 'linear-gradient(135deg, #2563eb 0%, #06b6d4 100%)',
+      badgeColor: '#1d4ed8',
+    };
   }
 
   public nextStarredPage(): void {
@@ -12373,6 +13361,7 @@ private async decryptPreviewString(
 
   public onComposerInput(event?: Event): void {
     this.composerDraftPrefixVisible = false;
+    this.limpiarRespuestasRapidas();
     if (!String(this.mensajeNuevo || '').trim()) {
       this.closeComposeAiPopup();
     }
@@ -13622,6 +14611,15 @@ private async decryptPreviewString(
     return meta.imageNombre || 'Imagen';
   }
 
+  public isStickerMessage(m: MensajeDTO): boolean {
+    const tipo = String(m?.tipo || '').trim().toUpperCase();
+    const kind = String((m as any)?.contentKind || '').trim().toUpperCase();
+    if (tipo === 'STICKER' || kind === 'STICKER') return true;
+    const raw = String(m?.contenido || '').trim();
+    if (!raw || raw[0] !== '{') return false;
+    return raw.includes('"sticker":true') || raw.includes('"contentKind":"STICKER"');
+  }
+
   private resolveImageMimeForPreview(m: MensajeDTO, imageSrcRaw: string): string {
     const meta = this.resolveImageMetaForRender(m);
     const explicitMime = String(m?.imageMime || meta.imageMime || '').trim();
@@ -13659,12 +14657,260 @@ private async decryptPreviewString(
       return;
     }
 
+    if (this.isStickerMessage(mensaje)) {
+      this.incomingStickerPreviewSrc = imageSrc;
+      this.incomingStickerSuggestedName = String(
+        this.getImageAlt(mensaje) || 'sticker'
+      )
+        .replace(/\.[^.]+$/, '')
+        .slice(0, 60);
+      this.incomingStickerSourceId = this.resolveStickerSourceId(mensaje);
+      this.incomingStickerOwnedLocalId = this.resolveOwnedStickerLocalId(
+        imageSrc,
+        this.incomingStickerSuggestedName
+      );
+      this.incomingStickerAlreadyOwned = false;
+      this.incomingStickerOwnedChecking = true;
+      this.showIncomingStickerSavePopup = true;
+      if (!this.myStickers.length && !this.stickersLoading) {
+        this.loadMyStickers();
+      }
+      if (
+        Number.isFinite(Number(this.incomingStickerSourceId)) &&
+        Number(this.incomingStickerSourceId) > 0
+      ) {
+        this.stickerService
+          .isOwnedByMe(Number(this.incomingStickerSourceId))
+          .subscribe({
+            next: (owned) => {
+              this.incomingStickerAlreadyOwned = owned === true;
+              if (owned === true && !this.incomingStickerOwnedLocalId) {
+                this.incomingStickerOwnedLocalId = this.resolveOwnedStickerLocalId(
+                  imageSrc,
+                  this.incomingStickerSuggestedName
+                );
+              }
+              this.incomingStickerOwnedChecking = false;
+            },
+            error: () => {
+              this.incomingStickerAlreadyOwned = this.isIncomingStickerAlreadyOwned(
+                imageSrc,
+                this.incomingStickerSuggestedName
+              );
+              if (this.incomingStickerAlreadyOwned && !this.incomingStickerOwnedLocalId) {
+                this.incomingStickerOwnedLocalId = this.resolveOwnedStickerLocalId(
+                  imageSrc,
+                  this.incomingStickerSuggestedName
+                );
+              }
+              this.incomingStickerOwnedChecking = false;
+            },
+          });
+      } else {
+        this.incomingStickerAlreadyOwned = this.isIncomingStickerAlreadyOwned(
+          imageSrc,
+          this.incomingStickerSuggestedName
+        );
+        if (this.incomingStickerAlreadyOwned && !this.incomingStickerOwnedLocalId) {
+          this.incomingStickerOwnedLocalId = this.resolveOwnedStickerLocalId(
+            imageSrc,
+            this.incomingStickerSuggestedName
+          );
+        }
+        this.incomingStickerOwnedChecking = false;
+      }
+      this.ensureStickerOwnershipStateWithLoadedCollection(
+        imageSrc,
+        this.incomingStickerSuggestedName
+      );
+      return;
+    }
+
     this.showFilePreview = true;
     this.filePreviewSrc = imageSrc;
     this.filePreviewName = this.getImageAlt(mensaje);
     this.filePreviewSize = '';
     this.filePreviewType = 'Imagen';
     this.filePreviewMime = this.resolveImageMimeForPreview(mensaje, imageSrc);
+  }
+
+  public closeIncomingStickerSavePopup(): void {
+    if (this.incomingStickerSaving) return;
+    this.showIncomingStickerSavePopup = false;
+    this.incomingStickerPreviewSrc = '';
+    this.incomingStickerSuggestedName = '';
+    this.incomingStickerOwnedChecking = false;
+    this.incomingStickerAlreadyOwned = false;
+    this.incomingStickerSourceId = null;
+    this.incomingStickerOwnedLocalId = null;
+  }
+
+  public async saveIncomingStickerToMyCollection(): Promise<void> {
+    if (this.incomingStickerSaving || this.stickerSaving) return;
+    if (this.incomingStickerOwnedChecking) return;
+    if (this.incomingStickerAlreadyOwned) return;
+    const src = String(this.incomingStickerPreviewSrc || '').trim();
+    if (!src) return;
+
+    this.incomingStickerSaving = true;
+    try {
+      if (
+        Number.isFinite(Number(this.incomingStickerSourceId)) &&
+        Number(this.incomingStickerSourceId) > 0
+      ) {
+        const owned = await firstValueFrom(
+          this.stickerService.isOwnedByMe(Number(this.incomingStickerSourceId))
+        );
+        if (owned === true) {
+          this.incomingStickerAlreadyOwned = true;
+          this.showToast('Este sticker ya lo tienes añadido.', 'info', 'Sticker');
+          return;
+        }
+      }
+      const response = await fetch(src);
+      const blob = await response.blob();
+      if (!blob || blob.size <= 0) {
+        throw new Error('STICKER_EMPTY');
+      }
+
+      const mime = String(blob.type || 'image/png').trim().toLowerCase();
+      const safeMime =
+        mime === 'image/png' ||
+        mime === 'image/webp' ||
+        mime === 'image/jpeg' ||
+        mime === 'image/jpg' ||
+        mime === 'image/gif'
+          ? mime
+          : 'image/png';
+      const ext =
+        safeMime === 'image/webp'
+          ? 'webp'
+          : safeMime === 'image/png'
+          ? 'png'
+          : safeMime === 'image/gif'
+          ? 'gif'
+          : 'jpg';
+      const baseName =
+        String(this.incomingStickerSuggestedName || 'sticker').trim() ||
+        'sticker';
+      const file = new File([blob], `${baseName}.${ext}`, { type: safeMime });
+
+      await firstValueFrom(this.stickerService.createSticker(file, baseName));
+      this.showToast('Sticker añadido a tu colección.', 'success', 'Sticker');
+      this.loadMyStickers();
+      this.showIncomingStickerSavePopup = false;
+      this.incomingStickerPreviewSrc = '';
+      this.incomingStickerSuggestedName = '';
+      this.incomingStickerOwnedChecking = false;
+      this.incomingStickerAlreadyOwned = false;
+      this.incomingStickerSourceId = null;
+      this.incomingStickerOwnedLocalId = null;
+    } catch {
+      this.showToast('No se pudo añadir el sticker.', 'warning', 'Sticker');
+    } finally {
+      this.incomingStickerSaving = false;
+    }
+  }
+
+  public deleteIncomingStickerFromMyCollection(): void {
+    const localId = Number(this.incomingStickerOwnedLocalId || 0);
+    if (!Number.isFinite(localId) || localId <= 0 || this.incomingStickerSaving) return;
+    this.incomingStickerSaving = true;
+    this.stickerService.deleteSticker(Math.round(localId)).pipe(
+      finalize(() => {
+        this.incomingStickerSaving = false;
+      })
+    ).subscribe({
+      next: () => {
+        this.myStickers = this.myStickers.filter((s) => Number(s?.id) !== Math.round(localId));
+        this.incomingStickerAlreadyOwned = false;
+        this.incomingStickerOwnedLocalId = null;
+        this.showToast('Sticker eliminado.', 'info', 'Sticker', 1600);
+      },
+      error: () => {
+        this.showToast('No se pudo eliminar el sticker.', 'warning', 'Sticker');
+      }
+    });
+  }
+
+  private resolveStickerSourceId(mensaje: MensajeDTO): number | null {
+    const direct = Number((mensaje as any)?.stickerId);
+    if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+    const raw = String(mensaje?.contenido || '').trim();
+    if (!raw || raw[0] !== '{') return null;
+    try {
+      const parsed = JSON.parse(raw) as any;
+      const nested = Number(parsed?.stickerId);
+      if (Number.isFinite(nested) && nested > 0) return Math.round(nested);
+    } catch {}
+    return null;
+  }
+
+  private isIncomingStickerAlreadyOwned(srcRaw: string, suggestedNameRaw: string): boolean {
+    const src = String(srcRaw || '').trim();
+    const suggested = String(suggestedNameRaw || '')
+      .trim()
+      .replace(/\.[^.]+$/, '')
+      .toLowerCase();
+    const normalize = (value: string): string => {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      if (raw.startsWith('data:')) return raw;
+      if (raw.startsWith('blob:')) return '';
+      try {
+        const u = new URL(raw);
+        return `${u.origin}${u.pathname}`.toLowerCase();
+      } catch {
+        return raw.split('?')[0].toLowerCase();
+      }
+    };
+    const srcNormalized = normalize(src);
+
+    return this.myStickers.some((item) => {
+      const name = String(item?.nombre || '').trim().toLowerCase();
+      const nameNoExt = name.replace(/\.[^.]+$/, '');
+      const ownedUrl = this.resolveStickerImageUrl(item);
+      const ownedNormalized = normalize(ownedUrl);
+      if (srcNormalized && ownedNormalized && srcNormalized === ownedNormalized) return true;
+      if (suggested && (name === suggested || nameNoExt === suggested)) return true;
+      return false;
+    });
+  }
+
+  private ensureStickerOwnershipStateWithLoadedCollection(
+    imageSrc: string,
+    suggestedName: string
+  ): void {
+    if (!this.myStickers.length) return;
+    const owned = this.isIncomingStickerAlreadyOwned(imageSrc, suggestedName);
+    if (owned) {
+      this.incomingStickerAlreadyOwned = true;
+      this.incomingStickerOwnedLocalId =
+        this.resolveOwnedStickerLocalId(imageSrc, suggestedName) ?? this.incomingStickerOwnedLocalId;
+    }
+  }
+
+  private resolveOwnedStickerLocalId(srcRaw: string, suggestedNameRaw: string): number | null {
+    const src = String(srcRaw || '').trim().toLowerCase();
+    const suggested = String(suggestedNameRaw || '')
+      .trim()
+      .replace(/\.[^.]+$/, '')
+      .toLowerCase();
+    const byName = this.myStickers.find((item) => {
+      const n = String(item?.nombre || '').trim().toLowerCase();
+      const nNoExt = n.replace(/\.[^.]+$/, '');
+      return !!suggested && (n === suggested || nNoExt === suggested);
+    });
+    if (Number(byName?.id) > 0) return Number(byName?.id);
+
+    if (src && !src.startsWith('blob:')) {
+      const byUrl = this.myStickers.find((item) => {
+        const u = String(this.resolveStickerImageUrl(item) || '').trim().toLowerCase();
+        return !!u && (u === src || u.split('?')[0] === src.split('?')[0]);
+      });
+      if (Number(byUrl?.id) > 0) return Number(byUrl?.id);
+    }
+    return null;
   }
 
   private resolveFileMetaForRender(m: MensajeDTO): {
@@ -14775,7 +16021,7 @@ private async decryptPreviewString(
       this.inferLastMessageTipoFromRaw(
         chat?.ultimaMensajeRaw ?? chat?.__ultimaMensajeRaw
       );
-    if (lastTipo === 'IMAGE') return true;
+    if (lastTipo === 'IMAGE' || lastTipo === 'STICKER') return true;
     return this.isImagePreviewText(chat?.ultimaMensaje, chat);
   }
 
@@ -15016,6 +16262,17 @@ private async decryptPreviewString(
     return this.messagesInitialLoadingConversationKey === key;
   }
 
+  public deletedMessageTypeBadge(mensaje: MensajeDTO): string {
+    const tipo = String(mensaje?.tipo || 'TEXT').trim().toUpperCase();
+    if (tipo === 'STICKER') return 'STICKER';
+    if (tipo === 'IMAGE') return 'IMAGEN';
+    if (tipo === 'AUDIO') return 'AUDIO';
+    if (tipo === 'FILE') return 'ARCHIVO';
+    if (tipo === 'POLL') return 'ENCUESTA';
+    if (tipo === 'SYSTEM') return 'SISTEMA';
+    return 'MENSAJE';
+  }
+
   // ? lista derivada para el *ngFor*
   //  - Coincidencias arriba (empieza por > contiene)
   //  - Luego el resto (sin coincidencia), conservando orden original
@@ -15024,9 +16281,9 @@ private async decryptPreviewString(
    * Devuelve la lista ordenada localmente de los chats según su coincidencia de búsqueda, mensajes sin leer y fecha.
    */
   public get chatsFiltrados(): any[] {
-    const base = (this.chats || []).filter((chat) =>
-      this.matchesChatListFilter(chat)
-    );
+    const base = (this.chats || [])
+      .filter((chat) => !chat?.esGrupo || !this.isPublicGroupChat(chat))
+      .filter((chat) => this.matchesChatListFilter(chat));
     const q = normalizeSearchText(this.busquedaChat);
     if (!q) {
       return base
@@ -15068,6 +16325,17 @@ private async decryptPreviewString(
         return a.idx - b.idx;
       })
       .map((x) => x.c);
+  }
+
+  private promoteChatToTop(chatIdRaw: unknown): void {
+    const chatId = Number(chatIdRaw || 0);
+    if (!Number.isFinite(chatId) || chatId <= 0) return;
+    const idx = (this.chats || []).findIndex((c: any) => Number(c?.id) === chatId);
+    if (idx <= 0) return;
+    const next = [...(this.chats || [])];
+    const [target] = next.splice(idx, 1);
+    if (!target) return;
+    this.chats = [target, ...next];
   }
 
   // ==========
@@ -16844,6 +18112,7 @@ private async decryptPreviewString(
     if (!replacedExisting) {
       this.scrollAlFinal();
     }
+    this.evaluarRespuestasRapidas();
     this.cdr.markForCheck();
   }
 
@@ -17122,6 +18391,7 @@ private async decryptPreviewString(
     durMs: number
   ): Promise<void> {
     if (!this.chatActual) return;
+    this.limpiarRespuestasRapidas();
     if (this.chatGrupalCerradoPorAdmin) return;
 
     const esGrupo = !!this.chatActual.esGrupo;
@@ -17519,9 +18789,12 @@ private async decryptPreviewString(
     this.reportUserTarget = chatTarget;
     this.reportUserReason = '';
     this.reportUserDetail = '';
+    this.reportUserAiLoading = true;
+    this.reportUserAiMessage = '';
     this.reportUserSending = false;
     this.reportUserSuccess = false;
     this.showReportUserPopup = true;
+    void this.analizarDenunciaActualConIa(chatTarget);
   }
 
   public get reportUserTargetName(): string {
@@ -17540,9 +18813,12 @@ private async decryptPreviewString(
     if (this.reportUserSending) return;
     this.showReportUserPopup = false;
     this.reportUserTarget = null;
+    this.reportUserAiLoading = false;
+    this.reportUserAiMessage = '';
     this.reportUserReason = '';
     this.reportUserDetail = '';
     this.reportUserSuccess = false;
+    this.reportUserAiAnalysisSeq += 1;
   }
 
   public onReportUserReasonChange(next: string): void {
@@ -17551,6 +18827,233 @@ private async decryptPreviewString(
 
   public onReportUserDetailChange(next: string): void {
     this.reportUserDetail = String(next || '');
+  }
+
+  private async analizarDenunciaActualConIa(chatTarget: any): Promise<void> {
+    const analysisSeq = ++this.reportUserAiAnalysisSeq;
+    const request = await this.buildAiReportAnalysisRequest(chatTarget);
+
+    if (!this.isCurrentReportUserAnalysis(analysisSeq, chatTarget)) return;
+
+    if (!request) {
+      this.reportUserAiLoading = false;
+      this.reportUserAiMessage =
+        'No se pudo analizar automaticamente. Puedes completar la denuncia manualmente.';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    try {
+      const response = await firstValueFrom(
+        this.aiService.analizarDenunciaConIa(request)
+      );
+      if (!this.isCurrentReportUserAnalysis(analysisSeq, chatTarget)) return;
+
+      this.applyAiReportAnalysisResponse(response);
+    } catch (err: any) {
+      if (!this.isCurrentReportUserAnalysis(analysisSeq, chatTarget)) return;
+      this.reportUserAiMessage =
+        'No se pudo analizar automaticamente. Puedes completar la denuncia manualmente.';
+      this.showToast(this.resolveAiReportAnalysisError(err), 'warning', 'IA', 2600);
+    } finally {
+      if (!this.isCurrentReportUserAnalysis(analysisSeq, chatTarget)) return;
+      this.reportUserAiLoading = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private async buildAiReportAnalysisRequest(
+    chatTarget: any
+  ): Promise<AiReportAnalysisRequestDTO | null> {
+    const chatId = Number(chatTarget?.id || chatTarget?.chatId || 0);
+    const usuarioDenunciadoId = Number(
+      chatTarget?.receptor?.id || chatTarget?.receptorId || chatTarget?.usuarioId || 0
+    );
+    const nombreUsuarioDenunciado =
+      String(chatTarget?.receptor?.nombre || chatTarget?.nombre || '').trim() ||
+      this.reportUserTargetName;
+
+    if (
+      !Number.isFinite(chatId) ||
+      chatId <= 0 ||
+      !Number.isFinite(usuarioDenunciadoId) ||
+      usuarioDenunciadoId <= 0
+    ) {
+      return null;
+    }
+
+    const mensajes = await this.getReportUserContextMessages(
+      chatId,
+      usuarioDenunciadoId,
+      nombreUsuarioDenunciado
+    );
+    if (mensajes.length === 0) return null;
+
+    return {
+      usuarioDenunciadoId,
+      nombreUsuarioDenunciado,
+      motivosDisponibles: this.reportUserReasonOptions.map((option) => option.value),
+      mensajes,
+      maxMensajes: 50,
+    };
+  }
+
+  private async getReportUserContextMessages(
+    chatId: number,
+    usuarioDenunciadoId: number,
+    nombreUsuarioDenunciado: string
+  ): Promise<AiReportContextMessageDTO[]> {
+    const sourceMessages = await this.loadRecentMessagesForReportAnalysis(chatId);
+    return sourceMessages
+      .filter((mensaje) => this.shouldIncludeMessageInReportAnalysis(mensaje))
+      .sort((a, b) => this.compareMessagesForReportAnalysis(a, b))
+      .slice(-50)
+      .map((mensaje) =>
+        this.mapMessageToAiReportContext(
+          mensaje,
+          usuarioDenunciadoId,
+          nombreUsuarioDenunciado
+        )
+      );
+  }
+
+  private async loadRecentMessagesForReportAnalysis(
+    chatId: number
+  ): Promise<MensajeDTO[]> {
+    const isActiveChat =
+      Number(this.chatActual?.id || 0) === Number(chatId) && !this.chatActual?.esGrupo;
+    if (isActiveChat && Array.isArray(this.mensajesSeleccionados) && this.mensajesSeleccionados.length) {
+      return [...this.mensajesSeleccionados];
+    }
+
+    const cachedState = this.getHistoryStateForConversation(chatId, false);
+    if (Array.isArray(cachedState?.messages) && cachedState!.messages.length > 0) {
+      return [...cachedState!.messages];
+    }
+
+    const fetched = await firstValueFrom(this.chatService.listarMensajesPorChat(chatId, 0, 50));
+    return this.decryptHistoryPageMessages(
+      Array.isArray(fetched) ? fetched : [],
+      chatId,
+      false,
+      'report-user-analysis'
+    );
+  }
+
+  private shouldIncludeMessageInReportAnalysis(mensaje: MensajeDTO | null | undefined): boolean {
+    if (!mensaje) return false;
+    if (this.isSystemMessage(mensaje)) return false;
+    if (String(mensaje?.tipo || '').trim().toUpperCase() === 'POLL') return false;
+
+    const contenido = this.normalizeReportAnalysisContent(mensaje?.contenido);
+    if (!contenido) return false;
+    return true;
+  }
+
+  private mapMessageToAiReportContext(
+    mensaje: MensajeDTO,
+    usuarioDenunciadoId: number,
+    nombreUsuarioDenunciado: string
+  ): AiReportContextMessageDTO {
+    const autorId = Number(mensaje?.emisorId || 0);
+    const esUsuarioActual = autorId === Number(this.usuarioActualId);
+    const esUsuarioDenunciado = autorId === Number(usuarioDenunciadoId);
+    const autor = esUsuarioActual
+      ? 'usuarioActual'
+      : esUsuarioDenunciado
+        ? nombreUsuarioDenunciado
+        : String(mensaje?.emisorNombre || '').trim() || 'Participante';
+
+    return {
+      id: Number.isFinite(Number(mensaje?.id || 0)) && Number(mensaje?.id || 0) > 0
+        ? Number(mensaje?.id || 0)
+        : undefined,
+      autor,
+      autorId: Number.isFinite(autorId) && autorId > 0 ? autorId : undefined,
+      contenido: this.normalizeReportAnalysisContent(mensaje?.contenido),
+      esUsuarioDenunciado,
+      esUsuarioActual,
+      fecha: String(mensaje?.fechaEnvio || '').trim() || undefined,
+    };
+  }
+
+  private normalizeReportAnalysisContent(value: unknown): string {
+    return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 250);
+  }
+
+  private compareMessagesForReportAnalysis(a: MensajeDTO, b: MensajeDTO): number {
+    const timeA = this.resolveReportAnalysisMessageTime(a);
+    const timeB = this.resolveReportAnalysisMessageTime(b);
+    if (timeA !== timeB) return timeA - timeB;
+    return Number(a?.id || 0) - Number(b?.id || 0);
+  }
+
+  private resolveReportAnalysisMessageTime(mensaje: MensajeDTO): number {
+    const parsed = Date.parse(String(mensaje?.fechaEnvio || '').trim());
+    if (Number.isFinite(parsed)) return parsed;
+    const id = Number(mensaje?.id || 0);
+    return Number.isFinite(id) ? id : 0;
+  }
+
+  private applyAiReportAnalysisResponse(
+    response: AiReportAnalysisResponseDTO | null | undefined
+  ): void {
+    if (response?.success) {
+      const matchedReason = this.matchReportUserReasonOption(
+        String(response?.motivoSeleccionado || '')
+      );
+      this.reportUserReason = matchedReason || '';
+      this.reportUserDetail = String(response?.descripcionDenuncia || '').trim();
+      this.reportUserAiMessage =
+        'Denuncia autocompletada con IA. Revisa y ajusta antes de continuar.';
+      return;
+    }
+
+    this.reportUserAiMessage =
+      String(response?.mensaje || '').trim() ||
+      'No se pudo analizar automaticamente. Puedes completar la denuncia manualmente.';
+  }
+
+  private matchReportUserReasonOption(candidate: string): string | null {
+    const normalizedCandidate = this.normalizeReportReasonValue(candidate);
+    if (!normalizedCandidate) return null;
+
+    const exact = this.reportUserReasonOptions.find((option) => {
+      return (
+        this.normalizeReportReasonValue(option.value) === normalizedCandidate ||
+        this.normalizeReportReasonValue(option.label) === normalizedCandidate
+      );
+    });
+
+    return exact ? exact.value : null;
+  }
+
+  private normalizeReportReasonValue(value: string): string {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  private resolveAiReportAnalysisError(err: any): string {
+    const backendMsg = String(
+      err?.error?.mensaje || err?.error?.message || err?.message || ''
+    ).trim();
+    return (
+      backendMsg ||
+      'No se pudo analizar automaticamente. Puedes completar la denuncia manualmente.'
+    );
+  }
+
+  private isCurrentReportUserAnalysis(analysisSeq: number, chatTarget: any): boolean {
+    return (
+      analysisSeq === this.reportUserAiAnalysisSeq &&
+      this.showReportUserPopup &&
+      !!this.reportUserTarget &&
+      Number(this.reportUserTarget?.id || this.reportUserTarget?.chatId || 0) ===
+        Number(chatTarget?.id || chatTarget?.chatId || 0)
+    );
   }
 
   public submitReportUser(payload: { motivo: string; detalle: string }): void {
@@ -17706,10 +19209,34 @@ private async decryptPreviewString(
 
   public get canSendComposerMessage(): boolean {
     const hasText = !!String(this.mensajeNuevo || '').trim();
-    if (!hasText) return false;
+    const hasAttachment = !!this.pendingAttachmentFile;
+    if (!hasText && !hasAttachment) return false;
     return !(
       this.attachmentUploading ||
       this.aiLoading ||
+      this.composerInteractionDisabled ||
+      this.haSalidoDelGrupo ||
+      this.noGroupRecipientsForSend
+    );
+  }
+
+  public get shouldShowQuickRepliesLoading(): boolean {
+    return this.cargandoQuickReplies && this.quickReplies.length === 0;
+  }
+
+  public get shouldShowQuickRepliesBlock(): boolean {
+    return this.shouldShowQuickRepliesLoading || this.quickReplies.length > 0;
+  }
+
+  public get canUseQuickReplySend(): boolean {
+    return !(
+      this.enviandoQuickReply ||
+      this.attachmentUploading ||
+      this.aiLoading ||
+      this.cargandoIaInput ||
+      this.recording ||
+      this.pendingAttachmentFile ||
+      this.mensajeEdicionObjetivo ||
       this.composerInteractionDisabled ||
       this.haSalidoDelGrupo ||
       this.noGroupRecipientsForSend
@@ -17720,7 +19247,7 @@ private async decryptPreviewString(
     event.stopPropagation();
     if (!this.canUseComposerAiActions) return;
     if (this.showComposeAiPopup) {
-      this.closeComposeAiPopup();
+      this.cerrarMenusIa();
       return;
     }
     this.showChatListHeaderMenu = false;
@@ -17728,6 +19255,9 @@ private async decryptPreviewString(
     this.closeEmojiPicker();
     this.closeTemporaryMessagePopup();
     this.composerAiError = null;
+    this.mostrarMenuIdiomasIa = false;
+    this.idiomaSeleccionadoIa = null;
+    this.filtroIdiomasIa = '';
     this.showComposeAiPopup = true;
   }
 
@@ -17735,12 +19265,67 @@ private async decryptPreviewString(
     this.toggleComposeAiPopup(event);
   }
 
+  public abrirMenuTraduccionIa(event?: MouseEvent): void {
+    event?.stopPropagation();
+    if (!this.canUseComposerAiActions) return;
+    if (!String(this.mensajeNuevo || '').trim()) {
+      this.composerAiError = null;
+      this.showToast('Escribe algo primero.', 'info', 'IA', 2200);
+      return;
+    }
+    this.composerAiError = null;
+    this.idiomaSeleccionadoIa = null;
+    this.filtroIdiomasIa = '';
+    this.mostrarMenuIdiomasIa = true;
+    this.showComposeAiPopup = true;
+  }
+
+  public cerrarMenusIa(): void {
+    this.closeComposeAiPopup();
+  }
+
+  public volverMenuIaPrincipal(event?: MouseEvent): void {
+    event?.stopPropagation();
+    if (this.cargandoIaInput) return;
+    this.mostrarMenuIdiomasIa = false;
+    this.idiomaSeleccionadoIa = null;
+    this.filtroIdiomasIa = '';
+    this.composerAiError = null;
+  }
+
+  public filtrarIdiomasIa(): void {
+    this.filtroIdiomasIa = String(this.filtroIdiomasIa || '');
+  }
+
+  public get idiomasIaDestacadosFiltrados(): ComposeAiLanguageOption[] {
+    return COMPOSE_AI_PRIMARY_TRANSLATION_LANGUAGES.filter((idioma) =>
+      this.matchesComposeAiLanguageFilter(idioma)
+    );
+  }
+
+  public get idiomasIaRestoFiltrados(): ComposeAiLanguageOption[] {
+    return COMPOSE_AI_OTHER_TRANSLATION_LANGUAGES.filter((idioma) =>
+      this.matchesComposeAiLanguageFilter(idioma)
+    );
+  }
+
+  public get totalIdiomasIaDisponibles(): number {
+    return COMPOSE_AI_TRANSLATION_LANGUAGES.length;
+  }
+
+  public trackComposeAiLanguage = (_: number, idioma: ComposeAiLanguageOption) =>
+    `${idioma.codigo}-${idioma.idiomaDestino}`;
+
   public onComposerAiActionSelect(
     action: ComposerAiActionType,
     event?: MouseEvent
   ): void {
     event?.stopPropagation();
     if (!this.canUseComposerAiActions) return;
+    if (action === 'TRANSLATE') {
+      this.abrirMenuTraduccionIa();
+      return;
+    }
     void this.procesarTextoInputConIa(this.mapComposerAiActionToMode(action));
   }
 
@@ -17756,13 +19341,15 @@ private async decryptPreviewString(
         return AiTextMode.REFORMULAR;
       case 'FORMAT':
         return AiTextMode.FORMAL;
+      case 'TRANSLATE':
+        return AiTextMode.TRADUCIR;
       default:
         return AiTextMode.COMPLETAR_TEXTO;
     }
   }
 
   public async procesarTextoInputConIa(modo: AiTextMode | string): Promise<void> {
-    this.closeComposeAiPopup();
+    this.cerrarMenusIa();
     const texto = String(this.mensajeNuevo || '').trim();
     if (!texto) {
       this.composerAiError = null;
@@ -17801,10 +19388,8 @@ private async decryptPreviewString(
       );
 
       if (response?.success) {
-        this.mensajeNuevo = String(response?.textoGenerado || '').trim();
-        this.closeComposeAiPopup();
-        this.scheduleComposerTextareaResize();
-        this.focusMessageInput(this.mensajeNuevo.length);
+        this.aplicarTextoGeneradoAlInput(String(response?.textoGenerado || '').trim());
+        this.cerrarMenusIa();
         return;
       }
 
@@ -17820,6 +19405,78 @@ private async decryptPreviewString(
       this.cargandoIaInput = false;
       this.cdr.markForCheck();
     }
+  }
+
+  public async traducirTextoInputConIa(idioma: string): Promise<void> {
+    const idiomaDestino = String(idioma || '').trim();
+    const texto = String(this.mensajeNuevo || '').trim();
+    if (!idiomaDestino) return;
+    if (!texto) {
+      this.composerAiError = null;
+      this.showToast('Escribe algo primero.', 'info', 'IA', 2200);
+      this.mostrarMenuIdiomasIa = false;
+      return;
+    }
+    if (this.aiLoading || this.cargandoIaInput) return;
+
+    this.aiLoading = true;
+    this.cargandoIaInput = true;
+    this.composerAiError = null;
+    this.idiomaSeleccionadoIa = idiomaDestino;
+
+    try {
+      const response = await firstValueFrom(
+        this.mensajeriaService.procesarTextoConIa({
+          texto,
+          modo: AiTextMode.TRADUCIR,
+          idiomaDestino,
+        })
+      );
+
+      if (response?.success) {
+        this.aplicarTextoGeneradoAlInput(String(response?.textoGenerado || '').trim());
+        this.cerrarMenusIa();
+        return;
+      }
+
+      this.composerAiError =
+        String(response?.mensaje || '').trim() ||
+        'No se pudo traducir el texto con IA.';
+      this.showComposeAiPopup = true;
+      this.mostrarMenuIdiomasIa = true;
+    } catch (err: any) {
+      this.composerAiError = this.resolveComposerAiErrorMessage(err);
+      this.showComposeAiPopup = true;
+      this.mostrarMenuIdiomasIa = true;
+    } finally {
+      this.aiLoading = false;
+      this.cargandoIaInput = false;
+      this.idiomaSeleccionadoIa = null;
+      this.cdr.markForCheck();
+    }
+  }
+
+  public aplicarTextoGeneradoAlInput(texto: string): void {
+    this.mensajeNuevo = texto;
+    this.scheduleComposerTextareaResize();
+    this.focusMessageInput(this.mensajeNuevo.length);
+  }
+
+  private matchesComposeAiLanguageFilter(idioma: ComposeAiLanguageOption): boolean {
+    const filtro = this.normalizeComposeAiLanguageText(this.filtroIdiomasIa);
+    if (!filtro) return true;
+    const haystack = this.normalizeComposeAiLanguageText(
+      `${idioma.nombre} ${idioma.idiomaDestino} ${idioma.codigo}`
+    );
+    return haystack.includes(filtro);
+  }
+
+  private normalizeComposeAiLanguageText(value: string): string {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
   }
 
   public toggleComposeActionsPopup(event: MouseEvent): void {
@@ -17886,11 +19543,83 @@ private async decryptPreviewString(
     this.closeEmojiPicker();
     this.closeTemporaryMessagePopup();
     this.closeScheduleMessageComposer();
+    this.preparePollComposerIaContext();
     this.showGroupPollComposer = true;
   }
 
   public closeGroupPollComposer(): void {
     this.showGroupPollComposer = false;
+    this.pollComposerAutogenerarIa = false;
+  }
+
+  private preparePollComposerIaContext(): void {
+    const chatId = Number(this.chatActual?.id);
+    if (!this.chatActual?.esGrupo || !Number.isFinite(chatId) || chatId <= 0) {
+      this.pollComposerIaChatGrupalId = null;
+      this.pollComposerIaMensajesContexto = [];
+      this.pollComposerAutogenerarIa = false;
+      return;
+    }
+
+    this.pollComposerIaChatGrupalId = Math.round(chatId);
+    this.pollComposerIaMensajesContexto = this.buildPollComposerIaContextMessages();
+    this.pollComposerAutogenerarIa = this.pollComposerIaMensajesContexto.length > 0;
+  }
+
+  private buildPollComposerIaContextMessages(): AiPollDraftContextMessageDTO[] {
+    const mensajes = Array.isArray(this.mensajesSeleccionados)
+      ? this.mensajesSeleccionados
+      : [];
+
+    return mensajes
+      .filter((mensaje) => this.isMessageValidForPollIaContext(mensaje))
+      .slice(-this.POLL_IA_MAX_CONTEXT_MESSAGES)
+      .map((mensaje) => this.mapMessageToPollIaContext(mensaje))
+      .filter((mensaje): mensaje is AiPollDraftContextMessageDTO => !!mensaje);
+  }
+
+  private mapMessageToPollIaContext(
+    mensaje: MensajeDTO | null | undefined
+  ): AiPollDraftContextMessageDTO | null {
+    if (!mensaje) return null;
+    const contenido = this.truncatePollIaContextText(String(mensaje?.contenido || ''));
+    if (!contenido) return null;
+
+    const esUsuarioActual =
+      Number(mensaje?.emisorId) === Number(this.usuarioActualId);
+    const nombreEmisor =
+      `${mensaje?.emisorNombre || ''} ${mensaje?.emisorApellido || ''}`.trim();
+
+    return {
+      id:
+        Number.isFinite(Number(mensaje?.id)) && Number(mensaje?.id) > 0
+          ? Math.round(Number(mensaje?.id))
+          : undefined,
+      autor: esUsuarioActual
+        ? 'usuarioActual'
+        : nombreEmisor || 'otroUsuario',
+      contenido,
+      esUsuarioActual,
+      fecha: String(mensaje?.fechaEnvio || '').trim() || undefined,
+    };
+  }
+
+  private isMessageValidForPollIaContext(
+    mensaje: MensajeDTO | null | undefined
+  ): boolean {
+    if (!mensaje) return false;
+    if (this.isSystemMessage(mensaje)) return false;
+    if (this.isTemporalExpiredMessage(mensaje)) return false;
+    if (mensaje?.activo === false) return false;
+
+    return !!this.truncatePollIaContextText(String(mensaje?.contenido || ''));
+  }
+
+  private truncatePollIaContextText(textoRaw: string): string {
+    const texto = String(textoRaw || '').replace(/\s+/g, ' ').trim();
+    if (!texto || this.isEncryptedHiddenPlaceholder(texto)) return '';
+    if (texto.length <= this.POLL_IA_MAX_MESSAGE_CHARS) return texto;
+    return `${texto.slice(0, this.POLL_IA_MAX_MESSAGE_CHARS).trimEnd()}...`;
   }
 
   public openScheduleMessageComposer(
@@ -18461,6 +20190,244 @@ private async decryptPreviewString(
     this.insertEmojiAtCursor(emoji);
   }
 
+  public onStickerTabOpen(): void {
+    if (this.stickersLoading || this.myStickers.length > 0) return;
+    this.loadMyStickers();
+  }
+
+  public openStickerFilePicker(): void {
+    if (
+      this.haSalidoDelGrupo ||
+      this.chatEstaBloqueado ||
+      this.chatEsSoloLecturaPorAdmin ||
+      this.chatGrupalCerradoPorAdmin
+    ) {
+      return;
+    }
+    this.stickerFileInputRef?.nativeElement?.click();
+  }
+
+  public onStickerFileSelected(event: Event): void {
+    const input = event?.target as HTMLInputElement | null;
+    const file = input?.files?.[0] || null;
+    if (input) input.value = '';
+    if (!file) return;
+
+    const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+    if (!allowedTypes.has(String(file.type || '').toLowerCase())) {
+      this.showToast('Formato no válido. Usa PNG, JPG, WEBP o GIF.', 'warning', 'Sticker');
+      return;
+    }
+
+    const maxSizeBytes = 8 * 1024 * 1024;
+    if (Number(file.size || 0) > maxSizeBytes) {
+      this.showToast('El sticker supera 8MB.', 'warning', 'Sticker');
+      return;
+    }
+
+    this.resetStickerEditor();
+    this.stickerDraftFile = file;
+    this.stickerDraftName = String(file.name || '').replace(/\.[^.]+$/, '').slice(0, 60);
+    this.stickerDraftPreviewUrl = URL.createObjectURL(file);
+    this.stickerEditorVisible = true;
+    this.closeEmojiPicker();
+  }
+
+  public cancelStickerCreation(): void {
+    this.resetStickerEditor();
+  }
+
+  public saveEditedSticker(payload: StickerEditorSaveEvent): void {
+    if (!payload?.file || this.stickerSaving) return;
+    const safeMime = String(payload.mimeType || payload.file.type || '').toLowerCase();
+    if (safeMime !== 'image/png' && safeMime !== 'image/webp') {
+      this.showToast('Formato final no válido. Usa PNG o WEBP.', 'warning', 'Sticker');
+      return;
+    }
+    const maxSizeBytes = 8 * 1024 * 1024;
+    if (Number(payload.file.size || 0) > maxSizeBytes) {
+      this.showToast('El sticker final supera 8MB.', 'warning', 'Sticker');
+      return;
+    }
+
+    this.stickerSaving = true;
+    const stickerName = String(payload.nombre || this.stickerDraftName || '').trim();
+    this.stickerService
+      .createSticker(payload.file, stickerName)
+      .pipe(
+        finalize(() => {
+          this.stickerSaving = false;
+        })
+      )
+      .subscribe({
+        next: () => {
+          this.showToast('Sticker guardado.', 'success', 'Sticker', 1600);
+          this.resetStickerEditor();
+          this.loadMyStickers();
+        },
+        error: (err) => {
+          const message = String(
+            err?.error?.mensaje || err?.error?.message || err?.message || ''
+          ).trim();
+          this.showToast(message || 'No se pudo guardar el sticker.', 'warning', 'Sticker');
+        },
+      });
+  }
+
+  public deleteSticker(stickerId: number): void {
+    const safeId = Number(stickerId);
+    if (!Number.isFinite(safeId) || safeId <= 0) return;
+    this.stickerService.deleteSticker(Math.round(safeId)).subscribe({
+      next: () => {
+        const removed = this.myStickers.find(
+          (item) => Number(item?.id) === Math.round(safeId)
+        );
+        const previewUrl = String(removed?.imageUrl || '').trim();
+        if (previewUrl.startsWith('blob:')) {
+          try {
+            URL.revokeObjectURL(previewUrl);
+          } catch {}
+          this.stickerPreviewObjectUrls = this.stickerPreviewObjectUrls.filter(
+            (url) => url !== previewUrl
+          );
+        }
+        this.myStickers = this.myStickers.filter((item) => Number(item?.id) !== Math.round(safeId));
+        this.showToast('Sticker eliminado.', 'info', 'Sticker', 1600);
+      },
+      error: (err) => {
+        const message = String(
+          err?.error?.mensaje || err?.error?.message || err?.message || ''
+        ).trim();
+        this.showToast(message || 'No se pudo eliminar el sticker.', 'warning', 'Sticker');
+      },
+    });
+  }
+
+  public async onStickerSelected(sticker: StickerDTO): Promise<void> {
+    if (!this.chatActual || this.attachmentUploading || this.stickerSaving) return;
+    const stickerId = Number(sticker?.id || 0);
+    if (!Number.isFinite(stickerId) || stickerId <= 0) {
+      this.showToast('Sticker inválido.', 'warning', 'Sticker');
+      return;
+    }
+    try {
+      this.attachmentUploading = true;
+      const blob = await firstValueFrom(
+        this.stickerService.getStickerArchivoBlob(
+          stickerId,
+          String(sticker?.archivoUrl || sticker?.url || sticker?.ruta || '').trim() || null
+        )
+      );
+      const mime = String(sticker?.tipoMime || sticker?.mimeType || blob.type || 'image/png').trim();
+      const ext =
+        mime === 'image/webp' ? 'webp' : mime === 'image/png' ? 'png' : mime === 'image/gif' ? 'gif' : 'jpg';
+      const safeName = String(sticker?.nombre || 'sticker').trim() || 'sticker';
+      const file = new File([blob], `${safeName}.${ext}`, { type: mime });
+      await this.enviarImagenSeguro(file, '', true, stickerId);
+      this.closeEmojiPicker();
+    } catch {
+      this.showToast('No se pudo enviar el sticker.', 'warning', 'Sticker');
+    } finally {
+      this.attachmentUploading = false;
+    }
+  }
+
+  public resetStickerEditor(): void {
+    if (this.stickerDraftPreviewUrl) {
+      try {
+        URL.revokeObjectURL(this.stickerDraftPreviewUrl);
+      } catch {}
+    }
+    this.stickerEditorVisible = false;
+    this.stickerDraftFile = null;
+    this.stickerDraftPreviewUrl = null;
+    this.stickerDraftName = '';
+  }
+
+  private loadMyStickers(): void {
+    this.stickersLoading = true;
+    this.stickerService
+      .getMyStickers()
+      .pipe(
+        finalize(() => {
+          this.stickersLoading = false;
+        })
+      )
+      .subscribe({
+        next: async (items) => {
+          await this.hydrateStickerPreviews(items || []);
+          if (this.showIncomingStickerSavePopup) {
+            this.ensureStickerOwnershipStateWithLoadedCollection(
+              this.incomingStickerPreviewSrc,
+              this.incomingStickerSuggestedName
+            );
+          }
+        },
+        error: () => {
+          this.clearStickerPreviewObjectUrls();
+          this.myStickers = [];
+          this.showToast('No se pudieron cargar tus stickers.', 'warning', 'Sticker');
+        },
+      });
+  }
+
+  private resolveStickerImageUrl(sticker: StickerDTO): string {
+    const raw = String(
+      sticker?.archivoUrl ||
+        sticker?.imageUrl ||
+        sticker?.url ||
+        sticker?.stickerUrl ||
+        sticker?.ruta ||
+        ''
+    ).trim();
+    if (!raw) return '';
+    return resolveMediaUrl(raw, environment.backendBaseUrl) || raw;
+  }
+
+  private async hydrateStickerPreviews(items: StickerDTO[]): Promise<void> {
+    this.clearStickerPreviewObjectUrls();
+
+    const hydrated = await Promise.all(
+      (items || []).map(async (item) => {
+        const stickerId = Number(item?.id || 0);
+        if (!Number.isFinite(stickerId) || stickerId <= 0) {
+          return {
+            ...item,
+            imageUrl: this.resolveStickerImageUrl(item),
+          };
+        }
+
+        try {
+          const blob = await firstValueFrom(
+            this.stickerService.getStickerArchivoBlob(stickerId, item?.archivoUrl || null)
+          );
+          const objectUrl = URL.createObjectURL(blob);
+          this.stickerPreviewObjectUrls.push(objectUrl);
+          return {
+            ...item,
+            imageUrl: objectUrl,
+          };
+        } catch {
+          return {
+            ...item,
+            imageUrl: this.resolveStickerImageUrl(item),
+          };
+        }
+      })
+    );
+
+    this.myStickers = hydrated;
+  }
+
+  private clearStickerPreviewObjectUrls(): void {
+    for (const url of this.stickerPreviewObjectUrls) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {}
+    }
+    this.stickerPreviewObjectUrls = [];
+  }
+
   public openAttachmentPicker(event?: MouseEvent): void {
     event?.stopPropagation();
     if (this.shouldDisableAttachmentAction()) return;
@@ -18749,6 +20716,7 @@ private async decryptPreviewString(
     }
     if (this.chatEsSoloLecturaPorAdmin || this.chatGrupalCerradoPorAdmin) return;
     if (this.attachmentUploading) return;
+    this.limpiarRespuestasRapidas();
     this.closeComposeActionsPopup();
     this.closeComposeAiPopup();
     this.closeEmojiPicker();
@@ -18800,6 +20768,9 @@ private async decryptPreviewString(
   private closeComposeAiPopup(): void {
     this.showComposeAiPopup = false;
     this.composerAiError = null;
+    this.mostrarMenuIdiomasIa = false;
+    this.idiomaSeleccionadoIa = null;
+    this.filtroIdiomasIa = '';
   }
 
   private closeEmojiPicker(immediate = false): void {
@@ -18932,7 +20903,9 @@ private async decryptPreviewString(
 
   private async enviarImagenSeguro(
     imageFile: File,
-    captionRaw: string
+    captionRaw: string,
+    asSticker = false,
+    stickerSourceId?: number | null
   ): Promise<void> {
     if (!this.chatActual) return;
     const caption = String(captionRaw || '').trim();
@@ -18975,10 +20948,17 @@ private async decryptPreviewString(
         built.payload.imageUrl = upload.url;
         built.payload.imageMime = imageFile.type || built.payload.imageMime || 'image/jpeg';
         built.payload.imageNombre = imageFile.name || built.payload.imageNombre || undefined;
+        if (asSticker) {
+          (built.payload as any).sticker = true;
+          (built.payload as any).contentKind = 'STICKER';
+          if (Number.isFinite(Number(stickerSourceId)) && Number(stickerSourceId) > 0) {
+            (built.payload as any).stickerId = Math.round(Number(stickerSourceId));
+          }
+        }
 
         const payloadContenido = JSON.stringify(built.payload);
         const outgoing: MensajeDTO = {
-          tipo: 'IMAGE',
+          tipo: asSticker ? 'STICKER' : 'IMAGE',
           contenido: payloadContenido,
           emisorId: myId,
           receptorId: chatId,
@@ -18994,12 +20974,16 @@ private async decryptPreviewString(
           replySnippet: this.getComposeReplySnippet(),
           replyAuthorName: this.getComposeReplyAuthorName(),
         };
+        if (asSticker) outgoing.contentKind = 'STICKER';
+        if (asSticker && Number.isFinite(Number(stickerSourceId)) && Number(stickerSourceId) > 0) {
+          outgoing.stickerId = Math.round(Number(stickerSourceId));
+        }
         this.attachTemporaryMetadata(outgoing);
 
         this.chats = updateChatPreview(
           this.chats || [],
           chatId,
-          caption ? `Imagen: ${caption}` : 'Imagen'
+          asSticker ? 'Sticker' : caption ? `Imagen: ${caption}` : 'Imagen'
         );
         const chatItem = (this.chats || []).find((c: any) => Number(c.id) === Number(chatId));
         if (chatItem) chatItem.unreadCount = 0;
@@ -19024,10 +21008,17 @@ private async decryptPreviewString(
         built.payload.imageUrl = upload.url;
         built.payload.imageMime = imageFile.type || built.payload.imageMime || 'image/jpeg';
         built.payload.imageNombre = imageFile.name || built.payload.imageNombre || undefined;
+        if (asSticker) {
+          (built.payload as any).sticker = true;
+          (built.payload as any).contentKind = 'STICKER';
+          if (Number.isFinite(Number(stickerSourceId)) && Number(stickerSourceId) > 0) {
+            (built.payload as any).stickerId = Math.round(Number(stickerSourceId));
+          }
+        }
 
         const payloadContenido = JSON.stringify(built.payload);
         const outgoing: MensajeDTO = {
-          tipo: 'IMAGE',
+          tipo: asSticker ? 'STICKER' : 'IMAGE',
           contenido: payloadContenido,
           emisorId: myId,
           receptorId,
@@ -19043,11 +21034,15 @@ private async decryptPreviewString(
           replySnippet: this.getComposeReplySnippet(),
           replyAuthorName: this.getComposeReplyAuthorName(),
         };
+        if (asSticker) outgoing.contentKind = 'STICKER';
+        if (asSticker && Number.isFinite(Number(stickerSourceId)) && Number(stickerSourceId) > 0) {
+          outgoing.stickerId = Math.round(Number(stickerSourceId));
+        }
         this.attachTemporaryMetadata(outgoing);
         this.chats = updateChatPreview(
           this.chats || [],
           chatId,
-          caption ? `Imagen: ${caption}` : 'Imagen'
+          asSticker ? 'Sticker' : caption ? `Imagen: ${caption}` : 'Imagen'
         );
         const chatItem = (this.chats || []).find((c: any) => Number(c.id) === Number(chatId));
         if (chatItem) chatItem.unreadCount = 0;
@@ -19384,6 +21379,7 @@ private async decryptPreviewString(
     this.haSalidoDelGrupo = false;
     this.composerDraftPrefixVisible = false;
     this.mensajeNuevo = '';
+    this.limpiarRespuestasRapidas();
     this.showChatListHeaderMenu = false;
     this.openChatPinMenuChatId = null;
     this.mensajeEdicionObjetivo = null;
@@ -19677,6 +21673,7 @@ private async decryptPreviewString(
   }
 
   public ngOnDestroy(): void {
+    this.limpiarRespuestasRapidas();
     if (this.browserNotificationRouteSub) {
       this.browserNotificationRouteSub.unsubscribe();
       this.browserNotificationRouteSub = undefined;
@@ -19685,6 +21682,8 @@ private async decryptPreviewString(
     this.persistActiveChatDraft();
     this.stopProfileCodeCountdown();
     this.clearPendingAttachment();
+    this.resetStickerEditor();
+    this.clearStickerPreviewObjectUrls();
     this.closeFilePreview();
     for (const timer of this.scheduledDeliveryProbeTimers) {
       clearTimeout(timer);

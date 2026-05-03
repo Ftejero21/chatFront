@@ -121,8 +121,69 @@
   font-size: 0.88rem;
 }
 
+.report-ai-loading-status {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #6366f1;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.report-ai-loading-status .bi {
+  font-size: 0.95rem;
+}
+
 .report-user-popup__field {
   margin-bottom: 14px;
+}
+
+.report-ai-skeleton-select,
+.report-ai-skeleton-textarea {
+  width: 100%;
+  border: 2px solid #fee2e2;
+  border-radius: 22px;
+  background: linear-gradient(90deg, #fff7f7 0%, #f8fafc 50%, #fff7f7 100%);
+  background-size: 200% 100%;
+  animation: reportAiSkeletonShimmer 1.6s ease-in-out infinite;
+  overflow: hidden;
+}
+
+.report-ai-skeleton-select {
+  min-height: 58px;
+  padding: 13px 18px;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+}
+
+.report-ai-skeleton-textarea {
+  min-height: 140px;
+  padding: 16px 18px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.report-ai-skeleton-line {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(203, 213, 225, 0.95);
+}
+
+.report-ai-skeleton-line-short {
+  width: 34%;
+}
+
+.report-ai-skeleton-line-medium {
+  width: 58%;
+}
+
+.report-ai-skeleton-line-long {
+  width: 88%;
 }
 
 .report-user-popup__select,
@@ -248,6 +309,16 @@
 
 .report-user-popup__btn--success:hover:not(:disabled) {
   background: #4d5d6d;
+}
+
+@keyframes reportAiSkeletonShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 @media (max-width: 640px) {

@@ -166,8 +166,11 @@
             <div class="flex flex-wrap gap-3 w-full lg:w-auto items-center">
                 <div class="flex flex-wrap gap-3 w-full lg:w-auto" [class.hidden-view]="!isDashboardView">
                     <button
-                        class="flex-1 lg:flex-none bg-white border border-slate-200 px-6 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
-                        Descargar Reporte
+                        type="button"
+                        (click)="descargarReporteAdministracionIa()"
+                        [disabled]="descargandoReporteIa"
+                        class="flex-1 lg:flex-none bg-white border border-slate-200 px-6 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                        {{ descargandoReporteIa ? 'Generando reporte...' : 'Descargar Reporte' }}
                     </button>
                     <button class="flex-[2] lg:flex-none gradient-btn px-8 py-2.5 rounded-xl text-sm font-bold text-white">
                         + Nuevo Usuario
@@ -181,6 +184,9 @@
                 </button>
             </div>
         </header>
+        <p *ngIf="isDashboardView && errorReporteIa" class="text-sm text-rose-600 mb-4">
+            {{ errorReporteIa }}
+        </p>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10 w-full"
             [class.hidden-view]="!isDashboardView">
@@ -1115,7 +1121,6 @@
       </button>
     </div>
 </div>
-
 
 
 

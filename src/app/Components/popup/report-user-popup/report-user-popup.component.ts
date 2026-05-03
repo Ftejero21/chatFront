@@ -20,6 +20,8 @@ export class ReportUserPopupComponent {
   @Input() targetName = '';
   @Input() motivo = '';
   @Input() detalle = '';
+  @Input() aiLoading = false;
+  @Input() aiMessage = '';
   @Input() sending = false;
   @Input() success = false;
   @Input() reasonOptions: ReportUserReasonOption[] = [];
@@ -30,6 +32,7 @@ export class ReportUserPopupComponent {
   @Output() detalleChange = new EventEmitter<string>();
 
   public get canSubmit(): boolean {
+    if (this.aiLoading) return false;
     return !!String(this.motivo || '').trim() && !!String(this.detalle || '').trim();
   }
 
@@ -44,7 +47,7 @@ export class ReportUserPopupComponent {
   }
 
   public onSubmit(): void {
-    if (this.sending || !this.canSubmit) return;
+    if (this.aiLoading || this.sending || !this.canSubmit) return;
     this.submitted.emit({
       motivo: String(this.motivo || '').trim(),
       detalle: String(this.detalle || '').trim(),

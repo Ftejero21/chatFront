@@ -1,0 +1,94 @@
+﻿<div class="sticker-editor-screen">
+  <div class="sticker-editor-screen__topbar">
+    <button type="button" class="sticker-editor-screen__btn" (click)="cancel.emit()">Cancelar</button>
+    <button type="button" class="sticker-editor-screen__btn" (click)="resetEditorState()">Resetear</button>
+    <button
+      type="button"
+      class="sticker-editor-screen__btn sticker-editor-screen__btn--primary"
+      [disabled]="!canSave()"
+      (click)="onGuardar()"
+    >
+      {{ working || saving ? 'Guardando...' : 'Guardar sticker' }}
+    </button>
+  </div>
+
+  <div class="sticker-editor-screen__tools">
+    <button type="button" class="tool" [class.active]="isModeActive('move')" (click)="setMode('move')"><i class="bi bi-arrows-move"></i> Mover</button>
+    <button type="button" class="tool" [class.active]="isModeActive('crop')" (click)="setMode('crop')"><i class="bi bi-scissors"></i> Recortar</button>
+    <button type="button" class="tool" (click)="applyCrop()" [disabled]="cropPathPoints.length < 3"><i class="bi bi-check2-circle"></i> Aplicar recorte</button>
+    <button type="button" class="tool" (click)="resetCropSelection()" [disabled]="cropPathPoints.length === 0"><i class="bi bi-arrow-counterclockwise"></i> Reset recorte</button>
+    <button type="button" class="tool" (click)="zoomIn()"><i class="bi bi-zoom-in"></i> Zoom +</button>
+    <button type="button" class="tool" (click)="zoomOut()"><i class="bi bi-zoom-out"></i> Zoom -</button>
+    <button type="button" class="tool" (click)="rotateLeft()"><i class="bi bi-arrow-counterclockwise"></i> Rotar izq</button>
+    <button type="button" class="tool" (click)="rotateRight()"><i class="bi bi-arrow-clockwise"></i> Rotar der</button>
+    <button type="button" class="tool" [class.active]="isModeActive('text')" (click)="setMode('text')"><i class="bi bi-fonts"></i> Texto</button>
+    <button type="button" class="tool" [class.active]="isModeActive('draw')" (click)="setMode('draw')"><i class="bi bi-pencil"></i> Lápiz</button>
+    <button type="button" class="tool" (click)="undoDraw()"><i class="bi bi-arrow-90deg-left"></i> Deshacer</button>
+  </div>
+
+  <div class="sticker-editor-screen__subtools">
+    <div class="subgroup" *ngIf="isModeActive('text')">
+      <input type="text" maxlength="40" [(ngModel)]="textInput" placeholder="Texto..." />
+      <input type="number" min="12" max="120" [(ngModel)]="textSize" />
+      <input type="color" [(ngModel)]="textColor" />
+      <button type="button" class="tool" (click)="addTextLayerAtCenter()">AÃ±adir texto</button>
+      <button type="button" class="tool" (click)="clearTexts()">Borrar textos</button>
+    </div>
+    <div class="subgroup" *ngIf="isModeActive('draw')">
+      <input type="color" [(ngModel)]="drawColor" />
+      <input type="range" min="1" max="40" [(ngModel)]="drawSize" />
+      <span class="size">{{ drawSize }}px</span>
+      <button type="button" class="tool" (click)="clearDrawings()">Borrar dibujo</button>
+    </div>
+    <div class="subgroup">
+      <label class="check">
+        <input type="checkbox" [(ngModel)]="keepTransparentBackground" />
+        Fondo transparente
+      </label>
+      <select [(ngModel)]="outputMimeType">
+        <option value="image/png">PNG</option>
+        <option value="image/webp">WEBP</option>
+      </select>
+    </div>
+  </div>
+
+  <div #previewWrap class="sticker-editor-screen__preview-wrap">
+    <div class="sticker-editor-screen__canvas-stack">
+      <canvas
+        #editorCanvas
+        class="sticker-editor-screen__canvas"
+        [style.cursor]="canvasCursor()"
+        (pointerdown)="onCanvasPointerDown($event)"
+        (pointermove)="onCanvasPointerMove($event)"
+        (pointerup)="onCanvasPointerUp($event)"
+        (pointercancel)="onCanvasPointerUp($event)"
+        (pointerleave)="onCanvasPointerUp($event)"
+      ></canvas>
+      <canvas
+        #cropOverlayCanvas
+        class="sticker-editor-screen__canvas sticker-editor-screen__canvas--overlay"
+        [class.is-active]="isModeActive('crop')"
+        [style.cursor]="isModeActive('crop') ? 'crosshair' : 'default'"
+        (pointerdown)="onCropOverlayPointerDown($event)"
+        (pointermove)="onCropOverlayPointerMove($event)"
+        (pointerup)="onCropOverlayPointerUp($event)"
+        (pointercancel)="onCropOverlayPointerUp($event)"
+        (pointerleave)="onCropOverlayPointerUp($event)"
+      ></canvas>
+    </div>
+  </div>
+
+  <div class="sticker-editor-screen__fields">
+    <label for="stickerDraftName">Nombre (opcional)</label>
+    <input
+      id="stickerDraftName"
+      type="text"
+      maxlength="60"
+      [value]="stickerName"
+      (input)="onNameInput($event)"
+      placeholder="Mi sticker"
+    />
+  </div>
+</div>
+
+

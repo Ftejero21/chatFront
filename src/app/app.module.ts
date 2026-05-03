@@ -40,6 +40,8 @@ import { UserInfoPanelComponent } from './Components/inicio/user-info-panel/user
 import { AiAskPopupComponent } from './Components/popup/ai-ask-popup/ai-ask-popup.component';
 import { AiTextAssistantPopupComponent } from './Components/popup/ai-text-assistant-popup/ai-text-assistant-popup.component';
 import { AiConversationSummaryPopupComponent } from './Components/popup/ai-conversation-summary-popup/ai-conversation-summary-popup.component';
+import { StickerEditorPanelComponent } from './Components/inicio/sticker-editor-panel/sticker-editor-panel.component';
+import { StickerCollectionPopupComponent } from './Components/popup/sticker-collection-popup/sticker-collection-popup.component';
 
 @NgModule({
   declarations: [
@@ -73,7 +75,9 @@ import { AiConversationSummaryPopupComponent } from './Components/popup/ai-conve
     UserInfoPanelComponent,
     AiAskPopupComponent,
     AiTextAssistantPopupComponent,
-    AiConversationSummaryPopupComponent
+    AiConversationSummaryPopupComponent,
+    StickerEditorPanelComponent,
+    StickerCollectionPopupComponent
   ],
   imports: [
     BrowserModule,

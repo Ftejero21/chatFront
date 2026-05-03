@@ -117,26 +117,35 @@
       </div>
     </div>
 
-    <div class="cuerpoChat" [class.modo-chat-movil]="!isStarredView && chatSeleccionadoId !== null">
+    <div class="cuerpoChat" [class.modo-chat-movil]="sidebarSection === 'CHATS' && chatSeleccionadoId !== null">
 
       <div class="barraLateral">
         <div class="iconos-superiores">
           <i class="fas fa-home icono-barra"></i>
           <i
-            class="fas fa-comment icono-barra"
-            [class.icono-barra--active]="!isStarredView"
+            class="bi bi-chat-dots icono-barra icono-barra--messages"
+            [class.icono-barra--active]="sidebarSection === 'CHATS'"
             title="Chats"
             role="button"
             tabindex="0"
             (click)="openChatsSidebarView($event)"
           ></i>
           <i
-            class="fas fa-star icono-barra"
-            [class.icono-barra--active-star]="isStarredView"
+            class="fas fa-star icono-barra icono-barra--star"
+            [class.icono-barra--active-star]="sidebarSection === 'STARRED'"
             title="Mensajes destacados"
             role="button"
             tabindex="0"
             (click)="openStarredSidebarView($event)"
+          ></i>
+          <i
+            class="fas fa-users icono-barra icono-barra--public"
+            [class.icono-barra--active]="isPublicChatsView"
+            [class.icono-barra--active-public]="isPublicChatsView"
+            title="Comunidades publicas"
+            role="button"
+            tabindex="0"
+            (click)="openPublicChatsSidebarView($event)"
           ></i>
         </div>
         <div class="usuario-config">
@@ -154,6 +163,7 @@
         </ng-container>
 
         <ng-template #chatListContent>
+          <div *ngIf="!isPublicChatsView; else publicChatsContent" class="chat-list-default-view">
           <div class="encabezado-chats">
             <div class="titulo-chat">TejeChat</div>
             <div class="acciones-chat">
@@ -220,7 +230,7 @@
             </button>
           </div>
           <div class="chat-scroll" [class.chat-scroll--empty]="chatsFiltrados.length === 0">
-          <ng-container *ngIf="chatsFiltrados.length > 0; else emptyChatsState">
+          <ng-container *ngIf="chatsFiltrados.length > 0">
           <div *ngFor="let chat of chatsFiltrados" class="chat-item" [class.chat-item--unread]="chat.unreadCount > 0"
             [class.chat-item--group]="chat.esGrupo"
             [class.chat-item--selected]="chat.id === chatSeleccionadoId"
@@ -522,7 +532,7 @@
           </div>
         </ng-container>
 
-        <ng-template #emptyChatsState>
+        <ng-container *ngIf="chatsFiltrados.length === 0">
           <div *ngIf="hasAnyChats; else noChatsAtAllState" class="chat-empty-filter-state">
             <div class="chat-empty-filter-state__icon">
               <i [class]="chatFilterEmptyIconClass" aria-hidden="true"></i>
@@ -592,8 +602,109 @@
             </button>
           </div>
           </ng-template>
-        </ng-template>
+          </ng-container>
           </div>
+          </div>
+
+          <ng-template #publicChatsContent>
+            <div class="public-chats-shell">
+              <div class="public-chats-container">
+              <div class="public-chats-header">
+                <div>
+                  <div class="public-chats-title-row">
+                    <div class="titulo-chat public-chats-title">Chats publicos</div>
+                    <span class="public-chats-live-dot" aria-hidden="true">
+                      <span class="public-chats-live-dot__ping"></span>
+                      <span class="public-chats-live-dot__core"></span>
+                    </span>
+                  </div>
+                  <p class="public-chats-subtitle">
+                    Descubre grupos abiertos de la comunidad y unete cuando quieras.
+                  </p>
+                </div>
+              </div>
+
+              <div class="public-chats-search">
+                <div class="public-chats-search__icon" aria-hidden="true">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"/>
+                    <path d="m21 21-4.3-4.3"/>
+                  </svg>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Buscar temas, tecnologias o grupos..."
+                  class="public-chats-search__input"
+                  [value]="publicChatsSearch"
+                  (input)="onPublicChatsSearch($event)"
+                />
+              </div>
+
+              <div class="public-chats-list">
+                <ng-container *ngIf="filteredPublicChats.length > 0; else emptyPublicChatsState">
+                  <article
+                    *ngFor="let chat of filteredPublicChats; trackBy: trackIndex"
+                    class="public-chat-card"
+                  >
+                    <div class="public-chat-card__main">
+                      <div
+                        class="public-chat-card__avatar"
+                        [style.background]="chat.gradient"
+                        aria-hidden="true"
+                      >
+                        {{ chat.initials }}
+                      </div>
+
+                      <div class="public-chat-card__body">
+                        <div class="public-chat-card__top">
+                          <h3 class="public-chat-card__title">{{ chat.nombre }}</h3>
+                        </div>
+                        <p class="public-chat-card__desc">{{ chat.descripcion }}</p>
+                        <div class="public-chat-card__members">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                            <circle cx="9" cy="7" r="4"/>
+                            <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                          </svg>
+                          <span>{{ chat.miembros.toLocaleString('es-ES') }} miembros activos</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="public-chat-card__actions">
+                      <button
+                        type="button"
+                        class="public-chat-card__join"
+                        (click)="entrarChatPublico(chat, $event)"
+                      >
+                        <span>Unirme</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="m9 18 6-6-6-6"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </article>
+                </ng-container>
+              </div>
+              </div>
+            </div>
+          </ng-template>
+
+          <ng-template #emptyPublicChatsState>
+            <div class="public-chats-empty">
+              <div class="public-chats-empty__icon" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8"/>
+                  <path d="m21 21-4.3-4.3"/>
+                </svg>
+              </div>
+              <h3 class="public-chats-empty__title">No se encontraron chats</h3>
+              <p class="public-chats-empty__text">
+              No hay chats publicos que coincidan con tu busqueda.
+              </p>
+            </div>
+          </ng-template>
         </ng-template>
 
       </div>
@@ -615,7 +726,7 @@
 
       <div
         class="zonaMensajes"
-        *ngIf="!isStarredView && activeMainView === 'chat'; else perfilView"
+        *ngIf="!isStarredView && activeMainView === 'chat' && !stickerEditorVisible"
         [class.zonaMensajes--drag-active]="messageAreaDragActive"
         (dragenter)="onMessageAreaDragEnter($event)"
         (dragover)="onMessageAreaDragOver($event)"
@@ -825,19 +936,19 @@
           #contenedorMensajes
           (scroll)="onMessagesScroll()"
         >
-          <div *ngIf="chatSeleccionadoId === null" class="placeholder-chat">
+          <div *ngIf="!stickerEditorVisible && chatSeleccionadoId === null" class="placeholder-chat">
             <i class="bi bi-chat-dots-fill"></i>
             <h3>TejeChat</h3>
             <p>Selecciona un chat para comenzar</p>
           </div>
 
-          <div *ngIf="chatSeleccionadoId !== null && mensajesSeleccionados.length === 0 && !showGroupHistoryUnavailableNotice" class="placeholder-chat">
+          <div *ngIf="!stickerEditorVisible && chatSeleccionadoId !== null && mensajesSeleccionados.length === 0 && !showGroupHistoryUnavailableNotice" class="placeholder-chat">
             <i class="bi bi-inbox"></i>
             <h3>No hay mensajes</h3>
             <p>Envia un mensaje para iniciar la conversacion</p>
           </div>
 
-          <div *ngIf="chatSeleccionadoId !== null && showGroupHistoryUnavailableNotice" class="mensaje-row mensaje-row--system">
+          <div *ngIf="!stickerEditorVisible && chatSeleccionadoId !== null && showGroupHistoryUnavailableNotice" class="mensaje-row mensaje-row--system">
             <div class="mensaje-system-card">
               <i class="bi bi-shield-lock" aria-hidden="true"></i>
               <span>{{ groupHistoryUnavailableText }}</span>
@@ -873,7 +984,7 @@
             </div>
           </div>
 
-          <div *ngIf="mensajesSeleccionados.length > 0" class="mensaje">
+          <div *ngIf="!stickerEditorVisible && mensajesSeleccionados.length > 0" class="mensaje">
             <ng-container *ngFor="let mensaje of mensajesSeleccionados; let i = index; trackBy: trackMensaje">
               <div *ngIf="shouldShowDateSeparator(i)" class="message-day-separator">
                 {{ getDateSeparatorLabel(mensaje) }}
@@ -903,7 +1014,8 @@
                     'mensaje-propio': mensaje.emisorId === usuarioActualId,
                     'mensaje-otro': mensaje.emisorId !== usuarioActualId,
                     'mensaje-otro--group': chatActual?.esGrupo && mensaje.emisorId !== usuarioActualId,
-                    'mensaje--edited': isMensajeEditado(mensaje)
+                    'mensaje--edited': isMensajeEditado(mensaje),
+                    'mensaje--sticker': isStickerMessage(mensaje) && mensaje.activo !== false
                   }"
                 >
 
@@ -942,6 +1054,7 @@
                       </ng-container>
                       <ng-template #eliminadoNormal>
                         <i class="bi bi-slash-circle" aria-hidden="true"></i>
+                        <span class="msg-deleted-type-badge">{{ deletedMessageTypeBadge(mensaje) }}</span>
                         {{ mensaje.emisorId === usuarioActualId ? 'Eliminaste este mensaje.' : 'Este mensaje ha sido
                         eliminado.' }}
                         <button
@@ -1078,30 +1191,48 @@
                       </ng-container>
 
                       <ng-template #contenidoNoAudio>
-                        <ng-container *ngIf="(mensaje.tipo || 'TEXT') === 'IMAGE'; else contenidoNoImagen">
+                        <ng-container *ngIf="(mensaje.tipo || 'TEXT') === 'IMAGE' || (mensaje.tipo || 'TEXT') === 'STICKER'; else contenidoNoImagen">
                           <span class="msg-image-inline-wrap">
                             <ng-container *ngIf="getImageSrc(mensaje) as imageSrc; else imageCipherMissing">
-                              <span class="image-bubble" [class.mine]="mensaje.emisorId === usuarioActualId">
+                              <ng-container *ngIf="isStickerMessage(mensaje); else normalImageBubble">
                                 <img
-                                  class="msg-image"
+                                  class="msg-sticker"
                                   [src]="imageSrc"
                                   [alt]="getImageAlt(mensaje)"
                                   tabindex="0"
                                   role="button"
-                                  aria-label="Abrir imagen en grande"
+                                  aria-label="Abrir sticker en grande"
                                   (click)="openImagePreview(mensaje, imageSrc, $event)"
                                   (keydown.enter)="openImagePreview(mensaje, imageSrc, $event)"
                                   (keydown.space)="openImagePreview(mensaje, imageSrc, $event)"
                                 />
-                                <span *ngIf="mensaje.contenido" class="msg-image-caption">
-                                  {{ mensaje.contenido }}
+                              </ng-container>
+                              <ng-template #normalImageBubble>
+                                <span class="image-bubble" [class.mine]="mensaje.emisorId === usuarioActualId">
+                                  <img
+                                    class="msg-image"
+                                    [src]="imageSrc"
+                                    [alt]="getImageAlt(mensaje)"
+                                    tabindex="0"
+                                    role="button"
+                                    aria-label="Abrir imagen en grande"
+                                    (click)="openImagePreview(mensaje, imageSrc, $event)"
+                                    (keydown.enter)="openImagePreview(mensaje, imageSrc, $event)"
+                                    (keydown.space)="openImagePreview(mensaje, imageSrc, $event)"
+                                  />
+                                  <span *ngIf="mensaje.contenido" class="msg-image-caption">
+                                    {{ mensaje.contenido }}
+                                  </span>
                                 </span>
-                              </span>
+                              </ng-template>
                             </ng-container>
                             <ng-template #imageCipherMissing>
                               <span class="msg-text-inline">[Imagen cifrada]</span>
                             </ng-template>
-                            <span class="msg-meta-inline msg-meta-inline--image">
+                            <span
+                              class="msg-meta-inline msg-meta-inline--image"
+                              [class.msg-meta-inline--sticker]="isStickerMessage(mensaje)"
+                            >
                               <span class="msg-time">{{ formatMensajeHora(mensaje) }}</span>
                               <i
                                 *ngIf="mensaje.emisorId !== usuarioActualId && isMensajeDestacado(mensaje)"
@@ -1200,7 +1331,7 @@
                       <span
                         class="msg-meta-inline"
                         [class.msg-meta-inline--audio]="(mensaje.tipo || 'TEXT') === 'AUDIO'"
-                        *ngIf="(mensaje.tipo || 'TEXT') !== 'TEXT' && (mensaje.tipo || 'TEXT') !== 'IMAGE' && (mensaje.tipo || 'TEXT') !== 'FILE' && !isPollMessage(mensaje)"
+                        *ngIf="(mensaje.tipo || 'TEXT') !== 'TEXT' && (mensaje.tipo || 'TEXT') !== 'IMAGE' && (mensaje.tipo || 'TEXT') !== 'STICKER' && (mensaje.tipo || 'TEXT') !== 'FILE' && !isPollMessage(mensaje)"
                       >
                         <span class="msg-time">{{ formatMensajeHora(mensaje) }}</span>
                         <i
@@ -1245,14 +1376,6 @@
                       </button>
                       <button type="button" class="btn-opcion-responder" (click)="responderMensaje(mensaje, $event)">
                         <i class="bi bi-reply"></i> Responder
-                      </button>
-                      <button
-                        *ngIf="chatActual && !chatActual.esGrupo"
-                        type="button"
-                        class="btn-opcion-reportar"
-                        (click)="reportarUsuarioDesdeMensaje(mensaje, $event)"
-                      >
-                        <i class="bi bi-flag-fill"></i> Denunciar
                       </button>
                       <button
                         *ngIf="canDestacarMensaje(mensaje)"
@@ -1380,6 +1503,10 @@
         >
           <div class="poll-composer-overlay__panel" (click)="$event.stopPropagation()">
             <app-poll-composer
+              [chatGrupalId]="pollComposerIaChatGrupalId"
+              [mensajesContextoIa]="pollComposerIaMensajesContexto"
+              [usuarioActualId]="usuarioActualId"
+              [autogenerarEncuestaIa]="pollComposerAutogenerarIa"
               (close)="closeGroupPollComposer()"
               (submitPoll)="onGroupPollDraftSubmit($event)"
             ></app-poll-composer>
@@ -1475,7 +1602,30 @@
           </div>
         </div>
 
-        <div *ngIf="chatSeleccionadoId !== null && !showMessagesSkeleton" class="entrada-mensaje">
+        <div *ngIf="chatSeleccionadoId !== null && !showMessagesSkeleton" class="composer-stack">
+          <div *ngIf="shouldShowQuickRepliesBlock && !forwardModalOpen" class="quick-replies-wrapper">
+            <div
+              *ngIf="shouldShowQuickRepliesLoading"
+              class="quick-replies-progress"
+              aria-hidden="true"
+            >
+              <span class="quick-replies-progress__line"></span>
+            </div>
+
+            <div *ngIf="quickReplies.length > 0" class="quick-replies-container">
+              <button
+                *ngFor="let quickReply of quickReplies; trackBy: trackQuickReply"
+                type="button"
+                class="quick-reply-chip"
+                [disabled]="!canUseQuickReplySend"
+                (click)="enviarRespuestaRapida(quickReply)"
+              >
+                {{ quickReply }}
+              </button>
+            </div>
+          </div>
+
+          <div class="entrada-mensaje">
           <div *ngIf="forwardModalOpen; else composeMode" class="forward-bottom-actions">
             <div class="forward-target-count">Chats seleccionados: {{ forwardSelectedChatIds.size }}</div>
             <div class="forward-inline-actions">
@@ -1631,7 +1781,20 @@
                   *ngIf="showEmojiPicker"
                   class="emoji-picker-pop"
                   (emojiSelect)="onEmojiSelected($event)"
+                  (stickerTabOpen)="onStickerTabOpen()"
+                  (stickerCreateClick)="openStickerFilePicker()"
+                  (stickerDeleteClick)="deleteSticker($event)"
+                  (stickerClick)="onStickerSelected($event)"
+                  [stickerItems]="myStickers"
+                  [stickerLoading]="stickersLoading"
                 ></app-emoji-picker>
+                <input
+                  #stickerFileInput
+                  type="file"
+                  class="attachment-input-hidden"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  (change)="onStickerFileSelected($event)"
+                />
               </div>
 
               <div #temporaryMessageAnchor class="temporary-message-anchor">
@@ -1709,56 +1872,156 @@
                 </button>
 
                 <div *ngIf="showComposeAiPopup" class="compose-ai-pop">
-                  <div class="compose-ai-pop__title">{{ composerAiLoadingLabel }}</div>
+                  <ng-container *ngIf="!mostrarMenuIdiomasIa; else composeAiTranslationMenu">
+                    <div class="compose-ai-pop__title">{{ composerAiLoadingLabel }}</div>
 
-                  <button
-                    type="button"
-                    class="compose-ai-option"
-                    [disabled]="cargandoIaInput"
-                    (click)="procesarTextoInputConIa('CORREGIR')"
-                  >
-                    <i class="bi bi-spellcheck"></i>
-                    <span class="compose-ai-option__main">Corregir ortografia</span>
-                    <span class="compose-ai-option__sub">Gramatica</span>
-                  </button>
+                    <button
+                      type="button"
+                      class="compose-ai-option"
+                      [disabled]="cargandoIaInput"
+                      (click)="procesarTextoInputConIa(aiTextMode.CORREGIR)"
+                    >
+                      <i class="bi bi-spellcheck"></i>
+                      <span class="compose-ai-option__main">Corregir ortografia</span>
+                      <span class="compose-ai-option__sub">Gramatica</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    class="compose-ai-option"
-                    [disabled]="cargandoIaInput"
-                    (click)="procesarTextoInputConIa('REFORMULAR')"
-                  >
-                    <i class="bi bi-text-paragraph"></i>
-                    <span class="compose-ai-option__main">Mejorar tono</span>
-                    <span class="compose-ai-option__sub">Profesional</span>
-                  </button>
+                    <button
+                      type="button"
+                      class="compose-ai-option"
+                      [disabled]="cargandoIaInput"
+                      (click)="procesarTextoInputConIa(aiTextMode.REFORMULAR)"
+                    >
+                      <i class="bi bi-text-paragraph"></i>
+                      <span class="compose-ai-option__main">Mejorar tono</span>
+                      <span class="compose-ai-option__sub">Profesional</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    class="compose-ai-option compose-ai-option--primary"
-                    [disabled]="cargandoIaInput"
-                    (click)="procesarTextoInputConIa('FORMAL')"
-                  >
-                    <i class="bi bi-stars"></i>
-                    <span class="compose-ai-option__main">
-                      {{ cargandoIaInput ? 'Procesando...' : 'Formatear' }}
-                    </span>
-                  </button>
+                    <button
+                      type="button"
+                      class="compose-ai-option compose-ai-option--primary"
+                      [disabled]="cargandoIaInput"
+                      (click)="procesarTextoInputConIa(aiTextMode.FORMAL)"
+                    >
+                      <i class="bi bi-stars"></i>
+                      <span class="compose-ai-option__main">
+                        {{ cargandoIaInput ? 'Procesando...' : 'Formatear' }}
+                      </span>
+                    </button>
 
-                  <button
-                    type="button"
-                    class="compose-ai-option"
-                    [disabled]="cargandoIaInput"
-                    (click)="procesarTextoInputConIa('COMPLETAR_TEXTO')"
-                  >
-                    <i class="bi bi-magic"></i>
-                    <span class="compose-ai-option__main">Completar con IA</span>
-                    <span class="compose-ai-option__sub">Continua la idea</span>
-                  </button>
+                    <button
+                      type="button"
+                      class="compose-ai-option"
+                      [disabled]="cargandoIaInput"
+                      (click)="procesarTextoInputConIa(aiTextMode.COMPLETAR_TEXTO)"
+                    >
+                      <i class="bi bi-magic"></i>
+                      <span class="compose-ai-option__main">Completar con IA</span>
+                      <span class="compose-ai-option__sub">Continua la idea</span>
+                    </button>
 
-                  <div *ngIf="composerAiError" class="compose-ai-pop__error">
-                    {{ composerAiError }}
-                  </div>
+                    <button
+                      type="button"
+                      class="compose-ai-option"
+                      [disabled]="cargandoIaInput"
+                      (click)="abrirMenuTraduccionIa($event)"
+                    >
+                      <i class="bi bi-translate"></i>
+                      <span class="compose-ai-option__main">Traducir a...</span>
+                      <span class="compose-ai-option__sub">Mantiene tono</span>
+                    </button>
+
+                    <div *ngIf="composerAiError" class="compose-ai-pop__error">
+                      {{ composerAiError }}
+                    </div>
+                  </ng-container>
+
+                  <ng-template #composeAiTranslationMenu>
+                    <div class="compose-ai-pop__header">
+                      <button
+                        type="button"
+                        class="compose-ai-back"
+                        [disabled]="cargandoIaInput"
+                        (click)="volverMenuIaPrincipal($event)"
+                      >
+                        <i class="bi bi-arrow-left"></i>
+                      </button>
+                      <div class="compose-ai-pop__title compose-ai-pop__title--menu">
+                        Traducir a...
+                      </div>
+                    </div>
+
+                    <div class="compose-ai-pop__search">
+                      <i class="bi bi-search"></i>
+                      <input
+                        type="text"
+                        [(ngModel)]="filtroIdiomasIa"
+                        (input)="filtrarIdiomasIa()"
+                        [disabled]="cargandoIaInput"
+                        placeholder="Buscar idioma"
+                      />
+                    </div>
+
+                    <div class="compose-ai-language-list">
+                      <div
+                        *ngIf="idiomasIaDestacadosFiltrados.length > 0"
+                        class="compose-ai-language-group"
+                      >
+                        <div class="compose-ai-language-group__title">Mas usados</div>
+                        <button
+                          *ngFor="let idioma of idiomasIaDestacadosFiltrados; trackBy: trackComposeAiLanguage"
+                          type="button"
+                          class="compose-ai-option compose-ai-option--language"
+                          [disabled]="cargandoIaInput"
+                          (click)="traducirTextoInputConIa(idioma.idiomaDestino)"
+                        >
+                          <i
+                            class="bi"
+                            [class.bi-globe2]="idiomaSeleccionadoIa !== idioma.idiomaDestino"
+                            [class.bi-arrow-repeat]="idiomaSeleccionadoIa === idioma.idiomaDestino && cargandoIaInput"
+                            [class.compose-ai-option__icon--loading]="idiomaSeleccionadoIa === idioma.idiomaDestino && cargandoIaInput"
+                          ></i>
+                          <span class="compose-ai-option__main">{{ idioma.nombre }}</span>
+                          <span class="compose-ai-option__sub">{{ idioma.codigo }}</span>
+                        </button>
+                      </div>
+
+                      <div class="compose-ai-language-group">
+                        <div class="compose-ai-language-group__title">Todos</div>
+                        <button
+                          *ngFor="let idioma of idiomasIaRestoFiltrados; trackBy: trackComposeAiLanguage"
+                          type="button"
+                          class="compose-ai-option compose-ai-option--language"
+                          [disabled]="cargandoIaInput"
+                          (click)="traducirTextoInputConIa(idioma.idiomaDestino)"
+                        >
+                          <i
+                            class="bi"
+                            [class.bi-globe2]="idiomaSeleccionadoIa !== idioma.idiomaDestino"
+                            [class.bi-arrow-repeat]="idiomaSeleccionadoIa === idioma.idiomaDestino && cargandoIaInput"
+                            [class.compose-ai-option__icon--loading]="idiomaSeleccionadoIa === idioma.idiomaDestino && cargandoIaInput"
+                          ></i>
+                          <span class="compose-ai-option__main">{{ idioma.nombre }}</span>
+                          <span class="compose-ai-option__sub">{{ idioma.codigo }}</span>
+                        </button>
+                      </div>
+
+                      <div
+                        *ngIf="idiomasIaDestacadosFiltrados.length === 0 && idiomasIaRestoFiltrados.length === 0"
+                        class="compose-ai-pop__empty"
+                      >
+                        No hay idiomas para "{{ filtroIdiomasIa }}".
+                      </div>
+                    </div>
+
+                    <div class="compose-ai-pop__footer">
+                      {{ totalIdiomasIaDisponibles }} idiomas disponibles
+                    </div>
+
+                    <div *ngIf="composerAiError" class="compose-ai-pop__error">
+                      {{ composerAiError }}
+                    </div>
+                  </ng-template>
                 </div>
               </div>
               <button class="btn-mic"
@@ -1768,7 +2031,7 @@
                 <i class="fas fa-microphone"></i>
               </button>
               <button class="btn-enviar"
-                [title]="!mensajeNuevo.trim() ? 'Escribe un mensaje' : (composerDisabledReason ? composerDisabledReason : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Enviar mensaje'))"
+                [title]="(!mensajeNuevo.trim() && !pendingAttachmentFile) ? 'Escribe un mensaje' : (composerDisabledReason ? composerDisabledReason : (noGroupRecipientsForSend ? 'Todavia no ha aceptado nadie' : 'Enviar mensaje'))"
                 (click)="enviarMensajeDesdeComposer()" [disabled]="!canSendComposerMessage"
                 [class.btn-disabled-block]="composerInteractionDisabled">
                 <i class="fas fa-paper-plane"></i>
@@ -1797,21 +2060,30 @@
             </ng-template>
           </ng-template>
           </div>
-      </div>
-      <ng-template #perfilView>
-        <div *ngIf="!isStarredView" class="zonaMensajes zonaMensajes--perfil">
-          <app-perfil-usuario
-            [usuario]="perfilUsuario"
-            [fotoUrl]="usuarioFotoUrl || ''"
-            [passwordCodeRequested]="profilePasswordCodeRequested"
-            [saving]="profileSaving"
-            [codeTimeLeftSec]="profileCodeTimeLeftSec"
-            (close)="closeProfileView()"
-            (save)="onPerfilSave($event)"
-            (confirmPassword)="onPerfilConfirmPassword($event)">
-          </app-perfil-usuario>
         </div>
-      </ng-template>
+      </div>
+      <app-sticker-editor-panel
+        *ngIf="!isStarredView && activeMainView === 'chat' && stickerEditorVisible"
+        class="zonaMensajes"
+        [imageFile]="stickerDraftFile"
+        [imageUrl]="stickerDraftPreviewUrl"
+        [initialName]="stickerDraftName"
+        [saving]="stickerSaving"
+        (cancel)="cancelStickerCreation()"
+        (guardarStickerEditado)="saveEditedSticker($event)"
+      ></app-sticker-editor-panel>
+      <div *ngIf="!isStarredView && activeMainView !== 'chat'" class="zonaMensajes zonaMensajes--perfil">
+        <app-perfil-usuario
+          [usuario]="perfilUsuario"
+          [fotoUrl]="usuarioFotoUrl || ''"
+          [passwordCodeRequested]="profilePasswordCodeRequested"
+          [saving]="profileSaving"
+          [codeTimeLeftSec]="profileCodeTimeLeftSec"
+          (close)="closeProfileView()"
+          (save)="onPerfilSave($event)"
+          (confirmPassword)="onPerfilConfirmPassword($event)">
+        </app-perfil-usuario>
+      </div>
 
       <app-group-info-panel
         *ngIf="!isStarredView && activeMainView === 'chat' && chatActual?.esGrupo && showGroupInfoPanelMounted"
@@ -1886,6 +2158,8 @@
   [targetName]="reportUserTargetName"
   [motivo]="reportUserReason"
   [detalle]="reportUserDetail"
+  [aiLoading]="reportUserAiLoading"
+  [aiMessage]="reportUserAiMessage"
   [sending]="reportUserSending"
   [success]="reportUserSuccess"
   [reasonOptions]="reportUserReasonOptions"
@@ -1915,3 +2189,14 @@
   [error]="errorResumenIa"
   (closed)="cerrarPopupResumenIa()"
 ></app-ai-conversation-summary-popup>
+<app-sticker-collection-popup
+  [open]="showIncomingStickerSavePopup"
+  [stickerSrc]="incomingStickerPreviewSrc"
+  [checking]="incomingStickerOwnedChecking"
+  [saving]="incomingStickerSaving"
+  [owned]="incomingStickerAlreadyOwned"
+  [canDelete]="!!incomingStickerOwnedLocalId"
+  (closed)="closeIncomingStickerSavePopup()"
+  (addSticker)="saveIncomingStickerToMyCollection()"
+  (deleteSticker)="deleteIncomingStickerFromMyCollection()"
+></app-sticker-collection-popup>

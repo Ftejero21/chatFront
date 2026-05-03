@@ -137,6 +137,8 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   loadingGroups: boolean = false;
   loadingChatMessages: boolean = false;
   isSendingAdminMessage: boolean = false;
+  descargandoReporteIa: boolean = false;
+  errorReporteIa: string = '';
   adminMessageComposerResetSignal: number = 0;
   selectedChatMessagesSource: 'admin' | 'group' = 'admin';
   public usuarioActualId!: number;
@@ -5679,6 +5681,116 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     });
   }
 
+  public descargarReporteAdministracionIa(): void {
+    if (this.descargandoReporteIa) return;
+
+    this.errorReporteIa = '';
+    this.descargandoReporteIa = true;
+
+    this.chatService.descargarReporteIa().subscribe({
+      next: (response) => {
+        try {
+          const contentType = String(
+            response?.headers?.get('content-type') || response?.body?.type || ''
+          )
+            .toLowerCase()
+            .trim();
+
+          if (!contentType.includes('application/pdf')) {
+            throw new Error('INVALID_PDF_RESPONSE');
+          }
+
+          const body = response.body;
+          if (!(body instanceof Blob) || body.size <= 0) {
+            throw new Error('INVALID_PDF_RESPONSE');
+          }
+
+          const rawDisposition = String(
+            response?.headers?.get('content-disposition') || ''
+          ).trim();
+          const filenameFromHeader = this.extractFilenameFromContentDisposition(
+            rawDisposition
+          );
+          const fallback = this.buildReporteIaFilenameFallback();
+          const safeFileName = this.ensurePdfFilename(
+            filenameFromHeader || fallback
+          );
+
+          const blob = body.type === 'application/pdf'
+            ? body
+            : new Blob([body], { type: 'application/pdf' });
+
+          const url = window.URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = safeFileName;
+          anchor.style.display = 'none';
+          document.body.appendChild(anchor);
+          anchor.click();
+          document.body.removeChild(anchor);
+          window.URL.revokeObjectURL(url);
+        } catch {
+          this.errorReporteIa = 'El backend no ha devuelto un PDF valido.';
+        }
+      },
+      error: (err) => {
+        const status = Number(err?.status || 0);
+        const contentType = String(err?.headers?.get?.('content-type') || '')
+          .toLowerCase()
+          .trim();
+        if (status === 403) {
+          this.errorReporteIa = 'No tienes permisos para descargar este reporte.';
+        } else if (
+          contentType.includes('text/html') ||
+          contentType.includes('text/plain') ||
+          (!!contentType && !contentType.includes('application/pdf'))
+        ) {
+          this.errorReporteIa = 'El backend no ha devuelto un PDF valido.';
+        } else {
+          this.errorReporteIa = 'No se pudo generar el reporte. Intentalo de nuevo.';
+        }
+      },
+      complete: () => {
+        this.descargandoReporteIa = false;
+      },
+    });
+  }
+
+  private extractFilenameFromContentDisposition(value: string): string {
+    if (!value) return '';
+    const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(value);
+    if (utf8?.[1]) {
+      try {
+        return decodeURIComponent(utf8[1]).replace(/["']/g, '').trim();
+      } catch {
+        return String(utf8[1] || '').replace(/["']/g, '').trim();
+      }
+    }
+
+    const plain = /filename=([^;]+)/i.exec(value);
+    return String(plain?.[1] || '')
+      .replace(/["']/g, '')
+      .trim();
+  }
+
+  private ensurePdfFilename(filename: string): string {
+    const clean = String(filename || '')
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, ' ');
+    if (!clean) return this.buildReporteIaFilenameFallback();
+    if (/\.pdf$/i.test(clean)) return clean;
+    return `${clean}.pdf`;
+  }
+
+  private buildReporteIaFilenameFallback(): string {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    return `reporte-tejechat-ia-${yyyy}-${mm}-${dd}.pdf`;
+  }
+
    async banUsuario(usuario: any, motivoInicial: string = '', origen: string = '') {
     const { value: motivo } = await Swal.fire({
       title: '',
@@ -6127,7 +6239,6 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   }
 
 }
-
 
 
 

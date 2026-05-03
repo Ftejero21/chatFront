@@ -1,4 +1,4 @@
-import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { ChatIndividualDTO } from '../../Interface/ChatIndividualDTO ';
 import { ChatIndividualCreateDTO } from '../../Interface/ChatIndividualCreateDTO';
@@ -488,6 +488,13 @@ export class ChatService {
     return this.http.get<MensajeDTO[]>(`${this.baseUrl}/mensajes/${chatId}`, options);
   }
 
+  eliminarMensaje(mensajeId: number): Observable<MensajeDTO> {
+    return this.http.post<MensajeDTO>(
+      `${this.baseUrl}/mensajes/${mensajeId}/eliminar`,
+      {}
+    );
+  }
+
   restaurarMensaje(mensajeId: number): Observable<MensajeDTO> {
     return this.http.post<MensajeDTO>(
       `${this.baseUrl}/mensajes/${mensajeId}/restaurar`,
@@ -699,6 +706,23 @@ export class ChatService {
       `${this.baseUrl}/admin/grupos`,
       { params }
     );
+  }
+
+  descargarReporteIa(
+    fechaInicio?: string,
+    fechaFin?: string
+  ): Observable<HttpResponse<Blob>> {
+    let params = new HttpParams();
+    const inicio = String(fechaInicio || '').trim();
+    const fin = String(fechaFin || '').trim();
+    if (inicio) params = params.set('fechaInicio', inicio);
+    if (fin) params = params.set('fechaFin', fin);
+
+    return this.http.get(`${environment.backendBaseUrl}/api/usuarios/admin/reportes/ia`, {
+      params,
+      observe: 'response',
+      responseType: 'blob',
+    });
   }
 
   listarMediaGrupo(
