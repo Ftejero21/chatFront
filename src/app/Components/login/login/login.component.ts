@@ -38,6 +38,8 @@ interface ToastItem {
 export class LoginComponent implements OnInit, OnDestroy {
   toasts: ToastItem[] = [];
   login: LoginRequestDTO = { email: '', password: '' };
+  emailErrors: string[] = [];
+  passwordErrors: string[] = [];
   rememberMe: boolean = false;
   showResetPasswordModal: boolean = false;
   showBanAppealButton: boolean = false;
@@ -338,6 +340,7 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   iniciarSesion(): void {
+    this.clearLoginValidationErrors();
     if (this.loginRateLimitSeconds > 0) {
       this.showToast(
         `Has alcanzado el límite de intentos. Reintenta en ${this.loginRateLimitSeconds}s.`,
@@ -379,7 +382,15 @@ export class LoginComponent implements OnInit, OnDestroy {
         }
 
         const code = err?.error?.code as string | undefined;
-        if (code === 'EMAIL_INVALIDO') {
+        if (code === 'RESPUESTA_INVALIDA') {
+          const parsed = this.parseLoginValidationError(err);
+          this.emailErrors = parsed.emailErrors;
+          this.passwordErrors = parsed.passwordErrors;
+          this.showBanAppealButton = false;
+          if (parsed.generalMessage) {
+            this.showToast(parsed.generalMessage, 'danger', 'Error');
+          }
+        } else if (code === 'EMAIL_INVALIDO') {
           this.showBanAppealButton = false;
           this.showToast('Email incorrecto', 'danger', 'Error');
         } else if (code === 'PASSWORD_INCORRECTA') {
@@ -1144,6 +1155,77 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.showLoginPassword = !this.showLoginPassword;
   }
 
+  onLoginEmailChange(): void {
+    if (this.emailErrors.length > 0) this.emailErrors = [];
+  }
+
+  onLoginPasswordChange(): void {
+    if (this.passwordErrors.length > 0) this.passwordErrors = [];
+  }
+
+  private clearLoginValidationErrors(): void {
+    this.emailErrors = [];
+    this.passwordErrors = [];
+  }
+
+  private parseLoginValidationError(err: any): {
+    emailErrors: string[];
+    passwordErrors: string[];
+    generalMessage: string | null;
+  } {
+    const payload = err?.error && typeof err.error === 'object' ? err.error : null;
+    const message = String(payload?.message || payload?.mensaje || '').trim();
+
+    const fromFieldErrors = payload?.fieldErrors;
+    let emailErrors = this.normalizeErrorList(fromFieldErrors?.email);
+    let passwordErrors = this.normalizeErrorList(fromFieldErrors?.password);
+
+    if (!emailErrors.length && !passwordErrors.length) {
+      const details = this.normalizeErrorList(payload?.details);
+      const parsed = this.parseFieldErrorsFromDetails(details);
+      emailErrors = parsed.emailErrors;
+      passwordErrors = parsed.passwordErrors;
+    }
+
+    if (emailErrors.length || passwordErrors.length) {
+      return {
+        emailErrors,
+        passwordErrors,
+        generalMessage: message || 'Registro invalido',
+      };
+    }
+
+    const fallbackMessage =
+      message || this.extractBackendErrorMessage(err) || 'No se pudo iniciar sesiÃ³n';
+    return { emailErrors: [], passwordErrors: [], generalMessage: fallbackMessage };
+  }
+
+  private normalizeErrorList(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((x) => String(x || '').trim())
+      .filter((x) => x.length > 0);
+  }
+
+  private parseFieldErrorsFromDetails(details: string[]): {
+    emailErrors: string[];
+    passwordErrors: string[];
+  } {
+    const emailErrors: string[] = [];
+    const passwordErrors: string[] = [];
+    for (const raw of details) {
+      const detail = String(raw || '').trim();
+      const separatorIndex = detail.indexOf(':');
+      if (separatorIndex <= 0) continue;
+      const field = detail.slice(0, separatorIndex).trim().toLowerCase();
+      const message = detail.slice(separatorIndex + 1).trim();
+      if (!message) continue;
+      if (field === 'email') emailErrors.push(message);
+      if (field === 'password') passwordErrors.push(message);
+    }
+    return { emailErrors, passwordErrors };
+  }
+
 
   ngOnDestroy(): void {
     if (this.loginRateLimitTimer) clearInterval(this.loginRateLimitTimer);
@@ -1203,9 +1285,6 @@ export class LoginComponent implements OnInit, OnDestroy {
     }, 1000);
   }
 }
-
-
-
 
 
 

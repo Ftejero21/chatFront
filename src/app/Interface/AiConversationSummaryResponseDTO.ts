@@ -3,4 +3,5 @@ export interface AiConversationSummaryResponseDTO {
   codigo: string;
   mensaje: string;
   resumen: string;
+  encryptedPayload?: string | Record<string, unknown> | null;
 }

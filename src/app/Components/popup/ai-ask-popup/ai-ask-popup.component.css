@@ -164,6 +164,36 @@
   font-family: Georgia, serif;
 }
 
+.audio-bubble {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 320px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: #eef2ff;
+  border: 1px solid #dbeafe;
+}
+
+.audio-bubble.mine {
+  background: #e8f1ff;
+}
+
+.ai-ask-popup__reference-audio {
+  max-width: 100%;
+}
+
+.ai-ask-popup__audio-player {
+  width: 100%;
+  min-width: 0;
+}
+
+.ai-ask-popup__audio-fallback {
+  color: #475569;
+  font-size: 14px;
+  font-style: italic;
+}
+
 .ai-ask-popup__textarea-wrap {
   position: relative;
   min-height: 130px;

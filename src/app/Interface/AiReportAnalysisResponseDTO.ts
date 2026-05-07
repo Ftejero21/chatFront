@@ -7,4 +7,5 @@ export interface AiReportAnalysisResponseDTO {
   gravedad?: string | null;
   resumen?: string | null;
   accionSugerida?: string | null;
+  encryptedPayload?: string | Record<string, unknown> | null;
 }

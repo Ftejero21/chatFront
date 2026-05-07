@@ -1,9 +1,11 @@
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { Observable, firstValueFrom } from 'rxjs';
+import { Observable, defer, firstValueFrom, from, map, switchMap } from 'rxjs';
 import { environment } from '../../environments';
 import { AiTextRequestDTO } from '../../Interface/AiTextRequestDTO';
 import { AiTextResponseDTO } from '../../Interface/AiTextResponseDTO';
+import { CryptoService } from '../crypto/crypto.service';
+import { AuthService } from '../auth/auth.service';
 
 @Injectable({
   providedIn: 'root',
@@ -11,8 +13,13 @@ import { AiTextResponseDTO } from '../../Interface/AiTextResponseDTO';
 export class MensajeriaService {
   private readonly backendBaseUrl =
     String(environment.backendBaseUrl).replace(/\/+$/, '');
+  private auditPublicKeyInitPromise: Promise<void> | null = null;
 
-  constructor(private http: HttpClient) {}
+  constructor(
+    private http: HttpClient,
+    private cryptoService: CryptoService,
+    private authService: AuthService
+  ) {}
 
   private buildAuthHeaders(): HttpHeaders | undefined {
     const token = String(
@@ -180,20 +187,47 @@ export class MensajeriaService {
     retries: number = 1
   ): Promise<Blob> {
     const downloadUrl = this.buildChatAttachmentDownloadUrl(rawUrl, chatId, messageId);
+    console.log('[mensajeria][download-attachment][start]', {
+      rawUrl,
+      chatId,
+      messageId,
+      downloadUrl,
+      retries,
+    });
     const maxRetries = Math.max(0, Math.floor(Number(retries) || 0));
 
     let attempt = 0;
     // Reintenta solo para errores transitorios (network/5xx/429).
     while (true) {
       try {
-        return await firstValueFrom(
+        const blob = await firstValueFrom(
           this.http.get(downloadUrl, {
             headers: this.buildAuthHeaders(),
             responseType: 'blob',
           })
         );
+        console.log('[mensajeria][download-attachment][success]', {
+          rawUrl,
+          chatId,
+          messageId,
+          downloadUrl,
+          blobType: blob.type,
+          blobSize: blob.size,
+          attempt,
+        });
+        return blob;
       } catch (err: any) {
         const status = Number(err?.status || 0);
+        console.error('[mensajeria][download-attachment][error]', {
+          rawUrl,
+          chatId,
+          messageId,
+          downloadUrl,
+          status,
+          message: String(err?.message || err?.error?.message || ''),
+          attempt,
+          error: err,
+        });
         const transient = status === 0 || status === 429 || status >= 500;
         if (!transient || attempt >= maxRetries) {
           throw err;
@@ -207,24 +241,313 @@ export class MensajeriaService {
   public procesarTextoConIa(
     request: AiTextRequestDTO
   ): Observable<AiTextResponseDTO> {
-    const texto = String(request?.texto || '').trim();
-    const modo = String(request?.modo || '').trim();
-    const idiomaDestino = String(request?.idiomaDestino || '').trim();
-    if (!texto || !modo) {
-      throw new Error('AI_TEXT_PAYLOAD_INVALID');
+    return defer(() => {
+      const modo = String(request?.modo || '').trim();
+      const idiomaDestino = String(request?.idiomaDestino || '').trim();
+      const texto = String(request?.texto || '').trim();
+      const tipoMensaje = String(request?.tipoMensaje || '').trim().toUpperCase();
+      const isAudioRequest = tipoMensaje === 'AUDIO';
+      if (!modo || (!texto && !isAudioRequest)) {
+        throw new Error('AI_TEXT_PAYLOAD_INVALID');
+      }
+
+      if (isAudioRequest) {
+        return this.http.post<AiTextResponseDTO>(
+          `${this.backendBaseUrl}/api/ai/texto`,
+          {
+            modo,
+            messageId: Number(request?.messageId || 0) || undefined,
+            tipoMensaje: 'AUDIO',
+            audioUrl: String(request?.audioUrl || '').trim() || null,
+            mediaUrl: String(request?.mediaUrl || '').trim() || null,
+            audioEncryptedPayload:
+              String(request?.audioEncryptedPayload || '').trim() || null,
+            mimeType: String(request?.mimeType || '').trim() || null,
+            encryptedPayload: request?.encryptedPayload ?? null,
+            ...(idiomaDestino ? { idiomaDestino } : {}),
+          },
+          {
+            headers: this.buildAuthHeaders(),
+          }
+        ).pipe(
+          switchMap((response) =>
+            from(this.normalizeAiTextResponse(response, '', modo))
+          )
+        );
+      }
+
+      return from(this.buildAiTextEncryptedPayload(texto)).pipe(
+        switchMap((encryptedPayload) =>
+          this.http.post<AiTextResponseDTO>(
+            `${this.backendBaseUrl}/api/ai/texto`,
+            {
+              encryptedPayload,
+              modo,
+              ...(idiomaDestino ? { idiomaDestino } : {}),
+            },
+            {
+              headers: this.buildAuthHeaders(),
+            }
+          )
+        ),
+        switchMap((response) =>
+          from(this.normalizeAiTextResponse(response, texto, modo))
+        )
+      );
+    });
+  }
+
+  private getCurrentUserId(): number {
+    const fromLocal = Number(localStorage.getItem('usuarioId') || 0);
+    if (Number.isFinite(fromLocal) && fromLocal > 0) return fromLocal;
+    const fromSession = Number(sessionStorage.getItem('usuarioId') || 0);
+    if (Number.isFinite(fromSession) && fromSession > 0) return fromSession;
+    return 0;
+  }
+
+  private extractAuditPublicKeyFromSource(source: any): string | null {
+    if (typeof source === 'string') {
+      const key = source.trim();
+      return key || null;
+    }
+    if (!source || typeof source !== 'object') return null;
+    const candidates = [
+      source.publicKey,
+      source.auditPublicKey,
+      source.publicKeyAdminAudit,
+      source.publicKey_admin_audit,
+      source.forAdminPublicKey,
+      source?.audit?.publicKey,
+      source?.keys?.auditPublicKey,
+      source?.keys?.forAdminPublicKey,
+    ];
+    for (const candidate of candidates) {
+      const key = String(candidate ?? '').trim();
+      if (key) return key;
+    }
+    return null;
+  }
+
+  private persistAuditPublicKeyLocal(key: string): void {
+    const normalized = String(key || '').trim();
+    if (!normalized) return;
+    localStorage.setItem('auditPublicKey', normalized);
+    localStorage.setItem('publicKey_admin_audit', normalized);
+    localStorage.setItem('forAdminPublicKey', normalized);
+  }
+
+  private getStoredAuditPublicKey(): string | null {
+    const local =
+      localStorage.getItem('auditPublicKey') ||
+      localStorage.getItem('publicKey_admin_audit') ||
+      localStorage.getItem('forAdminPublicKey') ||
+      '';
+    const localKey = String(local).trim();
+    if (localKey) return localKey;
+
+    const envKey = String((environment as any)?.auditPublicKey ?? '').trim();
+    if (envKey) {
+      this.persistAuditPublicKeyLocal(envKey);
+      return envKey;
+    }
+    return null;
+  }
+
+  private async ensureAuditPublicKeyForE2E(): Promise<void> {
+    if (this.getStoredAuditPublicKey()) return;
+    if (this.auditPublicKeyInitPromise) {
+      await this.auditPublicKeyInitPromise;
+      return;
+    }
+    this.auditPublicKeyInitPromise = new Promise<void>((resolve) => {
+      this.authService.getAuditPublicKey().subscribe({
+        next: (resp: any) => {
+          const key =
+            this.extractAuditPublicKeyFromSource(resp) ||
+            this.extractAuditPublicKeyFromSource(resp?.data) ||
+            this.extractAuditPublicKeyFromSource(resp?.result);
+          if (key) this.persistAuditPublicKeyLocal(key);
+          resolve();
+        },
+        error: () => resolve(),
+      });
+    });
+    await this.auditPublicKeyInitPromise;
+    this.auditPublicKeyInitPromise = null;
+  }
+
+  private async buildAiTextEncryptedPayload(texto: string): Promise<string> {
+    await this.ensureAuditPublicKeyForE2E();
+    const adminPublicBase64 = String(this.getStoredAuditPublicKey() || '').trim();
+    if (!adminPublicBase64) throw new Error('AI_TEXT_AUDIT_KEY_MISSING');
+    const adminRsaKey = await this.cryptoService.importPublicKey(adminPublicBase64);
+
+    const aesKey = await this.cryptoService.generateAESKey();
+    const aesRawBase64 = await this.cryptoService.exportAESKey(aesKey);
+    const { iv, ciphertext } = await this.cryptoService.encryptAES(texto, aesKey);
+    const forAdmin = await this.cryptoService.encryptRSA(aesRawBase64, adminRsaKey);
+
+    return JSON.stringify({
+      type: 'E2E',
+      iv,
+      ciphertext,
+      forAdmin,
+    });
+  }
+
+  private parseAiEncryptedPayload(raw: unknown): any {
+    let candidate = String(raw || '').trim();
+    if (!candidate) return {};
+    for (let i = 0; i < 4; i++) {
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed && typeof parsed === 'object') return parsed;
+        if (typeof parsed === 'string') {
+          candidate = parsed.trim();
+          continue;
+        }
+        return {};
+      } catch {
+        const quoted =
+          (candidate.startsWith('"') && candidate.endsWith('"')) ||
+          (candidate.startsWith("'") && candidate.endsWith("'"));
+        if (quoted) {
+          candidate = candidate.slice(1, -1).trim();
+          continue;
+        }
+        if (candidate.includes('\\"')) {
+          const unescaped = candidate.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+          if (unescaped !== candidate) {
+            candidate = unescaped.trim();
+            continue;
+          }
+        }
+        return {};
+      }
+    }
+    return {};
+  }
+
+  private extractAesBase64FromEnvelope(raw: unknown): string {
+    const text = String(raw || '').trim();
+    if (!text) return '';
+    try {
+      const parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== 'object') return text;
+      const candidates = [
+        parsed?.aesKey,
+        parsed?.aes,
+        parsed?.key,
+        parsed?.value,
+        parsed?.raw,
+        parsed?.base64,
+        parsed?.secret,
+      ];
+      for (const candidate of candidates) {
+        const value = String(candidate || '').trim();
+        if (value) return value;
+      }
+      return text;
+    } catch {
+      return text;
+    }
+  }
+
+  private async decryptAiTextPayload(raw: unknown): Promise<string> {
+    const payload = this.parseAiEncryptedPayload(raw);
+    const iv = String(payload?.iv || '').trim();
+    const ciphertext = String(payload?.ciphertext || '').trim();
+    if (!iv || !ciphertext) throw new Error('AI_TEXT_ENCRYPTED_PAYLOAD_MISSING');
+
+    const myId = this.getCurrentUserId();
+    if (!myId) throw new Error('AI_TEXT_USER_ID_MISSING');
+
+    const privKeyBase64 = String(localStorage.getItem(`privateKey_${myId}`) || '').trim();
+    if (!privKeyBase64) throw new Error('AI_TEXT_DECRYPT_PRIVATE_KEY_MISSING');
+    const privateKey = await this.cryptoService.importPrivateKey(privKeyBase64);
+
+    const envelopeCandidates: string[] = [];
+    const pushIfAny = (value: unknown): void => {
+      const text = String(value || '').trim();
+      if (!text) return;
+      if (!envelopeCandidates.includes(text)) envelopeCandidates.push(text);
+    };
+    pushIfAny(payload?.forReceptor);
+    pushIfAny(payload?.forEmisor);
+    pushIfAny(payload?.forAdmin);
+    const forReceptores =
+      payload?.forReceptores && typeof payload.forReceptores === 'object'
+        ? (payload.forReceptores as Record<string, unknown>)
+        : null;
+    if (forReceptores) {
+      pushIfAny(forReceptores[String(myId)]);
+      for (const candidate of Object.values(forReceptores)) pushIfAny(candidate);
     }
 
-    return this.http.post<AiTextResponseDTO>(
-      `${this.backendBaseUrl}/api/ai/texto`,
-      {
-        texto,
-        modo,
-        ...(idiomaDestino ? { idiomaDestino } : {}),
-      },
-      {
-        headers: this.buildAuthHeaders(),
+    let aesRaw = '';
+    for (const envelope of envelopeCandidates) {
+      try {
+        aesRaw = await this.cryptoService.decryptRSA(envelope, privateKey);
+        if (aesRaw) break;
+      } catch {
+        // try next envelope
       }
-    );
+    }
+    if (!aesRaw) throw new Error('AI_TEXT_DECRYPT_ENVELOPE_MISSING');
+
+    const aesBase64 = this.extractAesBase64FromEnvelope(aesRaw);
+    const aesKey = await this.cryptoService.importAESKey(aesBase64);
+    const plain = await this.cryptoService.decryptAES(ciphertext, iv, aesKey);
+    const resolved = String(plain || '').trim();
+    if (!resolved) throw new Error('AI_TEXT_DECRYPT_FAILED');
+    return resolved;
+  }
+
+  private async normalizeAiTextResponse(
+    response: AiTextResponseDTO | null | undefined,
+    fallbackOriginal: string,
+    fallbackMode: string
+  ): Promise<AiTextResponseDTO> {
+    if (!response) {
+      return {
+        success: false,
+        codigo: 'AI_TEXT_EMPTY_RESPONSE',
+        mensaje: 'Respuesta vacia del backend.',
+        modo: fallbackMode,
+        textoOriginal: fallbackOriginal,
+        textoGenerado: '',
+      };
+    }
+    if (!response.encryptedPayload) {
+      return {
+        ...response,
+        textoOriginal: String(response.textoOriginal || fallbackOriginal || '').trim(),
+        textoGenerado: String(response.textoGenerado || '').trim(),
+        modo: String(response.modo || fallbackMode || '').trim(),
+      };
+    }
+
+    const plain = await this.decryptAiTextPayload(response.encryptedPayload);
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(plain);
+    } catch {
+      parsed = { textoGenerado: plain };
+    }
+
+    return {
+      ...response,
+      textoOriginal: String(
+        parsed?.textoOriginal || response?.textoOriginal || fallbackOriginal || ''
+      ).trim(),
+      textoGenerado: String(
+        parsed?.textoGenerado || response?.textoGenerado || ''
+      ).trim(),
+      modo: String(parsed?.modo || response?.modo || fallbackMode || '').trim(),
+      success: parsed?.success ?? response.success,
+      codigo: String(parsed?.codigo || response.codigo || '').trim(),
+      mensaje: String(parsed?.mensaje || response.mensaje || '').trim(),
+    };
   }
 
   private toFile(input: Blob | File, preferredName?: string): File {

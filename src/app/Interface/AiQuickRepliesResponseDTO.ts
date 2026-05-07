@@ -3,4 +3,5 @@ export interface AiQuickRepliesResponseDTO {
   codigo: string;
   mensaje: string;
   sugerencias: string[];
+  encryptedPayload?: string | Record<string, unknown> | null;
 }

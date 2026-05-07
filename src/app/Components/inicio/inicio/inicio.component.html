@@ -4,8 +4,8 @@
     <header class="topbar">
       <div class="topbar__left">
         <i class="fas fa-bars topbar__menu-movil"></i>
-        <i class="fas fa-comments topbar__logo"></i>
-        <span class="topbar__brand">TejeChat</span>
+        <img src="assets/Nexo.svg" alt="Nexo" class="topbar__logo" />
+        <span class="topbar__brand"><span class="topbar__brand-n">N</span>exo</span>
       </div>
 
       <div class="topbar__search">
@@ -69,7 +69,7 @@
           <button class="topbar__avatar-btn" type="button" (click)="toggleTopbarProfileMenu($event)">
             <img *ngIf="usuarioFotoUrl; else topbarAvatarFallback" [src]="usuarioFotoUrl" alt="Perfil" class="topbar__avatar" />
             <ng-template #topbarAvatarFallback>
-              <span class="topbar__avatar-fallback">{{ usuarioIniciales }}</span>
+              <span class="topbar__avatar-fallback-perfil">{{ usuarioIniciales }}</span>
             </ng-template>
           </button>
           <div class="topbar-profile-menu" *ngIf="showTopbarProfileMenu">
@@ -165,7 +165,7 @@
         <ng-template #chatListContent>
           <div *ngIf="!isPublicChatsView; else publicChatsContent" class="chat-list-default-view">
           <div class="encabezado-chats">
-            <div class="titulo-chat">TejeChat</div>
+            <div class="titulo-chat"><span class="titulo-chat__n">N</span>exo</div>
             <div class="acciones-chat">
               <button class="icono-chat" title="Crear grupo" data-bs-toggle="modal" (click)="crearGrupoModal.open()"
                 data-bs-target="#crearGrupoModal">
@@ -182,6 +182,15 @@
                   <i class="fas fa-ellipsis-v"></i>
                 </button>
                 <div class="chat-list-menu" *ngIf="showChatListHeaderMenu">
+                  <button
+                    type="button"
+                    class="chat-list-menu-item chat-list-menu-item--ai"
+                    (mousedown)="$event.stopPropagation()"
+                    (click)="openGlobalMessageSearchPopup($event)"
+                  >
+                    <i class="bi bi-stars"></i>
+                    Buscar Mensajes Global
+                  </button>
                   <button
                     type="button"
                     class="chat-list-menu-item chat-list-menu-item--schedule"
@@ -260,7 +269,16 @@
             </label>
 
             <div class="foto-con-estado">
-              <img [src]="chat.foto" alt="Foto" class="foto-perfil" />
+              <img *ngIf="hasChatAvatar(chat); else chatAvatarFallback" [src]="getChatAvatarSrc(chat)" alt="Foto" class="foto-perfil" />
+              <ng-template #chatAvatarFallback>
+                <span
+                  class="topbar__avatar-fallback chat-avatar-fallback-spacing"
+                  [style.background]="getChatAvatarColor(chat)"
+                  [attr.aria-label]="'Avatar de ' + getChatInitials(chat)"
+                >
+                  {{ getChatInitials(chat) }}
+                </span>
+              </ng-template>
               <span *ngIf="chat.esGrupo" class="badge-group" title="Grupo">
                 <i class="bi bi-people-fill"></i>
               </span>
@@ -2171,6 +2189,9 @@
 <app-ai-ask-popup
   [open]="mostrarModalPreguntaIa && aiPanelOpen"
   [referenceText]="aiQuote || mensajeSeleccionadoParaIa?.contenido || ''"
+  [referenceType]="getAiAskReferenceType()"
+  [referenceAudioSrc]="getAiAskReferenceAudioSrc()"
+  [referenceIsMine]="isAiAskReferenceMine()"
   [question]="preguntaIaMensaje"
   [loading]="cargandoIaMensaje"
   [result]="respuestaIaMensaje"
@@ -2200,3 +2221,15 @@
   (addSticker)="saveIncomingStickerToMyCollection()"
   (deleteSticker)="deleteIncomingStickerFromMyCollection()"
 ></app-sticker-collection-popup>
+<app-ai-global-message-search-popup
+  [open]="showGlobalMessageSearchPopup"
+  [loading]="globalMessageSearchLoading"
+  [consulta]="globalMessageSearchConsulta"
+  [error]="globalMessageSearchError"
+  [resumenBusqueda]="globalMessageSearchResumenBusqueda"
+  [resultados]="globalMessageSearchResultados"
+  (closed)="closeGlobalMessageSearchPopup()"
+  (consultaChange)="onGlobalMessageSearchConsultaChange($event)"
+  (submitted)="submitGlobalMessageSearch($event)"
+  (resultSelected)="onGlobalMessageSearchResultSelected($event)"
+></app-ai-global-message-search-popup>

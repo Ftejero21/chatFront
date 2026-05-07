@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 
 export type AiAskQuickAction = 'VERIFY' | 'SUGGEST_REPLY';
+export type AiAskReferenceType = 'TEXT' | 'AUDIO';
 
 @Component({
   selector: 'app-ai-ask-popup',
@@ -22,6 +23,9 @@ export class AiAskPopupComponent implements OnChanges {
 
   @Input() open = false;
   @Input() referenceText = '';
+  @Input() referenceType: AiAskReferenceType = 'TEXT';
+  @Input() referenceAudioSrc = '';
+  @Input() referenceIsMine = false;
   @Input() question = '';
   @Input() loading = false;
   @Input() result = '';
@@ -56,6 +60,14 @@ export class AiAskPopupComponent implements OnChanges {
 
   public get resolvedReferenceText(): string {
     return String(this.referenceText || '').trim() || 'Texto del mensaje seleccionado...';
+  }
+
+  public get resolvedReferenceAudioSrc(): string {
+    return String(this.referenceAudioSrc || '').trim();
+  }
+
+  public get isAudioReference(): boolean {
+    return this.referenceType === 'AUDIO';
   }
 
   public onBackdropClick(): void {

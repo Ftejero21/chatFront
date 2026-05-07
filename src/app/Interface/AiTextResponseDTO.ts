@@ -7,4 +7,5 @@ export interface AiTextResponseDTO {
   success: boolean;
   codigo: string;
   mensaje: string;
+  encryptedPayload?: string | Record<string, unknown> | null;
 }

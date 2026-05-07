@@ -19,6 +19,7 @@
 }
 .brand-icon { color: #3b82f6; font-size: 18px; }
 .brand-text { font-weight: 800; color: #0f172a; letter-spacing: .2px; }
+.brand-text-accent { color: #7c3aed; }
 .brand-chip {
   background: #eff6ff;
   color: #1e40af;

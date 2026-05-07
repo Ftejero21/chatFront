@@ -5,4 +5,5 @@ export interface AiPollDraftResponseDTO {
   pregunta: string;
   opciones: string[];
   multipleRespuestas: boolean;
+  encryptedPayload?: string | Record<string, unknown> | null;
 }

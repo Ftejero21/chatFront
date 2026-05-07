@@ -1,0 +1,224 @@
+<div
+  *ngIf="open"
+  class="ai-global-search-overlay"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Buscar mensajes global"
+  (click)="onBackdropClick()"
+>
+  <div class="ai-global-search-popup animate-fade-in" (click)="$event.stopPropagation()">
+    <div class="ai-global-search-popup__header">
+      <div class="ai-global-search-popup__title-wrap">
+        <div class="ai-global-search-popup__logo-box">
+          <img src="assets/Nexo.svg" alt="Nexo" />
+        </div>
+        <h2 class="ai-global-search-popup__title">
+          Buscador Inteligente <span class="ia-gradient-text">Nexo</span>
+        </h2>
+      </div>
+      <button
+        type="button"
+        class="ai-global-search-popup__close"
+        [disabled]="loading"
+        aria-label="Cerrar"
+        (click)="onClose()"
+      >
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+
+    <div class="ai-global-search-popup__form">
+      <label for="aiGlobalSearchConsulta">Consulta con Lenguaje Natural</label>
+      <div class="ai-global-search-popup__textarea-wrap">
+        <textarea
+          id="aiGlobalSearchConsulta"
+          rows="4"
+          placeholder="Ej: ¿Qué le dije a Daniel el otro día?"
+          [ngModel]="consulta"
+          [disabled]="loading"
+          (ngModelChange)="onConsultaChange($event)"
+        ></textarea>
+        <div class="ai-global-search-popup__textarea-hint">Analizado por IA</div>
+      </div>
+
+      <button
+        type="button"
+        class="ai-global-search-popup__submit"
+        [disabled]="!canSubmit"
+        (click)="onSubmit()"
+      >
+        <i class="bi bi-search"></i>
+        {{ loading ? 'Buscando mensajes...' : 'Buscar Mensajes' }}
+      </button>
+
+      <div *ngIf="error" class="ai-global-search-popup__error">{{ error }}</div>
+    </div>
+
+    <div class="ai-global-search-popup__results-section">
+      <div class="ai-global-search-popup__results-header">
+        <h3>Resultados encontrados</h3>
+        <span class="ai-global-search-popup__count">{{ resultados.length }} coincidencias</span>
+      </div>
+
+      <div *ngIf="loading" class="ai-global-search-popup__loading">Analizando mensajes...</div>
+
+      <div *ngIf="!loading && resultados.length > 0" class="ai-global-search-popup__results">
+        <div *ngIf="hasResumenBusqueda" class="ai-global-search-popup__summary-note">
+          {{ resumenBusqueda }}
+        </div>
+        <div
+          class="ai-global-search-popup__result result-card"
+          role="button"
+          tabindex="0"
+          [ngClass]="{
+            'individual': r.tipoChat === 'INDIVIDUAL',
+            'grupal': r.tipoChat === 'GRUPAL'
+          }"
+          *ngFor="let r of resultados"
+          (click)="onSelectResult(r)"
+          (keydown)="onResultCardKeydown($event, r)"
+        >
+          <ng-container *ngIf="resolveResultMessageType(r) as resolvedType">
+          <div class="row-top">
+            <div class="row-top-left">
+              <span
+                class="result-type-badge"
+                [ngClass]="{
+                  'result-type-badge--individual': r.tipoChat === 'INDIVIDUAL',
+                  'result-type-badge--grupal': r.tipoChat === 'GRUPAL'
+                }"
+              >
+                {{ r.tipoChat === 'GRUPAL' ? 'Grupal' : 'Individual' }}
+              </span>
+              <span class="result-chat-name">
+                {{
+                  r.tipoChat === 'GRUPAL'
+                    ? (r.nombreChatGrupal || 'Chat grupal')
+                    : (r.nombreReceptor || 'Chat individual')
+                }}
+              </span>
+            </div>
+            <span class="result-relevance">Relevancia: {{ r.relevancia }}%</span>
+          </div>
+
+          <div class="row-mid" [ngSwitch]="resolvedType">
+            <p *ngSwitchCase="'TEXT'" class="row-mid-text">"{{ getResultTextContent(r) }}"</p>
+
+            <ng-container *ngSwitchCase="'IMAGE'">
+              <div *ngIf="getResultMediaUrl(r) as imageUrl; else imagePendingOrFallback" class="ai-result-media-wrap">
+                <img
+                  class="starred-media-image"
+                  [src]="imageUrl"
+                  [alt]="r.descripcionTipoMensaje || 'Imagen'"
+                  loading="lazy"
+                  (error)="onResultMediaError(r, $event)"
+                />
+              </div>
+              <ng-template #imagePendingOrFallback>
+                <p *ngIf="isHydratingResultMedia(r)" class="row-mid-text">Cargando imagen...</p>
+                <p *ngIf="!isHydratingResultMedia(r)" class="row-mid-text">{{ getResultImageFallback(r) }}</p>
+              </ng-template>
+            </ng-container>
+
+            <ng-container *ngSwitchCase="'STICKER'">
+              <div *ngIf="getResultMediaUrl(r) as stickerUrl; else stickerPendingOrFallback" class="ai-result-media-wrap ai-result-media-wrap--sticker">
+                <img
+                  class="msg-sticker"
+                  [src]="stickerUrl"
+                  [alt]="r.descripcionTipoMensaje || 'Sticker'"
+                  loading="lazy"
+                  (error)="onResultMediaError(r, $event)"
+                />
+              </div>
+              <ng-template #stickerPendingOrFallback>
+                <p *ngIf="isHydratingResultMedia(r)" class="row-mid-text">Cargando sticker...</p>
+                <p *ngIf="!isHydratingResultMedia(r)" class="row-mid-text">{{ getResultStickerFallback(r) }}</p>
+              </ng-template>
+            </ng-container>
+
+            <ng-container *ngSwitchCase="'AUDIO'">
+              <div
+                *ngIf="getResultAudioSrc(r) as audioSrc; else audioFallback"
+                class="audio-bubble"
+                [class.mine]="isResultMine(r)"
+                (click)="stopResultNavigation($event)"
+              >
+                <button
+                  type="button"
+                  class="audio-play"
+                  [attr.aria-label]="(audioStates.get(r.mensajeId)?.playing ? 'Pausar' : 'Reproducir') + ' audio'"
+                  (click)="toggleResultAudio(r, resultAudioRef, $event)"
+                >
+                  <i
+                    class="fas"
+                    [ngClass]="audioStates.get(r.mensajeId)?.playing ? 'fa-pause' : 'fa-play'"
+                  ></i>
+                </button>
+                <div class="audio-wave">
+                  <div class="audio-track">
+                    <div class="audio-progress" [style.width.%]="getResultAudioProgressPercent(r)"></div>
+                  </div>
+                  <div class="audio-time">{{ getResultAudioTimeLabel(r) }}</div>
+                </div>
+                <audio
+                  #resultAudioRef
+                  data-ai-search-audio="true"
+                  preload="none"
+                  [src]="audioSrc"
+                  (click)="stopResultNavigation($event)"
+                  (loadedmetadata)="onResultAudioLoadedMetadata(r, resultAudioRef)"
+                  (timeupdate)="onResultAudioTimeUpdate(r, resultAudioRef)"
+                  (ended)="onResultAudioEnded(r)"
+                ></audio>
+              </div>
+              <ng-template #audioFallback>
+                <p *ngIf="isHydratingResultMedia(r)" class="row-mid-text">Cargando audio...</p>
+                <p *ngIf="!isHydratingResultMedia(r)" class="row-mid-text">{{ getResultAudioFallback(r) }}</p>
+              </ng-template>
+            </ng-container>
+
+            <ng-container *ngSwitchCase="'FILE'">
+              <div class="starred-media-file-wrap">
+                <a
+                  *ngIf="r.mediaUrl; else fileNoLink"
+                  class="starred-media-file"
+                  [href]="r.mediaUrl"
+                  [attr.download]="getResultFileName(r)"
+                  target="_blank"
+                  rel="noopener"
+                  (click)="stopResultNavigation($event)"
+                >
+                  <i class="bi bi-file-earmark"></i>
+                  <span class="starred-media-file__meta">
+                    <span class="starred-media-file__name">{{ getResultFileName(r) }}</span>
+                  </span>
+                </a>
+                <ng-template #fileNoLink>
+                  <p class="row-mid-text">{{ getResultFileFallback(r) }}</p>
+                </ng-template>
+              </div>
+            </ng-container>
+
+            <p *ngSwitchDefault class="row-mid-text">{{ r.contenidoVisible || r.descripcionTipoMensaje || '[Mensaje]' }}</p>
+          </div>
+
+          <div class="row-bottom">
+            <span class="result-date">Enviado el {{ r.fechaEnvio | date:'dd MMM HH:mm' }}</span>
+            <span class="result-go-link">{{ r.tipoChat === 'GRUPAL' ? 'Ir al grupo' : 'Ir al chat' }}</span>
+          </div>
+
+          <div class="result-reason">{{ r.motivoCoincidencia }}</div>
+          </ng-container>
+        </div>
+      </div>
+
+      <div *ngIf="!loading && !error && resultados.length === 0" class="ai-global-search-popup__empty">
+        Sin resultados.
+      </div>
+    </div>
+
+    <div class="ai-global-search-popup__footer">
+      La IA analiza el contexto semantico de tu consulta para encontrar coincidencias exactas y relacionadas.
+    </div>
+  </div>
+</div>

@@ -6,9 +6,9 @@
     <div class="auth-header fancy-header">
       <div class="auth-brand">
         <span class="brand-mark">
-          <i class="fas fa-comments brand-icon"></i>
+          <img src="assets/Nexo.svg" alt="Nexo" class="brand-logo" />
         </span>
-        <span class="brand-name">TejeChat</span>
+        <span class="brand-name"><span class="brand-name__n">N</span>exo</span>
       </div>
       <p class="brand-subtitle">Donde las ideas se entrelazan</p>
     </div>
@@ -30,8 +30,25 @@
         <label class="field-label">Correo electrónico</label>
         <label class="input-group input-group--soft">
           <i class="bi bi-envelope"></i>
-          <input type="email" [(ngModel)]="login.email" name="email" placeholder="nombre@ejemplo.com" required />
+          <input
+            type="email"
+            [(ngModel)]="login.email"
+            (ngModelChange)="onLoginEmailChange()"
+            name="email"
+            placeholder="nombre@ejemplo.com"
+            required
+            [attr.aria-invalid]="emailErrors.length > 0"
+            [attr.aria-describedby]="emailErrors.length > 0 ? 'login-email-errors' : null"
+          />
         </label>
+        <ul
+          *ngIf="emailErrors.length > 0"
+          id="login-email-errors"
+          class="field-errors"
+          aria-live="polite"
+        >
+          <li *ngFor="let error of emailErrors">{{ error }}</li>
+        </ul>
       </div>
 
       <div class="field-group">
@@ -44,9 +61,12 @@
           <input
             [type]="showLoginPassword ? 'text' : 'password'"
             [(ngModel)]="login.password"
+            (ngModelChange)="onLoginPasswordChange()"
             name="password"
             placeholder="Contraseña"
             required
+            [attr.aria-invalid]="passwordErrors.length > 0"
+            [attr.aria-describedby]="passwordErrors.length > 0 ? 'login-password-errors' : null"
           />
           <button
             type="button"
@@ -58,6 +78,14 @@
             <i [class]="showLoginPassword ? 'bi bi-eye' : 'bi bi-eye-slash'"></i>
           </button>
         </label>
+        <ul
+          *ngIf="passwordErrors.length > 0"
+          id="login-password-errors"
+          class="field-errors"
+          aria-live="polite"
+        >
+          <li *ngFor="let error of passwordErrors">{{ error }}</li>
+        </ul>
       </div>
 
       <div class="form-row">
@@ -205,5 +233,3 @@
 </div>
 
 <app-password-reset *ngIf="showResetPasswordModal" (close)="showResetPasswordModal = false"></app-password-reset>
-
-

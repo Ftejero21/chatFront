@@ -1,9 +1,7 @@
-import { AiReportContextMessageDTO } from './AiReportContextMessageDTO';
-
 export interface AiReportAnalysisRequestDTO {
+  chatId?: number | null;
+  chatGrupalId?: number | null;
+  tipoChat: 'INDIVIDUAL' | 'GRUPAL';
   usuarioDenunciadoId: number;
-  nombreUsuarioDenunciado: string;
-  motivosDisponibles: string[];
-  mensajes: AiReportContextMessageDTO[];
   maxMensajes: number;
 }

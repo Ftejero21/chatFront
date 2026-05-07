@@ -112,20 +112,22 @@ import {
 import { AiAskQuickAction } from '../../popup/ai-ask-popup/ai-ask-popup.component';
 import { AiReportAnalysisRequestDTO } from '../../../Interface/AiReportAnalysisRequestDTO';
 import { AiReportAnalysisResponseDTO } from '../../../Interface/AiReportAnalysisResponseDTO';
-import { AiReportContextMessageDTO } from '../../../Interface/AiReportContextMessageDTO';
 import { AiTextMode } from '../../../Interface/AiTextMode';
+import { AiTextRequestDTO } from '../../../Interface/AiTextRequestDTO';
 import {
-  AiEncryptedContextMessageDTO,
   AiEncryptedConversationSummaryRequestDTO,
 } from '../../../Interface/AiEncryptedConversationSummaryRequestDTO';
 import { AiConversationSummaryResponseDTO } from '../../../Interface/AiConversationSummaryResponseDTO';
 import { AiConversationSummaryRequestDTO } from '../../../Interface/AiConversationSummaryRequestDTO';
 import {
-  AiQuickReplyContextDTO,
   AiQuickRepliesChatType,
   AiQuickRepliesRequestDTO,
 } from '../../../Interface/AiQuickRepliesRequestDTO';
 import { AiQuickRepliesResponseDTO } from '../../../Interface/AiQuickRepliesResponseDTO';
+import {
+  AiEncryptedMessageSearchRequest,
+  AiEncryptedMessageSearchResult,
+} from '../../../Interface/AiEncryptedMessageSearchDTO';
 import { AiService } from '../../../Service/ai/ai.service';
 import { StickerService } from '../../../Service/sticker/sticker.service';
 import { StickerDTO } from '../../../Interface/StickerDTO';
@@ -167,6 +169,16 @@ interface GroupE2EBuildResult {
   forReceptoresKeys: string[];
   expectedRecipientCount: number;
   expectedRecipientIds: number[];
+}
+
+interface AiSummaryEncryptedPayload {
+  type?: string;
+  iv?: string;
+  ciphertext?: string;
+  forReceptor?: string;
+  forEmisor?: string;
+  forAdmin?: string;
+  forReceptores?: Record<string, unknown>;
 }
 
 interface AudioE2EBasePayload {
@@ -524,6 +536,18 @@ export type UserWithEstado = UsuarioDTO & { estado?: EstadoUsuario };
   styleUrl: './inicio.component.css',
 })
 export class InicioComponent {
+  private readonly chatAvatarPalette: readonly string[] = [
+    '#f97316',
+    '#22c55e',
+    '#ca8a04',
+    '#06b6d4',
+    '#ef4444',
+    '#8b5cf6',
+    '#3b82f6',
+    '#ec4899',
+    '#65a30d',
+    '#14b8a6',
+  ];
   // ==========
   // PUBLIC FIELDS (visibles para el template)
   // ==========
@@ -617,6 +641,12 @@ export class InicioComponent {
   public pollComposerAutogenerarIa = false;
   public showScheduleMessageComposer = false;
   public showChatListHeaderMenu = false;
+  public showGlobalMessageSearchPopup = false;
+  public globalMessageSearchConsulta = '';
+  public globalMessageSearchLoading = false;
+  public globalMessageSearchError: string | null = null;
+  public globalMessageSearchResumenBusqueda: string | null = null;
+  public globalMessageSearchResultados: AiEncryptedMessageSearchResult[] = [];
   public showMuteDurationPicker = false;
   public muteDurationTargetChat: any | null = null;
   public muteRequestInFlight = false;
@@ -1074,7 +1104,6 @@ export class InicioComponent {
   private readonly QUICK_REPLIES_DEBOUNCE_MS = 1500;
   private readonly QUICK_REPLIES_COOLDOWN_MS = 2 * 60 * 1000;
   private readonly QUICK_REPLIES_MIN_MESSAGE_CHARS = 8;
-  private readonly QUICK_REPLIES_MAX_CONTEXT_MESSAGES = 6;
   private readonly QUICK_REPLIES_MAX_MESSAGE_CHARS = 120;
   private readonly POLL_IA_MAX_CONTEXT_MESSAGES = 100;
   private readonly POLL_IA_MAX_MESSAGE_CHARS = 200;
@@ -3451,15 +3480,202 @@ export class InicioComponent {
   );
 }
 
-private extraerResumenPlanoIa(
+private async extraerResumenPlanoIa(
   response: AiConversationSummaryResponseDTO | null | undefined
-): string {
+): Promise<string> {
   if (!response?.success) return '';
 
   const resumen = String(response?.resumen || '').trim();
   if (resumen) return resumen;
 
+  const encryptedSummary = await this.tryDecryptEncryptedResumenIa(response);
+  if (encryptedSummary) return encryptedSummary;
+
   return String(response?.mensaje || '').trim();
+}
+
+  private async tryDecryptEncryptedResumenIa(
+  response: AiConversationSummaryResponseDTO | null | undefined
+): Promise<string> {
+  const encryptedRaw = (response as any)?.encryptedPayload;
+  if (!encryptedRaw) return '';
+
+  const payload = this.parseAiSummaryEncryptedPayload(encryptedRaw);
+  const iv = String(payload?.iv || '').trim();
+  const ciphertext = String(payload?.ciphertext || '').trim();
+  if (!iv || !ciphertext) {
+    throw new Error('AI_SUMMARY_ENCRYPTED_PAYLOAD_MISSING');
+  }
+
+  const myId = Number(this.getMyUserId ? this.getMyUserId() : this.usuarioActualId);
+  const privKeyBase64 = String(localStorage.getItem(`privateKey_${myId}`) || '').trim();
+  if (!privKeyBase64) {
+    throw new Error('AI_SUMMARY_DECRYPT_FAILED');
+  }
+
+  const privateKey = await this.cryptoService.importPrivateKey(privKeyBase64);
+  const envelopeCandidates: string[] = [];
+  const pushIfAny = (value: unknown): void => {
+    const text = String(value || '').trim();
+    if (!text) return;
+    if (!envelopeCandidates.includes(text)) envelopeCandidates.push(text);
+  };
+
+  pushIfAny(payload?.forReceptor);
+  pushIfAny(payload?.forEmisor);
+  pushIfAny(payload?.forAdmin);
+
+  const forReceptores =
+    payload?.forReceptores && typeof payload.forReceptores === 'object'
+      ? (payload.forReceptores as Record<string, unknown>)
+      : null;
+  if (forReceptores) {
+    pushIfAny(forReceptores[String(myId)]);
+    for (const candidate of Object.values(forReceptores)) {
+      pushIfAny(candidate);
+    }
+  }
+
+  let aesRaw = '';
+  for (const envelope of envelopeCandidates) {
+    try {
+      aesRaw = await this.cryptoService.decryptRSA(envelope, privateKey);
+      if (aesRaw) break;
+    } catch {
+      // probar siguiente envelope
+    }
+  }
+
+  if (!aesRaw) {
+    throw new Error('AI_SUMMARY_DECRYPT_FAILED');
+  }
+
+  const aesBase64 = this.extractAesBase64FromAiSummaryEnvelope(aesRaw);
+  const aesKey = await this.cryptoService.importAESKey(aesBase64);
+  const plain = await this.cryptoService.decryptAES(ciphertext, iv, aesKey);
+  const resolved = String(plain || '').trim();
+  if (!resolved) throw new Error('AI_SUMMARY_DECRYPT_FAILED');
+  return resolved;
+}
+
+private async tryDecryptAiEncryptedPayload(raw: unknown): Promise<string> {
+  if (!raw) return '';
+  const payload = this.parseAiSummaryEncryptedPayload(raw);
+  const iv = String(payload?.iv || '').trim();
+  const ciphertext = String(payload?.ciphertext || '').trim();
+  if (!iv || !ciphertext) {
+    throw new Error('AI_ENCRYPTED_PAYLOAD_MISSING');
+  }
+
+  const myId = Number(this.getMyUserId ? this.getMyUserId() : this.usuarioActualId);
+  const privKeyBase64 = String(localStorage.getItem(`privateKey_${myId}`) || '').trim();
+  if (!privKeyBase64) {
+    throw new Error('AI_DECRYPT_FAILED');
+  }
+
+  const privateKey = await this.cryptoService.importPrivateKey(privKeyBase64);
+  const envelopeCandidates: string[] = [];
+  const pushIfAny = (value: unknown): void => {
+    const text = String(value || '').trim();
+    if (!text) return;
+    if (!envelopeCandidates.includes(text)) envelopeCandidates.push(text);
+  };
+
+  pushIfAny(payload?.forReceptor);
+  pushIfAny(payload?.forEmisor);
+  pushIfAny(payload?.forAdmin);
+
+  const forReceptores =
+    payload?.forReceptores && typeof payload.forReceptores === 'object'
+      ? (payload.forReceptores as Record<string, unknown>)
+      : null;
+  if (forReceptores) {
+    pushIfAny(forReceptores[String(myId)]);
+    for (const candidate of Object.values(forReceptores)) {
+      pushIfAny(candidate);
+    }
+  }
+
+  let aesRaw = '';
+  for (const envelope of envelopeCandidates) {
+    try {
+      aesRaw = await this.cryptoService.decryptRSA(envelope, privateKey);
+      if (aesRaw) break;
+    } catch {
+      // probar siguiente envelope
+    }
+  }
+
+  if (!aesRaw) {
+    throw new Error('AI_DECRYPT_FAILED');
+  }
+
+  const aesBase64 = this.extractAesBase64FromAiSummaryEnvelope(aesRaw);
+  const aesKey = await this.cryptoService.importAESKey(aesBase64);
+  const plain = await this.cryptoService.decryptAES(ciphertext, iv, aesKey);
+  const resolved = String(plain || '').trim();
+  if (!resolved) throw new Error('AI_DECRYPT_FAILED');
+  return resolved;
+}
+
+private parseAiSummaryEncryptedPayload(raw: unknown): AiSummaryEncryptedPayload {
+  let candidate = String(raw || '').trim();
+  if (!candidate) return {};
+
+  for (let i = 0; i < 4; i++) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object') return parsed as AiSummaryEncryptedPayload;
+      if (typeof parsed === 'string') {
+        candidate = parsed.trim();
+        continue;
+      }
+      return {};
+    } catch {
+      const quoted =
+        (candidate.startsWith('"') && candidate.endsWith('"')) ||
+        (candidate.startsWith("'") && candidate.endsWith("'"));
+      if (quoted) {
+        candidate = candidate.slice(1, -1).trim();
+        continue;
+      }
+      if (candidate.includes('\\"')) {
+        const unescaped = candidate.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+        if (unescaped !== candidate) {
+          candidate = unescaped.trim();
+          continue;
+        }
+      }
+      return {};
+    }
+  }
+
+  return {};
+}
+
+private extractAesBase64FromAiSummaryEnvelope(raw: unknown): string {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object') return text;
+    const candidates = [
+      parsed?.aesKey,
+      parsed?.aes,
+      parsed?.key,
+      parsed?.value,
+      parsed?.raw,
+      parsed?.base64,
+      parsed?.secret,
+    ];
+    for (const candidate of candidates) {
+      const value = String(candidate || '').trim();
+      if (value) return value;
+    }
+    return text;
+  } catch {
+    return text;
+  }
 }
 
 private preserveEncryptedPayloadForIaSummary(
@@ -9790,7 +10006,7 @@ private async decryptPreviewString(
       ) {
         return;
       }
-      const resumen = this.extraerResumenPlanoIa(response);
+      const resumen = await this.extraerResumenPlanoIa(response);
 
       if (response?.success && resumen) {
         this.resumenIa = resumen;
@@ -9955,13 +10171,13 @@ private async decryptPreviewString(
     const chatKey = this.getChatKeyActual();
     if (!chatKey || !this.esObjetivoRespuestasRapidasActual(mensaje, chatKey)) return;
 
-    const request = this.construirRequestRespuestasRapidas(mensaje);
+    const request = this.construirRequestRespuestasRapidas();
     if (!request) {
       this.limpiarRespuestasRapidas(false);
       return;
     }
 
-    const messageId = Number(request.messageId || 0);
+    const messageId = Number(mensaje?.id || 0);
     const normalizedMessageId =
       Number.isFinite(messageId) && messageId > 0 ? Math.round(messageId) : null;
     const requestSeq = ++this.quickRepliesRequestSeq;
@@ -10013,59 +10229,20 @@ private async decryptPreviewString(
       });
   }
 
-  private construirRequestRespuestasRapidas(
-    mensaje: MensajeDTO
-  ): AiQuickRepliesRequestDTO | null {
+  private construirRequestRespuestasRapidas(): AiQuickRepliesRequestDTO | null {
     const chatId = Number(this.chatActual?.id ?? this.chatSeleccionadoId ?? 0);
     if (!Number.isFinite(chatId) || chatId <= 0) return null;
-
-    const mensajeRecibido = String(mensaje?.contenido || '').trim();
-    if (mensajeRecibido.length < this.QUICK_REPLIES_MIN_MESSAGE_CHARS) return null;
 
     const tipoChat: AiQuickRepliesChatType = this.chatActual?.esGrupo
       ? 'GRUPAL'
       : 'INDIVIDUAL';
-    const messageIdRaw = Number(mensaje?.id || 0);
-    const messageId =
-      Number.isFinite(messageIdRaw) && messageIdRaw > 0
-        ? Math.round(messageIdRaw)
-        : undefined;
-    const contexto = this.construirContextoRespuestasRapidas(mensaje);
 
     return {
-      mensajeRecibido,
       tipoChat,
-      contexto: contexto.length > 0 ? contexto : undefined,
-      chatId: tipoChat === 'INDIVIDUAL' ? Math.round(chatId) : undefined,
-      chatGrupalId: tipoChat === 'GRUPAL' ? Math.round(chatId) : undefined,
-      messageId,
+      chatId: tipoChat === 'INDIVIDUAL' ? Math.round(chatId) : null,
+      chatGrupalId: tipoChat === 'GRUPAL' ? Math.round(chatId) : null,
+      maxMensajes: 20,
     };
-  }
-
-  private construirContextoRespuestasRapidas(
-    mensajeObjetivo: MensajeDTO
-  ): AiQuickReplyContextDTO[] {
-    const mensajes = Array.isArray(this.mensajesSeleccionados)
-      ? this.mensajesSeleccionados
-      : [];
-    if (mensajes.length === 0) return [];
-
-    const targetId = Number(mensajeObjetivo?.id || 0);
-    const targetIndex =
-      Number.isFinite(targetId) && targetId > 0
-        ? mensajes.findIndex((item) => Number(item?.id) === Math.round(targetId))
-        : mensajes.length - 1;
-    const boundedIndex = targetIndex >= 0 ? targetIndex : mensajes.length - 1;
-
-    return mensajes
-      .slice(0, boundedIndex + 1)
-      .filter((item) => this.esMensajeValidoParaContextoRespuestasRapidas(item))
-      .slice(-this.QUICK_REPLIES_MAX_CONTEXT_MESSAGES)
-      .map((item) => ({
-        autor: this.resolveQuickReplyAuthor(item),
-        contenido: this.truncarTextoQuickReply(String(item?.contenido || '')),
-        esUsuarioActual: Number(item?.emisorId) === Number(this.usuarioActualId),
-      }));
   }
 
   private getChatKeyActual(): string | null {
@@ -10108,51 +10285,38 @@ private async decryptPreviewString(
     if (this.isTemporalExpiredMessage(mensaje)) return false;
     if (mensaje?.activo === false) return false;
 
-    const tipo = String(mensaje?.tipo || 'TEXT').trim().toUpperCase() || 'TEXT';
-    if (tipo !== 'TEXT') return false;
     if (parsePollPayload(mensaje)) return false;
-    if (
-      mensaje?.audioUrl ||
-      mensaje?.audioDataUrl ||
-      mensaje?.imageUrl ||
-      mensaje?.imageDataUrl ||
-      mensaje?.fileUrl ||
-      mensaje?.fileDataUrl
-    ) {
-      return false;
-    }
+
+    const tipo = String(mensaje?.tipo || 'TEXT').trim().toUpperCase() || 'TEXT';
+    const esAudio =
+      tipo === 'AUDIO' ||
+      !!String(mensaje?.audioUrl || '').trim() ||
+      !!String(mensaje?.audioDataUrl || '').trim() ||
+      String(mensaje?.audioMime || '').trim().toLowerCase().startsWith('audio/');
+    if (esAudio) return true;
+
+    const esSticker =
+      tipo === 'STICKER' ||
+      (Number.isFinite(Number(mensaje?.stickerId || 0)) && Number(mensaje?.stickerId || 0) > 0);
+    if (esSticker) return false;
+
+    const esImagen =
+      tipo === 'IMAGE' ||
+      !!String(mensaje?.imageUrl || '').trim() ||
+      !!String(mensaje?.imageDataUrl || '').trim();
+    if (esImagen) return false;
+
+    const esArchivo =
+      tipo === 'FILE' ||
+      !!String(mensaje?.fileUrl || '').trim() ||
+      !!String(mensaje?.fileDataUrl || '').trim();
+    if (esArchivo) return false;
+
+    if (tipo !== 'TEXT') return false;
 
     const contenido = String(mensaje?.contenido || '').trim();
     if (!contenido) return false;
     if (contenido.length < this.QUICK_REPLIES_MIN_MESSAGE_CHARS) return false;
-    if (this.isEncryptedHiddenPlaceholder(contenido)) return false;
-    return true;
-  }
-
-  private esMensajeValidoParaContextoRespuestasRapidas(
-    mensaje: MensajeDTO | null | undefined
-  ): boolean {
-    if (!mensaje) return false;
-    if (this.isSystemMessage(mensaje)) return false;
-    if (this.isTemporalExpiredMessage(mensaje)) return false;
-    if (mensaje?.activo === false) return false;
-
-    const tipo = String(mensaje?.tipo || 'TEXT').trim().toUpperCase() || 'TEXT';
-    if (tipo !== 'TEXT') return false;
-    if (parsePollPayload(mensaje)) return false;
-    if (
-      mensaje?.audioUrl ||
-      mensaje?.audioDataUrl ||
-      mensaje?.imageUrl ||
-      mensaje?.imageDataUrl ||
-      mensaje?.fileUrl ||
-      mensaje?.fileDataUrl
-    ) {
-      return false;
-    }
-
-    const contenido = String(mensaje?.contenido || '').trim();
-    if (!contenido) return false;
     if (this.isEncryptedHiddenPlaceholder(contenido)) return false;
     return true;
   }
@@ -10207,31 +10371,6 @@ private async decryptPreviewString(
     }
 
     return Array.from(dedup);
-  }
-
-  private truncarTextoQuickReply(textoRaw: string): string {
-    const texto = String(textoRaw || '').replace(/\s+/g, ' ').trim();
-    if (texto.length <= this.QUICK_REPLIES_MAX_MESSAGE_CHARS) return texto;
-    return `${texto.slice(0, this.QUICK_REPLIES_MAX_MESSAGE_CHARS).trimEnd()}...`;
-  }
-
-  private resolveQuickReplyAuthor(mensaje: MensajeDTO): string {
-    if (Number(mensaje?.emisorId) === Number(this.usuarioActualId)) return 'Tú';
-
-    const nombreDirecto =
-      `${mensaje?.emisorNombre || ''} ${mensaje?.emisorApellido || ''}`.trim();
-    if (nombreDirecto) return nombreDirecto;
-
-    const chatId = Number(this.chatActual?.id ?? mensaje?.chatId ?? 0);
-    const emisorId = Number(mensaje?.emisorId || 0);
-    if (Number.isFinite(chatId) && chatId > 0 && Number.isFinite(emisorId) && emisorId > 0) {
-      const groupName = this.resolveGroupMemberDisplayName(chatId, emisorId);
-      if (groupName) return groupName;
-    }
-
-    const receptorNombre =
-      `${this.chatActual?.receptor?.nombre || ''} ${this.chatActual?.receptor?.apellido || ''}`.trim();
-    return receptorNombre || 'Usuario';
   }
 
   private isQuickRepliesRateLimitError(err: any): boolean {
@@ -10290,65 +10429,19 @@ private async decryptPreviewString(
     const chatId = Number(this.chatActual?.id ?? this.chatSeleccionadoId ?? 0);
     if (!Number.isFinite(chatId) || chatId <= 0) return null;
 
-    const mensajes = this.construirMensajesResumenIaEncrypted();
-    if (mensajes.length === 0) return null;
-
     const esGrupo = !!this.chatActual?.esGrupo;
+    const maxMensajes = Number(this.resumenIaMaxMensajes);
     return {
       tipoChat: esGrupo ? 'GRUPAL' : 'INDIVIDUAL',
       chatId: esGrupo ? undefined : Math.round(chatId),
       chatGrupalId: esGrupo ? Math.round(chatId) : undefined,
-      mensajes,
-      estilo: this.resumenIaEstiloDefault,
+      estilo: this.resumenIaEstiloDefault || 'BREVE',
       maxLineas: this.resumenIaMaxLineasDefault,
+      maxMensajes:
+        Number.isFinite(maxMensajes) && maxMensajes > 0
+          ? Math.round(maxMensajes)
+          : 50,
     };
-  }
-
-  private construirMensajesResumenIaEncrypted(): AiEncryptedContextMessageDTO[] {
-    const mensajes = Array.isArray(this.mensajesSeleccionados)
-      ? this.mensajesSeleccionados
-      : [];
-
-    return mensajes
-      .map((mensaje) => this.mapMensajeResumenIaEncrypted(mensaje))
-      .filter((mensaje): mensaje is AiEncryptedContextMessageDTO => !!mensaje)
-      .slice(-this.resumenIaMaxMensajes);
-  }
-
-  private mapMensajeResumenIaEncrypted(
-    mensaje: MensajeDTO | null | undefined
-  ): AiEncryptedContextMessageDTO | null {
-    if (!mensaje) return null;
-    if (mensaje.activo === false || isTemporalExpiredMessageLike(mensaje)) {
-      return null;
-    }
-    if (isSystemMessageLike(mensaje)) return null;
-
-    const encryptedPayload = this.extraerEncryptedPayloadResumenIa(mensaje);
-    if (!encryptedPayload) return null;
-
-    const esUsuarioActual =
-      Number(mensaje?.emisorId) === Number(this.usuarioActualId);
-    const id = Number(mensaje?.id || 0);
-    const autorId = Number(mensaje?.emisorId || 0);
-    const fecha = String(mensaje?.fechaEnvio || '').trim();
-    const payload: AiEncryptedContextMessageDTO = {
-      autor: this.resolveAutorResumenIa(mensaje, esUsuarioActual),
-      esUsuarioActual,
-      encryptedPayload,
-    };
-
-    if (Number.isFinite(id) && id > 0) {
-      payload.id = id;
-    }
-    if (Number.isFinite(autorId) && autorId > 0) {
-      payload.autorId = autorId;
-    }
-    if (fecha) {
-      payload.fecha = fecha;
-    }
-
-    return payload;
   }
 
   private extraerEncryptedPayloadResumenIa(mensaje: MensajeDTO): string {
@@ -10392,29 +10485,6 @@ private async decryptPreviewString(
     return isTextPayload ? payloadText : '';
   }
 
-  private resolveAutorResumenIa(
-    mensaje: MensajeDTO,
-    esUsuarioActual: boolean
-  ): string {
-    if (esUsuarioActual) return 'usuarioActual';
-
-    const fromMessage =
-      `${mensaje?.emisorNombre || ''} ${mensaje?.emisorApellido || ''}`.trim();
-    if (fromMessage) return fromMessage;
-
-    const member = this.findUserInCurrentChatById(Number(mensaje?.emisorId || 0));
-    const fromCurrentChat =
-      `${member?.nombre || ''} ${member?.apellido || ''}`.trim();
-    if (fromCurrentChat) return fromCurrentChat;
-
-    if (!this.chatActual?.esGrupo) {
-      const directName = String(this.chatActual?.nombre || '').trim();
-      if (directName) return directName;
-    }
-
-    return this.obtenerNombrePorId(Number(mensaje?.emisorId || 0)) || 'otraPersona';
-  }
-
   private resolveResumenIaErrorMessage(err: any): string {
     const message = String(err?.message || '').trim();
     if (message === 'AI_SUMMARY_ENCRYPTED_PAYLOAD_MISSING') {
@@ -10434,15 +10504,18 @@ private async decryptPreviewString(
   public async confirmarPreguntaIa(rawQuestion?: string): Promise<void> {
     if (this.cargandoIaMensaje) return;
 
-    const contenidoMensaje = String(
-      this.mensajeSeleccionadoParaIa?.contenido || ''
-    ).trim();
+    const mensajeReferencia = this.mensajeSeleccionadoParaIa;
+    const contenidoMensaje = String(mensajeReferencia?.contenido || '').trim();
     const pregunta = String(rawQuestion ?? this.preguntaIaMensaje ?? '').trim();
     if (!pregunta) {
       this.errorIa = 'Escribe una pregunta primero.';
       return;
     }
-    if (!contenidoMensaje) {
+    if (!mensajeReferencia) {
+      this.errorIa = 'No hay mensaje para analizar.';
+      return;
+    }
+    if (!this.isAiAskAudioMessage(mensajeReferencia) && !contenidoMensaje) {
       this.errorIa = 'No hay texto para analizar.';
       return;
     }
@@ -10454,10 +10527,13 @@ private async decryptPreviewString(
 
     try {
       const response = await firstValueFrom(
-        this.mensajeriaService.procesarTextoConIa({
-          texto: this.buildIaReplyPrompt(contenidoMensaje, pregunta),
-          modo: AiTextMode.RESPONDER,
-        })
+        this.mensajeriaService.procesarTextoConIa(
+          this.buildAiAskRequestForMessage(
+            mensajeReferencia,
+            AiTextMode.RESPONDER,
+            pregunta
+          )
+        )
       );
       if (response?.success) {
         this.respuestaIaMensaje =
@@ -10477,10 +10553,13 @@ private async decryptPreviewString(
   private async verificarMensajeConIa(): Promise<void> {
     if (this.cargandoIaMensaje) return;
 
-    const contenidoMensaje = String(
-      this.mensajeSeleccionadoParaIa?.contenido || ''
-    ).trim();
-    if (!contenidoMensaje) {
+    const mensajeReferencia = this.mensajeSeleccionadoParaIa;
+    const contenidoMensaje = String(mensajeReferencia?.contenido || '').trim();
+    if (!mensajeReferencia) {
+      this.errorIa = 'No hay mensaje para verificar.';
+      return;
+    }
+    if (!this.isAiAskAudioMessage(mensajeReferencia) && !contenidoMensaje) {
       this.errorIa = 'No hay texto para verificar.';
       return;
     }
@@ -10491,10 +10570,12 @@ private async decryptPreviewString(
 
     try {
       const response = await firstValueFrom(
-        this.mensajeriaService.procesarTextoConIa({
-          texto: contenidoMensaje,
-          modo: AiTextMode.EXPLICAR,
-        })
+        this.mensajeriaService.procesarTextoConIa(
+          this.buildAiAskRequestForMessage(
+            mensajeReferencia,
+            AiTextMode.EXPLICAR
+          )
+        )
       );
       if (response?.success) {
         this.respuestaIaMensaje =
@@ -10524,6 +10605,99 @@ private async decryptPreviewString(
       `Peticion del usuario:\n"${pregunta}"\n\n` +
       'Genera unicamente una respuesta directa que el usuario actual pueda enviar. No expliques nada. No digas "podrias responder". Devuelve solo el texto final.'
     );
+  }
+
+  public getAiAskReferenceType(): 'TEXT' | 'AUDIO' {
+    return this.isAiAskAudioMessage(this.mensajeSeleccionadoParaIa) ? 'AUDIO' : 'TEXT';
+  }
+
+  public getAiAskReferenceAudioSrc(): string {
+    const mensaje = this.mensajeSeleccionadoParaIa;
+    if (!this.isAiAskAudioMessage(mensaje)) return '';
+    if (!mensaje) return '';
+
+    const direct = String(this.getAudioSrc(mensaje) || '').trim();
+    if (direct) return direct;
+
+    const fallbackUrl = String(
+      (mensaje as any)?.mediaUrl ?? mensaje?.audioUrl ?? ''
+    ).trim();
+    return fallbackUrl;
+  }
+
+  public isAiAskReferenceMine(): boolean {
+    return Number(this.mensajeSeleccionadoParaIa?.emisorId || 0) === Number(this.usuarioActualId);
+  }
+
+  private isAiAskAudioMessage(mensaje: MensajeDTO | null | undefined): boolean {
+    if (!mensaje) return false;
+    const tipo = String((mensaje as any)?.tipoMensaje ?? mensaje?.tipo ?? '')
+      .trim()
+      .toUpperCase();
+    if (tipo === 'AUDIO') return true;
+    if (String(mensaje?.audioUrl || '').trim()) return true;
+    if (String(mensaje?.audioDataUrl || '').trim()) return true;
+    return String(mensaje?.audioMime || '').trim().toLowerCase().startsWith('audio/');
+  }
+
+  private buildAiAskRequestForMessage(
+    mensaje: MensajeDTO,
+    modo: AiTextMode,
+    pregunta?: string
+  ): AiTextRequestDTO {
+    if (this.isAiAskAudioMessage(mensaje)) {
+      const rawAudioPayload = this.extractAiAskAudioEncryptedPayload(mensaje);
+      return {
+        modo,
+        messageId: Number.isFinite(Number(mensaje?.id || 0)) && Number(mensaje?.id || 0) > 0
+          ? Math.round(Number(mensaje.id || 0))
+          : undefined,
+        tipoMensaje: 'AUDIO',
+        audioUrl:
+          String(this.getAiAskReferenceAudioSrc() || (mensaje as any)?.audioUrl || '').trim() ||
+          null,
+        mediaUrl: String((mensaje as any)?.mediaUrl || '').trim() || null,
+        audioEncryptedPayload: rawAudioPayload || null,
+        mimeType: String(mensaje?.audioMime || '').trim() || null,
+        encryptedPayload: null,
+      };
+    }
+
+    const contenidoMensaje = String(mensaje?.contenido || '').trim();
+    return {
+      texto:
+        modo === AiTextMode.RESPONDER
+          ? this.buildIaReplyPrompt(contenidoMensaje, String(pregunta || '').trim())
+          : contenidoMensaje,
+      modo,
+    };
+  }
+
+  private extractAiAskAudioEncryptedPayload(mensaje: MensajeDTO): string {
+    const direct = String((mensaje as any)?.audioEncryptedPayload || '').trim();
+    if (direct) return direct;
+
+    const raw = this.resolveDecryptInputFromMessageLike(mensaje);
+    if (typeof raw === 'string') {
+      const payload = this.parseAiSummaryEncryptedPayload(raw);
+      const type = String(payload?.type || '').trim().toUpperCase();
+      if (type === 'E2E_AUDIO' || type === 'E2E_GROUP_AUDIO') {
+        return raw.trim();
+      }
+    }
+
+    if (raw && typeof raw === 'object') {
+      const type = String((raw as any)?.type || '').trim().toUpperCase();
+      if (type === 'E2E_AUDIO' || type === 'E2E_GROUP_AUDIO') {
+        try {
+          return JSON.stringify(raw);
+        } catch {
+          return '';
+        }
+      }
+    }
+
+    return '';
   }
 
   private buildIaRecentChatContext(): string {
@@ -10611,6 +10785,46 @@ private async decryptPreviewString(
     fallback: string = 'assets/usuario.png'
   ): string {
     return avatarOrDefault(src || null, fallback);
+  }
+
+  public hasChatAvatar(chat: any): boolean {
+    const raw = this.getChatAvatarRaw(chat);
+    if (!raw) return false;
+    const normalized = String(raw).trim().toLowerCase();
+    return !(
+      normalized.endsWith('/assets/usuario.png') ||
+      normalized.endsWith('assets/usuario.png') ||
+      normalized.endsWith('/assets/placeholder-user.png') ||
+      normalized.endsWith('assets/placeholder-user.png')
+    );
+  }
+
+  public getChatAvatarSrc(chat: any): string {
+    const raw = this.getChatAvatarRaw(chat);
+    if (!raw) return '';
+    return resolveMediaUrl(raw, environment.backendBaseUrl) || '';
+  }
+
+  public getChatInitials(chat: any): string {
+    const name = this.getChatDisplayNameForAvatar(chat);
+    const clean = String(name || '').trim();
+    if (!clean) return '?';
+    const parts = clean.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase() || '?';
+    return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
+  }
+
+  public getChatAvatarColor(chat: any): string {
+    const idCandidate = Number(
+      chat?.esGrupo
+        ? chat?.id ?? chat?.chatGrupalId
+        : chat?.receptor?.id ?? chat?.receptorId ?? chat?.id
+    );
+    const seed = Number.isFinite(idCandidate) && idCandidate > 0
+      ? idCandidate
+      : this.hashAvatarSeed(this.getChatDisplayNameForAvatar(chat));
+    const index = Math.abs(seed) % this.chatAvatarPalette.length;
+    return this.chatAvatarPalette[index];
   }
 
   /**
@@ -12499,6 +12713,39 @@ private async decryptPreviewString(
     const parts = clean.split(/\s+/).filter(Boolean);
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return `${parts[0].charAt(0)}${parts[1].charAt(0)}`.toUpperCase();
+  }
+
+  private getChatAvatarRaw(chat: any): string {
+    const raw = chat?.esGrupo
+      ? chat?.fotoGrupo ?? chat?.foto ?? null
+      : chat?.receptor?.foto ?? chat?.foto ?? null;
+    return String(raw || '').trim();
+  }
+
+  private getChatDisplayNameForAvatar(chat: any): string {
+    if (!chat) return '';
+    if (chat?.esGrupo) {
+      return String(
+        chat?.nombreChat ?? chat?.nombreGrupo ?? chat?.nombre ?? ''
+      ).trim();
+    }
+    const fullName = String(
+      chat?.nombreCompletoReceptor ||
+      `${chat?.receptor?.nombre || ''} ${chat?.receptor?.apellido || ''}` ||
+      chat?.nombre ||
+      ''
+    ).trim();
+    return fullName;
+  }
+
+  private hashAvatarSeed(value: string): number {
+    const text = String(value || '').trim();
+    if (!text) return 0;
+    let hash = 0;
+    for (let i = 0; i < text.length; i += 1) {
+      hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+    }
+    return hash;
   }
 
   private emitOutgoingReactionEvent(
@@ -18849,7 +19096,8 @@ private async decryptPreviewString(
       );
       if (!this.isCurrentReportUserAnalysis(analysisSeq, chatTarget)) return;
 
-      this.applyAiReportAnalysisResponse(response);
+      const normalizedResponse = await this.normalizeAiReportAnalysisResponse(response);
+      this.applyAiReportAnalysisResponse(normalizedResponse);
     } catch (err: any) {
       if (!this.isCurrentReportUserAnalysis(analysisSeq, chatTarget)) return;
       this.reportUserAiMessage =
@@ -18866,12 +19114,10 @@ private async decryptPreviewString(
     chatTarget: any
   ): Promise<AiReportAnalysisRequestDTO | null> {
     const chatId = Number(chatTarget?.id || chatTarget?.chatId || 0);
+    const esGrupo = !!(chatTarget?.esGrupo || this.chatActual?.esGrupo);
     const usuarioDenunciadoId = Number(
       chatTarget?.receptor?.id || chatTarget?.receptorId || chatTarget?.usuarioId || 0
     );
-    const nombreUsuarioDenunciado =
-      String(chatTarget?.receptor?.nombre || chatTarget?.nombre || '').trim() ||
-      this.reportUserTargetName;
 
     if (
       !Number.isFinite(chatId) ||
@@ -18882,103 +19128,38 @@ private async decryptPreviewString(
       return null;
     }
 
-    const mensajes = await this.getReportUserContextMessages(
-      chatId,
-      usuarioDenunciadoId,
-      nombreUsuarioDenunciado
-    );
-    if (mensajes.length === 0) return null;
-
     return {
+      chatId: esGrupo ? null : Math.round(chatId),
+      chatGrupalId: esGrupo ? Math.round(chatId) : null,
+      tipoChat: esGrupo ? 'GRUPAL' : 'INDIVIDUAL',
       usuarioDenunciadoId,
-      nombreUsuarioDenunciado,
-      motivosDisponibles: this.reportUserReasonOptions.map((option) => option.value),
-      mensajes,
       maxMensajes: 50,
-    };
-  }
-
-  private async getReportUserContextMessages(
-    chatId: number,
-    usuarioDenunciadoId: number,
-    nombreUsuarioDenunciado: string
-  ): Promise<AiReportContextMessageDTO[]> {
-    const sourceMessages = await this.loadRecentMessagesForReportAnalysis(chatId);
-    return sourceMessages
-      .filter((mensaje) => this.shouldIncludeMessageInReportAnalysis(mensaje))
-      .sort((a, b) => this.compareMessagesForReportAnalysis(a, b))
-      .slice(-50)
-      .map((mensaje) =>
-        this.mapMessageToAiReportContext(
-          mensaje,
-          usuarioDenunciadoId,
-          nombreUsuarioDenunciado
-        )
-      );
-  }
-
-  private async loadRecentMessagesForReportAnalysis(
-    chatId: number
-  ): Promise<MensajeDTO[]> {
-    const isActiveChat =
-      Number(this.chatActual?.id || 0) === Number(chatId) && !this.chatActual?.esGrupo;
-    if (isActiveChat && Array.isArray(this.mensajesSeleccionados) && this.mensajesSeleccionados.length) {
-      return [...this.mensajesSeleccionados];
-    }
-
-    const cachedState = this.getHistoryStateForConversation(chatId, false);
-    if (Array.isArray(cachedState?.messages) && cachedState!.messages.length > 0) {
-      return [...cachedState!.messages];
-    }
-
-    const fetched = await firstValueFrom(this.chatService.listarMensajesPorChat(chatId, 0, 50));
-    return this.decryptHistoryPageMessages(
-      Array.isArray(fetched) ? fetched : [],
-      chatId,
-      false,
-      'report-user-analysis'
-    );
-  }
-
-  private shouldIncludeMessageInReportAnalysis(mensaje: MensajeDTO | null | undefined): boolean {
-    if (!mensaje) return false;
-    if (this.isSystemMessage(mensaje)) return false;
-    if (String(mensaje?.tipo || '').trim().toUpperCase() === 'POLL') return false;
-
-    const contenido = this.normalizeReportAnalysisContent(mensaje?.contenido);
-    if (!contenido) return false;
-    return true;
-  }
-
-  private mapMessageToAiReportContext(
-    mensaje: MensajeDTO,
-    usuarioDenunciadoId: number,
-    nombreUsuarioDenunciado: string
-  ): AiReportContextMessageDTO {
-    const autorId = Number(mensaje?.emisorId || 0);
-    const esUsuarioActual = autorId === Number(this.usuarioActualId);
-    const esUsuarioDenunciado = autorId === Number(usuarioDenunciadoId);
-    const autor = esUsuarioActual
-      ? 'usuarioActual'
-      : esUsuarioDenunciado
-        ? nombreUsuarioDenunciado
-        : String(mensaje?.emisorNombre || '').trim() || 'Participante';
-
-    return {
-      id: Number.isFinite(Number(mensaje?.id || 0)) && Number(mensaje?.id || 0) > 0
-        ? Number(mensaje?.id || 0)
-        : undefined,
-      autor,
-      autorId: Number.isFinite(autorId) && autorId > 0 ? autorId : undefined,
-      contenido: this.normalizeReportAnalysisContent(mensaje?.contenido),
-      esUsuarioDenunciado,
-      esUsuarioActual,
-      fecha: String(mensaje?.fechaEnvio || '').trim() || undefined,
     };
   }
 
   private normalizeReportAnalysisContent(value: unknown): string {
     return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 250);
+  }
+
+  private async normalizeAiReportAnalysisResponse(
+    response: AiReportAnalysisResponseDTO | null | undefined
+  ): Promise<AiReportAnalysisResponseDTO | null | undefined> {
+    if (!response?.encryptedPayload) return response;
+
+    const plain = await this.tryDecryptAiEncryptedPayload(response.encryptedPayload);
+    if (!plain) return response;
+
+    try {
+      const parsed = JSON.parse(plain) as Partial<AiReportAnalysisResponseDTO>;
+      if (!parsed || typeof parsed !== 'object') return response;
+      return { ...response, ...parsed };
+    } catch {
+      return {
+        ...response,
+        descripcionDenuncia:
+          String((response as any)?.descripcionDenuncia || '').trim() || plain,
+      };
+    }
   }
 
   private compareMessagesForReportAnalysis(a: MensajeDTO, b: MensajeDTO): number {
@@ -19523,6 +19704,121 @@ private async decryptPreviewString(
     this.openScheduleMessageComposer(undefined, true);
   }
 
+  public openGlobalMessageSearchPopup(event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.closeComposeActionsPopup();
+    this.closeComposeAiPopup();
+    this.closeEmojiPicker();
+    this.closeTemporaryMessagePopup();
+    this.showGlobalMessageSearchPopup = true;
+    this.globalMessageSearchError = null;
+    this.globalMessageSearchResumenBusqueda = null;
+    this.globalMessageSearchResultados = [];
+    this.cdr.detectChanges();
+  }
+
+  public closeGlobalMessageSearchPopup(): void {
+    if (this.globalMessageSearchLoading) return;
+    this.showGlobalMessageSearchPopup = false;
+    this.globalMessageSearchError = null;
+    this.globalMessageSearchResumenBusqueda = null;
+  }
+
+  public onGlobalMessageSearchConsultaChange(next: string): void {
+    this.globalMessageSearchConsulta = String(next || '');
+  }
+
+  public submitGlobalMessageSearch(consulta: string): void {
+    const normalizedConsulta = String(consulta || '').trim();
+    if (!normalizedConsulta || this.globalMessageSearchLoading) return;
+
+    const request: AiEncryptedMessageSearchRequest = {
+      consulta: normalizedConsulta,
+      maxResultados: 10,
+      maxMensajesAnalizar: 300,
+      fechaInicio: null,
+      fechaFin: null,
+      incluirGrupales: true,
+      incluirIndividuales: true,
+    };
+
+    this.globalMessageSearchLoading = true;
+    this.globalMessageSearchError = null;
+    this.globalMessageSearchResumenBusqueda = null;
+    this.globalMessageSearchResultados = [];
+
+    this.aiService
+      .buscarMensajesEncrypted(request)
+      .pipe(
+        finalize(() => {
+          this.globalMessageSearchLoading = false;
+          this.cdr.markForCheck();
+        })
+      )
+      .subscribe({
+        next: (response) => {
+          const results = Array.isArray(response?.resultados) ? response.resultados : [];
+          this.globalMessageSearchResumenBusqueda = String(response?.resumenBusqueda || '').trim() || null;
+          this.globalMessageSearchResultados = results;
+        },
+        error: (error) => {
+          const backendMessage = String(
+            error?.error?.mensaje || error?.error?.message || ''
+          ).trim();
+          this.globalMessageSearchResumenBusqueda = null;
+          this.globalMessageSearchError =
+            backendMessage || 'No se pudo completar la busqueda global.';
+        },
+      });
+  }
+
+  public async onGlobalMessageSearchResultSelected(
+    result: AiEncryptedMessageSearchResult
+  ): Promise<void> {
+    const chatId = Number(result?.chatId || 0);
+    const messageId = Number(result?.mensajeId || 0);
+    if (!Number.isFinite(chatId) || chatId <= 0 || !Number.isFinite(messageId) || messageId <= 0) {
+      return;
+    }
+
+    let chat = (this.chats || []).find((c: any) => Number(c?.id) === chatId) || null;
+    if (!chat) {
+      if (!this.chatListLoading) this.listarTodosLosChats();
+      await this.waitForCondition(() => !this.chatListLoading, 12000);
+      chat = (this.chats || []).find((c: any) => Number(c?.id) === chatId) || null;
+    }
+    if (!chat) {
+      this.showToast('No se encontro el chat del resultado.', 'warning', 'Busqueda IA');
+      return;
+    }
+
+    this.showGlobalMessageSearchPopup = false;
+    this.openChatsSidebarView();
+    this.activeMainView = 'chat';
+    this.pendingOpenFromStarredNavigation = {
+      chatId: Math.round(chatId),
+      messageId: Math.round(messageId),
+    };
+    this.mostrarMensajes(chat);
+    await this.waitForCondition(
+      () => Number(this.chatActual?.id) === Math.round(chatId),
+      5000
+    );
+    try {
+      await this.onMessageSearchResultSelect(messageId);
+    } finally {
+      const pending = this.pendingOpenFromStarredNavigation;
+      if (
+        pending &&
+        Number(pending.chatId) === Math.round(chatId) &&
+        Number(pending.messageId) === Math.round(messageId)
+      ) {
+        this.pendingOpenFromStarredNavigation = null;
+      }
+    }
+  }
+
   public openGroupPollComposer(event?: MouseEvent): void {
     event?.stopPropagation();
     if (
@@ -19582,8 +19878,8 @@ private async decryptPreviewString(
     mensaje: MensajeDTO | null | undefined
   ): AiPollDraftContextMessageDTO | null {
     if (!mensaje) return null;
-    const contenido = this.truncatePollIaContextText(String(mensaje?.contenido || ''));
-    if (!contenido) return null;
+    const encryptedPayload = this.extraerEncryptedPayloadResumenIa(mensaje);
+    if (!encryptedPayload) return null;
 
     const esUsuarioActual =
       Number(mensaje?.emisorId) === Number(this.usuarioActualId);
@@ -19598,7 +19894,7 @@ private async decryptPreviewString(
       autor: esUsuarioActual
         ? 'usuarioActual'
         : nombreEmisor || 'otroUsuario',
-      contenido,
+      encryptedPayload,
       esUsuarioActual,
       fecha: String(mensaje?.fechaEnvio || '').trim() || undefined,
     };
@@ -19612,7 +19908,7 @@ private async decryptPreviewString(
     if (this.isTemporalExpiredMessage(mensaje)) return false;
     if (mensaje?.activo === false) return false;
 
-    return !!this.truncatePollIaContextText(String(mensaje?.contenido || ''));
+    return !!this.extraerEncryptedPayloadResumenIa(mensaje);
   }
 
   private truncatePollIaContextText(textoRaw: string): string {

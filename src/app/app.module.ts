@@ -42,6 +42,7 @@ import { AiTextAssistantPopupComponent } from './Components/popup/ai-text-assist
 import { AiConversationSummaryPopupComponent } from './Components/popup/ai-conversation-summary-popup/ai-conversation-summary-popup.component';
 import { StickerEditorPanelComponent } from './Components/inicio/sticker-editor-panel/sticker-editor-panel.component';
 import { StickerCollectionPopupComponent } from './Components/popup/sticker-collection-popup/sticker-collection-popup.component';
+import { AiGlobalMessageSearchPopupComponent } from './Components/popup/ai-global-message-search-popup/ai-global-message-search-popup.component';
 
 @NgModule({
   declarations: [
@@ -77,7 +78,8 @@ import { StickerCollectionPopupComponent } from './Components/popup/sticker-coll
     AiTextAssistantPopupComponent,
     AiConversationSummaryPopupComponent,
     StickerEditorPanelComponent,
-    StickerCollectionPopupComponent
+    StickerCollectionPopupComponent,
+    AiGlobalMessageSearchPopupComponent
   ],
   imports: [
     BrowserModule,

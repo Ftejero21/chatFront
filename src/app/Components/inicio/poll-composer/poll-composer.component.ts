@@ -243,14 +243,16 @@ export class PollComposerComponent implements OnChanges, OnDestroy {
     const chatGrupalId = Number(this.chatGrupalId || 0);
     if (!Number.isFinite(chatGrupalId) || chatGrupalId <= 0) return null;
 
-    const mensajes = Array.isArray(this.mensajesContextoIa)
-      ? this.mensajesContextoIa.filter((item) => !!String(item?.contenido || '').trim())
+    const mensajesEncrypted = Array.isArray(this.mensajesContextoIa)
+      ? this.mensajesContextoIa.filter(
+          (item) => !!String(item?.encryptedPayload || '').trim()
+        )
       : [];
-    if (mensajes.length === 0) return null;
+    if (mensajesEncrypted.length === 0) return null;
 
     return {
       chatGrupalId: Math.round(chatGrupalId),
-      mensajes,
+      mensajes: mensajesEncrypted,
       maxOpciones: this.maxOpcionesIa,
       estilo: 'NORMAL',
     };

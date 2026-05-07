@@ -49,20 +49,28 @@
 .topbar__left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   min-width: 0;
 }
 
 .topbar__logo {
-  font-size: 20px;
-  color: #3b82f6;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: contain;
 }
 
-/* azul primario */
 .topbar__brand {
-  font-weight: 700;
-  color: #333;
+  font-weight: 800;
+  font-size: 1.24rem;
+  letter-spacing: -0.01em;
+  color: #0f172a;
+  font-family: "Manrope", "Plus Jakarta Sans", "Segoe UI", sans-serif;
   white-space: nowrap;
+}
+
+.topbar__brand-n {
+  color: #10b981;
 }
 
 .topbar__search {
@@ -134,6 +142,21 @@
 }
 
 .topbar__avatar-fallback {
+  width: 45px;
+  height: 45px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffffff;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #34d399 0%, #3b82f6 100%);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+}
+
+.topbar__avatar-fallback-perfil {
   width: 28px;
   height: 28px;
   border-radius: 50%;
@@ -631,6 +654,10 @@
   color: #333;
 }
 
+.titulo-chat__n {
+  color: #10b981;
+}
+
 .acciones-chat {
   display: flex;
   gap: 12px;
@@ -684,6 +711,10 @@
   transition: background 0.2s ease, color 0.2s ease;
 }
 
+.chat-list-menu-item + .chat-list-menu-item {
+  margin-top: 4px;
+}
+
 .chat-list-menu-item--schedule {
   background: #eef2ff;
   color: #3730a3;
@@ -692,6 +723,32 @@
 .chat-list-menu-item--schedule:hover {
   background: #dbeafe;
   color: #1d4ed8;
+}
+
+.chat-list-menu-item--ai {
+  background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+  color: #5b21b6;
+}
+
+.chat-list-menu-item--ai:hover {
+  background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
+  color: #4c1d95;
+}
+
+.chat-list-menu-item__badge-ai {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 
 /* Buscador */
@@ -987,6 +1044,10 @@
   border-radius: 50%;
   margin-right: 10px;
   object-fit: cover;
+}
+
+.chat-avatar-fallback-spacing {
+  margin-right: 10px;
 }
 
 .info-chat {
@@ -6532,9 +6593,7 @@
   padding: 0 10px;
 }
 
-.topbar__left {
-  gap: 10px;
-}
+
 
 .topbar__brand {
   display: block;

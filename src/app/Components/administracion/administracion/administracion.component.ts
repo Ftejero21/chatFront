@@ -5441,6 +5441,54 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     }
   }
 
+  private buildAutoWarningMessage(userIdRaw: number): string {
+    const userId = Number(userIdRaw || 0);
+    const expediente =
+      Number(this.complaintUserRecord?.userId || 0) === userId
+        ? this.complaintUserRecord
+        : null;
+
+    const targetName = String(expediente?.nombre || '').trim() || 'usuario';
+    const ultimas = Array.isArray(expediente?.ultimasCincoDenuncias)
+      ? expediente!.ultimasCincoDenuncias
+      : [];
+    const totalRecibidas = Math.max(
+      0,
+      Number(expediente?.totalDenunciasRecibidas || ultimas.length || 0)
+    );
+
+    const denunciantes = Array.from(
+      new Set(
+        ultimas
+          .map((x) => String(x?.denuncianteNombre || '').trim())
+          .filter(Boolean)
+      )
+    )
+      .slice(0, 3)
+      .join(', ');
+
+    const motivos = Array.from(
+      new Set(
+        ultimas
+          .map((x) => String(x?.motivo || '').trim().toLowerCase())
+          .filter(Boolean)
+      )
+    )
+      .slice(0, 4)
+      .join(', ');
+
+    const opening = `Hola ${targetName}. Te escribimos desde administracion de TejeChat.`;
+    const summary = totalRecibidas > 0
+      ? ` Hemos recibido ${totalRecibidas} denuncia${totalRecibidas === 1 ? '' : 's'} reciente${totalRecibidas === 1 ? '' : 's'} asociada${totalRecibidas === 1 ? '' : 's'} a tu actividad.`
+      : ' Hemos recibido reportes recientes asociados a tu actividad.';
+    const people = denunciantes ? ` Algunas fueron registradas por: ${denunciantes}.` : '';
+    const reasons = motivos ? ` Los motivos reportados incluyen: ${motivos}.` : '';
+    const closing =
+      ' Te pedimos mantener una conducta respetuosa y ajustar tu comportamiento a las normas de convivencia de la plataforma. Si se repiten incidencias, se podran aplicar medidas adicionales sobre la cuenta.';
+
+    return `${opening}${summary}${people}${reasons}${closing}`;
+  }
+
   public async onComplaintUserSuspend(userIdRaw: number): Promise<void> {
     const userId = Number(userIdRaw || 0);
     if (!Number.isFinite(userId) || userId <= 0) return;
@@ -5933,54 +5981,6 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     return `${base}${byPeople}${byReasons} Se aplica esta medida para proteger la convivencia y seguridad de la plataforma.`;
   }
 
-  private buildAutoWarningMessage(userIdRaw: number): string {
-    const userId = Number(userIdRaw || 0);
-    const expediente =
-      Number(this.complaintUserRecord?.userId || 0) === userId
-        ? this.complaintUserRecord
-        : null;
-
-    const targetName = String(expediente?.nombre || '').trim() || 'usuario';
-    const ultimas = Array.isArray(expediente?.ultimasCincoDenuncias)
-      ? expediente!.ultimasCincoDenuncias
-      : [];
-    const totalRecibidas = Math.max(
-      0,
-      Number(expediente?.totalDenunciasRecibidas || ultimas.length || 0)
-    );
-
-    const denunciantes = Array.from(
-      new Set(
-        ultimas
-          .map((x) => String(x?.denuncianteNombre || '').trim())
-          .filter(Boolean)
-      )
-    )
-      .slice(0, 3)
-      .join(', ');
-
-    const motivos = Array.from(
-      new Set(
-        ultimas
-          .map((x) => String(x?.motivo || '').trim().toLowerCase())
-          .filter(Boolean)
-      )
-    )
-      .slice(0, 4)
-      .join(', ');
-
-    const opening = `Hola ${targetName}. Te escribimos desde administracion de TejeChat.`;
-    const summary = totalRecibidas > 0
-      ? ` Hemos recibido ${totalRecibidas} denuncia${totalRecibidas === 1 ? '' : 's'} reciente${totalRecibidas === 1 ? '' : 's'} asociada${totalRecibidas === 1 ? '' : 's'} a tu actividad.`
-      : ' Hemos recibido reportes recientes asociados a tu actividad.';
-    const people = denunciantes ? ` Algunas fueron registradas por: ${denunciantes}.` : '';
-    const reasons = motivos ? ` Los motivos reportados incluyen: ${motivos}.` : '';
-    const closing =
-      ' Te pedimos mantener una conducta respetuosa y ajustar tu comportamiento a las normas de convivencia de la plataforma. Si se repiten incidencias, se podran aplicar medidas adicionales sobre la cuenta.';
-
-    return `${opening}${summary}${people}${reasons}${closing}`;
-  }
-
   unbanUsuario(usuario: any) {
     Swal.fire({
       title: 'Reactivar usuario?',
@@ -6239,8 +6239,6 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   }
 
 }
-
-
 
 
 

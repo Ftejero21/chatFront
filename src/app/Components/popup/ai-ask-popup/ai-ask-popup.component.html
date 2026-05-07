@@ -32,11 +32,31 @@
       <div class="ai-ask-popup__section">
         <label class="ai-ask-popup__label">Mensaje de referencia</label>
         <div class="ai-ask-popup__reference-box">
+          <ng-container *ngIf="isAudioReference; else textReference">
+            <div
+              class="audio-bubble ai-ask-popup__reference-audio"
+              [class.mine]="referenceIsMine"
+            >
+              <ng-container *ngIf="resolvedReferenceAudioSrc; else audioFallback">
+                <audio
+                  class="ai-ask-popup__audio-player"
+                  controls
+                  preload="none"
+                  [src]="resolvedReferenceAudioSrc"
+                ></audio>
+              </ng-container>
+              <ng-template #audioFallback>
+                <span class="ai-ask-popup__audio-fallback">[Audio]</span>
+              </ng-template>
+            </div>
+          </ng-container>
+          <ng-template #textReference>
           <p class="ai-ask-popup__reference-text">
             <span class="ai-ask-popup__quote-mark">"</span>
             {{ resolvedReferenceText }}
             <span class="ai-ask-popup__quote-mark">"</span>
           </p>
+          </ng-template>
         </div>
       </div>
 

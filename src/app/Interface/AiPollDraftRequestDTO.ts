@@ -1,7 +1,8 @@
 export interface AiPollDraftContextMessageDTO {
   id?: number;
   autor: string;
-  contenido: string;
+  contenido?: string;
+  encryptedPayload?: string;
   esUsuarioActual: boolean;
   fecha?: string;
 }
