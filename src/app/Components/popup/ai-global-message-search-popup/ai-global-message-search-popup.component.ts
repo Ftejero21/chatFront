@@ -2,7 +2,21 @@ import { ChangeDetectorRef, Component, ElementRef, EventEmitter, Input, OnChange
 import { AiEncryptedMessageSearchResult } from '../../../Interface/AiEncryptedMessageSearchDTO';
 import { MensajeriaService } from '../../../Service/mensajeria/mensajeria.service';
 import { CryptoService } from '../../../Service/crypto/crypto.service';
+import { WebSocketService } from '../../../Service/WebSocket/web-socket.service';
 import { clampPercent, formatDuration, parseAudioDurationMs } from '../../../utils/chat-utils';
+
+type AiSearchProgressStep = 'ANALYZING_CONTEXT' | 'ANALYZING_MESSAGES' | 'MESSAGE_FOUND' | 'MESSAGE_NOT_FOUND' | 'ERROR';
+interface AiSearchProgressWS {
+  requestId?: string;
+  step?: AiSearchProgressStep;
+  status: 'STARTED' | 'COMPLETED' | 'FAILED';
+  message?: string;
+  hasApproximateResult?: boolean;
+  // APP_REPORT fields
+  target?: string;
+  phase?: string;
+  tipoReporte?: string;
+}
 
 type SearchResultMessageType = 'TEXT' | 'AUDIO' | 'IMAGE' | 'STICKER' | 'FILE' | 'UNKNOWN';
 type SearchImagePayload =
@@ -66,24 +80,60 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   @Input() error: string | null = null;
   @Input() resumenBusqueda: string | null = null;
   @Input() resultados: AiEncryptedMessageSearchResult[] = [];
+  @Input() aiSummary: string | null = null;
 
   @Output() closed = new EventEmitter<void>();
   @Output() consultaChange = new EventEmitter<string>();
-  @Output() submitted = new EventEmitter<string>();
+  @Output() submitted = new EventEmitter<{ consulta: string; requestId: string }>();
   @Output() resultSelected = new EventEmitter<AiEncryptedMessageSearchResult>();
 
   public constructor(
     private readonly host: ElementRef<HTMLElement>,
     private readonly mensajeriaService: MensajeriaService,
     private readonly cryptoService: CryptoService,
+    private readonly webSocketService: WebSocketService,
     private readonly cdr: ChangeDetectorRef
   ) {}
 
+  public animationActive = false;
+  public isApproximateResult = false;
+  public loadingSteps: Array<{ label: string; state: 'hidden' | 'active' | 'done' | 'error' }> = [];
+  private loadingTimers: ReturnType<typeof setTimeout>[] = [];
+  private httpResponseReady = false;
+  private wsStepsComplete = false;
+  private currentRequestId = '';
+  private stepStartedAtMap = new Map<string, number>();
+  private readonly STEP_MIN_MS = 500;
+  private readonly handledAppReportKeys = new Set<string>();
+
   public ngOnChanges(changes: SimpleChanges): void {
     if (changes['resultados']) this.hydrateVisibleResultAssets();
+    if (changes['loading']) {
+      if (this.loading) {
+        // handled by onSubmit before emit
+      } else if (this.animationActive) {
+        if (this.error) {
+          this.stopLoadingAnimation();
+        } else {
+          this.httpResponseReady = true;
+          if (this.wsStepsComplete) {
+            this.resolveAnimation();
+          } else {
+            // Safety fallback: if WS events never arrive, resolve after 5s
+            this.loadingTimers.push(setTimeout(() => {
+              if (this.animationActive) {
+                this.wsStepsComplete = true;
+                this.resolveAnimation();
+              }
+            }, 5000));
+          }
+        }
+      }
+    }
   }
 
   public ngOnDestroy(): void {
+    this.stopLoadingAnimation();
     this.pauseAllResultAudios();
     for (const url of this.hydratedMediaUrls.values()) {
       if (url.startsWith('blob:')) URL.revokeObjectURL(url);
@@ -106,10 +156,14 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   }
 
   public onSubmit(): void {
-    if (this.loading) return;
+    if (this.loading || this.animationActive) return;
     const normalized = String(this.consulta || '').trim();
     if (!normalized) return;
-    this.submitted.emit(normalized);
+    const requestId = this.generateRequestId();
+    this.currentRequestId = requestId;
+    this.startLoadingAnimation();
+    this.subscribeToWsProgress(requestId);
+    this.submitted.emit({ consulta: normalized, requestId });
   }
 
   public onSelectResult(item: AiEncryptedMessageSearchResult): void {
@@ -274,6 +328,45 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     return String(item?.contenidoVisible || '').trim() || '[Archivo]';
   }
 
+  public isComplaintResult(item: AiEncryptedMessageSearchResult): boolean {
+    const tipo = String(item?.tipoResultado || '').trim().toUpperCase();
+    return tipo.startsWith('COMPLAINT') || Number(item?.denunciaId || 0) > 0;
+  }
+
+  public getComplaintTitle(item: AiEncryptedMessageSearchResult): string {
+    const tipo = String(item?.tipoResultado || '').trim().toUpperCase();
+    if (tipo === 'COMPLAINT_CREATED') return 'Denuncia enviada';
+    if (tipo === 'COMPLAINT_RECEIVED') return 'Denuncia recibida';
+    return 'Denuncia';
+  }
+
+  public getComplaintIndicatorClass(item: AiEncryptedMessageSearchResult): string {
+    const estado = String(item?.estadoDenuncia || '').trim().toUpperCase();
+    if (estado === 'RESUELTO' || estado === 'CERRADO') return 'priority-green';
+    return 'priority-red';
+  }
+
+  public getComplaintBadgeClass(item: AiEncryptedMessageSearchResult): Record<string, boolean> {
+    const estado = String(item?.estadoDenuncia || '').trim().toUpperCase();
+    const resolved = estado === 'RESUELTO' || estado === 'CERRADO';
+    return { 'badge-green': resolved, 'badge-red': !resolved };
+  }
+
+  public getComplaintGravedadClass(item: AiEncryptedMessageSearchResult): string {
+    const g = String(item?.gravedad || '').trim().toUpperCase();
+    if (g === 'ALTA' || g === 'CRITICA') return 'gravedad--alta';
+    if (g === 'MEDIA') return 'gravedad--media';
+    return 'gravedad--baja';
+  }
+
+  public getComplaintMotivo(item: AiEncryptedMessageSearchResult): string {
+    return String(item?.motivo || item?.tipoDenuncia || '').trim() || 'Sin motivo especificado';
+  }
+
+  public getComplaintDetalle(item: AiEncryptedMessageSearchResult): string {
+    return String(item?.contenido || item?.contenidoVisible || '').trim();
+  }
+
   public getResultFileName(item: AiEncryptedMessageSearchResult): string {
     return String(item?.nombreArchivo || '').trim() || this.getResultFileFallback(item);
   }
@@ -295,11 +388,223 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   }
 
   public get canSubmit(): boolean {
-    return !this.loading && !!String(this.consulta || '').trim();
+    return !this.loading && !this.animationActive && !!String(this.consulta || '').trim();
   }
 
   public get hasResumenBusqueda(): boolean {
     return !!String(this.resumenBusqueda || '').trim();
+  }
+
+  private startLoadingAnimation(): void {
+    this.stopLoadingAnimation();
+    this.httpResponseReady = false;
+    this.wsStepsComplete = false;
+    this.isApproximateResult = false;
+    this.animationActive = true;
+    this.stepStartedAtMap.clear();
+    this.handledAppReportKeys.clear();
+    this.stepStartedAtMap.set('ANALYZING_CONTEXT', Date.now());
+    this.loadingSteps = [
+      { label: 'Analizando contexto', state: 'active' },
+      { label: 'Analizando mensajes', state: 'hidden' },
+      { label: '',                     state: 'hidden' },
+    ];
+    this.cdr.markForCheck();
+  }
+
+  private stopLoadingAnimation(): void {
+    for (const timer of this.loadingTimers) clearTimeout(timer);
+    this.loadingTimers = [];
+    this.animationActive = false;
+    this.httpResponseReady = false;
+    this.wsStepsComplete = false;
+    this.loadingSteps = [];
+    this.stepStartedAtMap.clear();
+    this.handledAppReportKeys.clear();
+    this.unsubscribeWsProgress();
+    this.cdr.markForCheck();
+  }
+
+  private resolveAnimation(): void {
+    this.loadingTimers.push(
+      setTimeout(() => {
+        this.animationActive = false;
+        this.unsubscribeWsProgress();
+        this.cdr.markForCheck();
+      }, 500)
+    );
+  }
+
+  private applyStepComplete(step: string, fn: () => void): void {
+    const startedAt = this.stepStartedAtMap.get(step) ?? Date.now();
+    const remaining = Math.max(0, this.STEP_MIN_MS - (Date.now() - startedAt));
+    if (remaining === 0) {
+      fn();
+    } else {
+      this.loadingTimers.push(setTimeout(() => {
+        if (this.animationActive) fn();
+      }, remaining));
+    }
+  }
+
+  private setStep(index: number, state: 'hidden' | 'active' | 'done' | 'error', label?: string): void {
+    const steps = this.loadingSteps.map((s, i) =>
+      i === index ? { label: label ?? s.label, state } : s
+    );
+    this.loadingSteps = steps;
+    this.cdr.markForCheck();
+  }
+
+  private handleWsProgressEvent(event: AiSearchProgressWS): void {
+    if (!this.animationActive) return;
+
+    const phase  = String(event?.phase  || '').trim().toUpperCase();
+    const target = String(event?.target || '').trim().toUpperCase();
+
+    // APP_REPORT branch — separate flow from message-search steps
+    if (phase === 'APP_REPORT' || target === 'APP_REPORT') {
+      this.handleAppReportProgressEvent(event);
+      return;
+    }
+
+    const step = event?.step;
+    if (!step) return;
+    const status = event?.status;
+    console.log('[AI_SEARCH][WS]', step, status, event);
+
+    if (step === 'ERROR') {
+      console.error('[AI_SEARCH][WS] Error terminal recibido', event);
+      this.stopLoadingAnimation();
+      return;
+    }
+
+    if (status === 'STARTED') {
+      this.stepStartedAtMap.set(step, Date.now());
+
+      if (step === 'ANALYZING_CONTEXT') {
+        this.setStep(0, 'active', 'Analizando contexto');
+      } else if (step === 'ANALYZING_MESSAGES') {
+        this.setStep(0, 'done');
+        this.setStep(1, 'active', 'Analizando mensajes');
+      } else if (step === 'MESSAGE_FOUND') {
+        this.setStep(1, 'done');
+        this.setStep(2, 'active', 'Mensaje encontrado');
+      } else if (step === 'MESSAGE_NOT_FOUND') {
+        this.setStep(1, 'done');
+        this.setStep(2, 'active', 'Mensaje no encontrado');
+      }
+
+    } else if (status === 'COMPLETED') {
+
+      if (step === 'ANALYZING_CONTEXT') {
+        this.applyStepComplete('ANALYZING_CONTEXT', () => this.setStep(0, 'done'));
+
+      } else if (step === 'ANALYZING_MESSAGES') {
+        this.applyStepComplete('ANALYZING_MESSAGES', () => this.setStep(1, 'done'));
+
+      } else if (step === 'MESSAGE_FOUND') {
+        this.applyStepComplete('MESSAGE_FOUND', () => {
+          this.setStep(2, 'done', 'Mensaje encontrado');
+          this.wsStepsComplete = true;
+          if (this.httpResponseReady) this.resolveAnimation();
+        });
+
+      } else if (step === 'MESSAGE_NOT_FOUND') {
+        const approx = event.hasApproximateResult === true;
+        if (approx) {
+          console.warn('[AI_SEARCH][WS] Sin resultado claro — devuelto resultado aproximado', event);
+        } else {
+          console.warn('[AI_SEARCH][WS] Sin resultados', event);
+        }
+        this.applyStepComplete('MESSAGE_NOT_FOUND', () => {
+          this.isApproximateResult = approx;
+          this.setStep(2, 'done', 'Mensaje no encontrado');
+          this.wsStepsComplete = true;
+          if (this.httpResponseReady) this.resolveAnimation();
+        });
+      }
+    }
+  }
+
+  private handleAppReportProgressEvent(event: AiSearchProgressWS): void {
+    const status      = event?.status;
+    const tipoReporte = String(event?.tipoReporte || '').trim();
+    const backendMsg  = String(event?.message || '').trim();
+    const reqId       = String(event?.requestId || '').trim();
+
+    const dedupKey = `${reqId}:APP_REPORT:${status}`;
+    if (this.handledAppReportKeys.has(dedupKey)) return;
+    this.handledAppReportKeys.add(dedupKey);
+
+    console.log('[AI_SEARCH][WS][APP_REPORT]', status, tipoReporte, event);
+
+    if (status === 'STARTED') {
+      // 1.5s delay before showing the step — feels natural after "Analizando contexto"
+      this.loadingTimers.push(
+        setTimeout(() => {
+          if (!this.animationActive) return;
+          this.stepStartedAtMap.set('APP_REPORT', Date.now());
+          if (this.loadingSteps[1]?.state !== 'done') {
+            this.setStep(1, 'done');
+          }
+          const label = backendMsg || this.getAppReportStartedLabel(tipoReporte);
+          this.setStep(2, 'active', label);
+        }, 1500)
+      );
+
+    } else if (status === 'COMPLETED') {
+      const label = backendMsg || 'Reporte enviado correctamente';
+      this.applyStepComplete('APP_REPORT', () => {
+        this.setStep(2, 'done', label);
+        // Hold green check 1.5s then resolve
+        this.loadingTimers.push(
+          setTimeout(() => {
+            if (!this.animationActive) return;
+            this.wsStepsComplete = true;
+            if (this.httpResponseReady) this.resolveAnimation();
+          }, 1500)
+        );
+      });
+
+    } else if (status === 'FAILED') {
+      const label = backendMsg || 'No se pudo generar el reporte';
+      console.error('[AI_SEARCH][WS][APP_REPORT] Fallo al generar reporte', event);
+      this.applyStepComplete('APP_REPORT', () => {
+        this.setStep(2, 'error', label);
+        // Hold error icon 1.5s then dismiss
+        this.loadingTimers.push(
+          setTimeout(() => {
+            if (this.animationActive) this.stopLoadingAnimation();
+          }, 1500)
+        );
+      });
+    }
+  }
+
+  private getAppReportStartedLabel(tipoReporte: string): string {
+    const t = tipoReporte.toUpperCase();
+    if (t === 'QUEJA')                         return 'Generando queja...';
+    if (t === 'INCIDENCIA' || t === 'ERROR_APP') return 'Generando incidencia...';
+    if (t === 'MEJORA'     || t === 'SUGERENCIA') return 'Generando sugerencia...';
+    if (t === 'DESBANEO')                        return 'Generando solicitud...';
+    return 'Generando reporte...';
+  }
+
+  private subscribeToWsProgress(_requestId: string): void {
+    this.webSocketService.suscribirseAProgressoBusquedaIA((payload) => {
+      this.handleWsProgressEvent(payload as AiSearchProgressWS);
+    });
+  }
+
+  private unsubscribeWsProgress(): void {
+    this.webSocketService.desuscribirseDeProgressoBusquedaIA();
+  }
+
+  private generateRequestId(): string {
+    if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') {
+      return (crypto as any).randomUUID() as string;
+    }
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
   private isKnownMessageType(value: string): value is SearchResultMessageType {

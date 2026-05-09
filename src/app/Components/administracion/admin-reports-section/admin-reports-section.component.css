@@ -151,6 +151,12 @@
   color: #9a3412;
 }
 
+.appeal-chip--type-other {
+  background: #f3e8ff;
+  border-color: #d8b4fe;
+  color: #6b21a8;
+}
+
 .appeal-chip--pending {
   background: #fef3c7;
   border-color: #fde68a;

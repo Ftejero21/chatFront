@@ -630,6 +630,23 @@ export class WebSocketService {
     if (sub) this.subBloqueosPersonal = sub;
   }
 
+  private subAiSearchProgress?: StompSubscription;
+
+  suscribirseAProgressoBusquedaIA(handler: (payload: any) => void): void {
+    this.desuscribirseDeProgressoBusquedaIA();
+    this.esperarConexion(() => {
+      this.subAiSearchProgress = this.stompClient.subscribe(
+        '/user/queue/ai-search-progress',
+        (msg) => { try { handler(JSON.parse(msg.body)); } catch {} }
+      );
+    });
+  }
+
+  desuscribirseDeProgressoBusquedaIA(): void {
+    try { this.subAiSearchProgress?.unsubscribe(); } catch {}
+    this.subAiSearchProgress = undefined;
+  }
+
   suscribirseABaneos(
     userId: number,
     handler: (payload: any) => void

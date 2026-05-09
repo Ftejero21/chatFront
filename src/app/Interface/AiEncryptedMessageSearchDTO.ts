@@ -1,5 +1,6 @@
 export interface AiEncryptedMessageSearchRequest {
   consulta: string;
+  requestId?: string;
   maxResultados?: number;
   maxMensajesAnalizar?: number;
   fechaInicio?: string | null;
@@ -44,4 +45,12 @@ export interface AiEncryptedMessageSearchResult {
   imageNombre?: string | null;
   stickerId?: number | null;
   contentKind?: 'STICKER' | string | null;
+  tipoResultado?: 'MESSAGE' | 'COMPLAINT' | 'COMPLAINT_CREATED' | 'COMPLAINT_RECEIVED' | string | null;
+  denunciaId?: number | null;
+  tipoDenuncia?: string | null;
+  estadoDenuncia?: string | null;
+  fechaDenuncia?: string | null;
+  motivo?: string | null;
+  gravedad?: string | null;
+  nombreUsuarioDenunciado?: string | null;
 }

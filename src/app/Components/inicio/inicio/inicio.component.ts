@@ -647,6 +647,7 @@ export class InicioComponent {
   public globalMessageSearchError: string | null = null;
   public globalMessageSearchResumenBusqueda: string | null = null;
   public globalMessageSearchResultados: AiEncryptedMessageSearchResult[] = [];
+  public globalMessageSearchAiSummary: string | null = null;
   public showMuteDurationPicker = false;
   public muteDurationTargetChat: any | null = null;
   public muteRequestInFlight = false;
@@ -19723,18 +19724,20 @@ private async decryptPreviewString(
     this.showGlobalMessageSearchPopup = false;
     this.globalMessageSearchError = null;
     this.globalMessageSearchResumenBusqueda = null;
+    this.globalMessageSearchAiSummary = null;
   }
 
   public onGlobalMessageSearchConsultaChange(next: string): void {
     this.globalMessageSearchConsulta = String(next || '');
   }
 
-  public submitGlobalMessageSearch(consulta: string): void {
-    const normalizedConsulta = String(consulta || '').trim();
+  public submitGlobalMessageSearch(event: { consulta: string; requestId: string }): void {
+    const normalizedConsulta = String(event?.consulta || '').trim();
     if (!normalizedConsulta || this.globalMessageSearchLoading) return;
 
     const request: AiEncryptedMessageSearchRequest = {
       consulta: normalizedConsulta,
+      requestId: String(event?.requestId || '').trim() || undefined,
       maxResultados: 10,
       maxMensajesAnalizar: 300,
       fechaInicio: null,
@@ -19747,6 +19750,7 @@ private async decryptPreviewString(
     this.globalMessageSearchError = null;
     this.globalMessageSearchResumenBusqueda = null;
     this.globalMessageSearchResultados = [];
+    this.globalMessageSearchAiSummary = null;
 
     this.aiService
       .buscarMensajesEncrypted(request)
@@ -19761,6 +19765,25 @@ private async decryptPreviewString(
           const results = Array.isArray(response?.resultados) ? response.resultados : [];
           this.globalMessageSearchResumenBusqueda = String(response?.resumenBusqueda || '').trim() || null;
           this.globalMessageSearchResultados = results;
+          if (response?.encryptedPayload) {
+            this.tryDecryptAiEncryptedPayload(response.encryptedPayload)
+              .then((plain) => {
+                let summary = plain;
+                try {
+                  const parsed = JSON.parse(plain);
+                  if (parsed && typeof parsed === 'object') {
+                    summary = String(
+                      parsed.resumenBusqueda || parsed.mensaje || parsed.summary || parsed.text || plain
+                    ).trim();
+                  }
+                } catch {}
+                this.globalMessageSearchAiSummary = summary || null;
+                this.cdr.markForCheck();
+              })
+              .catch(() => {
+                this.globalMessageSearchAiSummary = null;
+              });
+          }
         },
         error: (error) => {
           const backendMessage = String(

@@ -42,42 +42,110 @@
       </div>
 
       <button
+        *ngIf="!animationActive"
         type="button"
         class="ai-global-search-popup__submit"
         [disabled]="!canSubmit"
         (click)="onSubmit()"
       >
         <i class="bi bi-search"></i>
-        {{ loading ? 'Buscando mensajes...' : 'Buscar Mensajes' }}
+        Buscar Mensajes
       </button>
+
+      <div *ngIf="animationActive" class="ai-search-checklist">
+        <ng-container *ngFor="let step of loadingSteps">
+          <div
+            *ngIf="step.state !== 'hidden'"
+            class="ai-search-step"
+            [class.ai-search-step--active]="step.state === 'active'"
+            [class.ai-search-step--done]="step.state === 'done'"
+            [class.ai-search-step--error]="step.state === 'error'"
+          >
+            <span class="ai-search-step__icon">
+              <span *ngIf="step.state === 'done'"   class="ai-step-check">✓</span>
+              <span *ngIf="step.state === 'active'"  class="ai-step-pulse"></span>
+              <span *ngIf="step.state === 'error'"   class="ai-step-error">✕</span>
+            </span>
+            <span class="ai-search-step__text">
+              {{ step.label }}<span *ngIf="step.state === 'active'" class="ai-loading-dots"><span>.</span><span>.</span><span>.</span></span>
+            </span>
+          </div>
+        </ng-container>
+      </div>
 
       <div *ngIf="error" class="ai-global-search-popup__error">{{ error }}</div>
     </div>
 
-    <div class="ai-global-search-popup__results-section">
+    <div *ngIf="!animationActive" class="ai-global-search-popup__results-section">
       <div class="ai-global-search-popup__results-header">
         <h3>Resultados encontrados</h3>
         <span class="ai-global-search-popup__count">{{ resultados.length }} coincidencias</span>
       </div>
 
-      <div *ngIf="loading" class="ai-global-search-popup__loading">Analizando mensajes...</div>
-
-      <div *ngIf="!loading && resultados.length > 0" class="ai-global-search-popup__results">
+      <div *ngIf="resultados.length > 0" class="ai-global-search-popup__results">
+        <div *ngIf="isApproximateResult" class="ai-approximate-notice">
+          <i class="bi bi-info-circle"></i> Resultado aproximado — no se encontró coincidencia exacta
+        </div>
         <div *ngIf="hasResumenBusqueda" class="ai-global-search-popup__summary-note">
-          {{ resumenBusqueda }}
+          <div class="ai-global-search-popup__ai-summary-header">
+            <img src="assets/Nexo.svg" alt="Nexo" class="ai-summary-nexo-icon" />
+            <span>Respuesta de Nexo IA</span>
+          </div>
+          <p class="ai-global-search-popup__ai-summary-text">{{ resumenBusqueda }}</p>
         </div>
         <div
-          class="ai-global-search-popup__result result-card"
+          class="ai-global-search-popup__result result-card result-card--animated"
           role="button"
           tabindex="0"
+          [style.animation-delay.ms]="i * 120"
           [ngClass]="{
-            'individual': r.tipoChat === 'INDIVIDUAL',
-            'grupal': r.tipoChat === 'GRUPAL'
+            'individual': r.tipoChat === 'INDIVIDUAL' && !isComplaintResult(r),
+            'grupal':     r.tipoChat === 'GRUPAL'     && !isComplaintResult(r),
+            'complaint':  isComplaintResult(r)
           }"
-          *ngFor="let r of resultados"
+          *ngFor="let r of resultados; let i = index"
           (click)="onSelectResult(r)"
           (keydown)="onResultCardKeydown($event, r)"
         >
+          <!-- COMPLAINT RESULT -->
+          <ng-container *ngIf="isComplaintResult(r)">
+            <div class="src-complaint-indicator" [ngClass]="getComplaintIndicatorClass(r)"></div>
+
+            <div class="src-complaint-header">
+              <div class="src-complaint-user-info">
+                <h3 class="src-complaint-title">{{ getComplaintTitle(r) }}</h3>
+                <p *ngIf="r.nombreUsuarioDenunciado" class="src-complaint-target">
+                  Sobre <strong>{{ r.nombreUsuarioDenunciado }}</strong>
+                </p>
+              </div>
+              <div class="src-complaint-badges">
+                <span class="src-complaint-badge" [ngClass]="getComplaintBadgeClass(r)">
+                  {{ r.estadoDenuncia || 'Pendiente' }}
+                </span>
+                <span *ngIf="r.gravedad" class="src-complaint-gravedad" [ngClass]="getComplaintGravedadClass(r)">
+                  {{ r.gravedad }}
+                </span>
+              </div>
+            </div>
+
+            <span class="src-complaint-reason">{{ getComplaintMotivo(r) }}</span>
+
+            <div *ngIf="getComplaintDetalle(r)" class="src-complaint-message">
+              "{{ getComplaintDetalle(r) }}"
+            </div>
+
+            <div class="src-complaint-footer">
+              <span *ngIf="r.fechaDenuncia" class="src-complaint-timestamp">
+                <i class="bi bi-clock"></i> {{ r.fechaDenuncia }}
+              </span>
+              <span *ngIf="r.motivoCoincidencia" class="src-complaint-match">
+                {{ r.motivoCoincidencia }}
+              </span>
+            </div>
+          </ng-container>
+
+          <!-- MESSAGE RESULT -->
+          <ng-container *ngIf="!isComplaintResult(r)">
           <ng-container *ngIf="resolveResultMessageType(r) as resolvedType">
           <div class="row-top">
             <div class="row-top-left">
@@ -209,11 +277,21 @@
 
           <div class="result-reason">{{ r.motivoCoincidencia }}</div>
           </ng-container>
+          </ng-container><!-- /MESSAGE RESULT -->
         </div>
       </div>
 
-      <div *ngIf="!loading && !error && resultados.length === 0" class="ai-global-search-popup__empty">
-        Sin resultados.
+      <div *ngIf="!error && resultados.length === 0" class="ai-global-search-popup__empty">
+        <ng-container *ngIf="aiSummary || resumenBusqueda; else noResultsPlain">
+          <div class="ai-global-search-popup__ai-summary">
+            <div class="ai-global-search-popup__ai-summary-header">
+              <img src="assets/Nexo.svg" alt="Nexo" class="ai-summary-nexo-icon" />
+              <span>Respuesta de Nexo IA</span>
+            </div>
+            <p class="ai-global-search-popup__ai-summary-text">{{ aiSummary || resumenBusqueda }}</p>
+          </div>
+        </ng-container>
+        <ng-template #noResultsPlain>Sin resultados.</ng-template>
       </div>
     </div>
 

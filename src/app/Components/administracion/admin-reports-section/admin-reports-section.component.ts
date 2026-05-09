@@ -42,15 +42,21 @@ export class AdminReportsSectionComponent {
 
   public getAppealTipoLabel(item: UnbanAppealDTO): string {
     const tipo = String(item?.tipoReporte || '').trim().toUpperCase();
+    if (!tipo) return 'Desbaneo';
+    if (tipo === 'DESBANEO') return 'Desbaneo';
     if (tipo === 'CHAT_CERRADO') return 'Chat bloqueado';
-    return 'Desbaneo';
+    // Cualquier otro valor del backend: formatear legible
+    return tipo
+      .split('_')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
   }
 
   public getAppealTipoClass(item: UnbanAppealDTO): string {
     const tipo = String(item?.tipoReporte || '').trim().toUpperCase();
-    return tipo === 'CHAT_CERRADO'
-      ? 'appeal-chip appeal-chip--type-group'
-      : 'appeal-chip appeal-chip--type-user';
+    if (tipo === 'CHAT_CERRADO') return 'appeal-chip appeal-chip--type-group';
+    if (!tipo || tipo === 'DESBANEO') return 'appeal-chip appeal-chip--type-user';
+    return 'appeal-chip appeal-chip--type-other';
   }
 
   public getAppealEstadoClass(item: UnbanAppealDTO): string {
