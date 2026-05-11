@@ -537,6 +537,7 @@ export type UserWithEstado = UsuarioDTO & { estado?: EstadoUsuario };
   styleUrl: './inicio.component.css',
 })
 export class InicioComponent {
+  private readonly THEME_STORAGE_KEY = 'theme';
   private readonly chatAvatarPalette: readonly string[] = [
     '#f97316',
     '#22c55e',
@@ -788,6 +789,7 @@ export class InicioComponent {
   public topbarSearching: boolean = false;
   public topbarResults: UserWithEstado[] = [];
   public toasts: ToastItem[] = [];
+  public isDarkMode = false;
 
   public nuevoGrupo = {
     nombre: '',
@@ -1232,6 +1234,7 @@ export class InicioComponent {
    * Se encarga de cargar el perfil, inicializar WebSockets y obtener datos iniciales.
    */
   public ngOnInit(): void {
+    this.applyStoredTheme();
     const id = localStorage.getItem('usuarioId');
     const openProfileAfterRegister =
       sessionStorage.getItem(this.OPEN_PROFILE_AFTER_REGISTER_KEY) === 'true';
@@ -2762,6 +2765,20 @@ export class InicioComponent {
     } catch {
       return '';
     }
+  }
+
+  public toggleTheme(): void {
+    const nextDarkMode = !document.body.classList.contains('dark-mode');
+    document.body.classList.toggle('dark-mode');
+    localStorage.setItem(this.THEME_STORAGE_KEY, nextDarkMode ? 'dark' : 'light');
+    this.isDarkMode = nextDarkMode;
+  }
+
+  private applyStoredTheme(): void {
+    const savedTheme = localStorage.getItem(this.THEME_STORAGE_KEY);
+    const shouldUseDarkMode = savedTheme === 'dark';
+    document.body.classList.toggle('dark-mode', shouldUseDarkMode);
+    this.isDarkMode = shouldUseDarkMode;
   }
 
   private async getServerE2EState(

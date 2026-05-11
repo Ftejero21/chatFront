@@ -34,7 +34,11 @@ import {
   UnbanAppealTipoReporte,
 } from '../../../Interface/UnbanAppealDTO';
 import { UnbanAppealEventDTO } from '../../../Interface/UnbanAppealEventDTO';
-import { UserComplaintDTO } from '../../../Interface/UserComplaintDTO';
+import {
+  UserComplaintDTO,
+  UserComplaintEstado,
+  ComplaintHistoryDTO,
+} from '../../../Interface/UserComplaintDTO';
 import { UserComplaintEventDTO } from '../../../Interface/UserComplaintEventDTO';
 import { UserComplaintExpedienteDTO } from '../../../Interface/UserComplaintExpedienteDTO';
 import {
@@ -224,6 +228,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   complaintsTotalPages: number = 1;
   complaintsTotalElements: number = 0;
   complaintsIsLastPage: boolean = true;
+  complaintsViewFilter: UserComplaintEstado = 'PENDIENTE';
   complaintsBadgeCount: number = 0;
   complaintUserRecordOpen: boolean = false;
   complaintUserRecordLoading: boolean = false;
@@ -637,6 +642,11 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   }
 
   private normalizeComplaint(raw: any): UserComplaintDTO {
+    const historial = Array.isArray(raw?.historialDenuncia)
+      ? raw.historialDenuncia
+      : Array.isArray(raw?.historial)
+      ? raw.historial
+      : [];
     return {
       id: Number(raw?.id ?? 0),
       denuncianteId: Number(raw?.denuncianteId ?? raw?.reporterId ?? 0) || null,
@@ -652,6 +662,25 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       denuncianteNombre: String(raw?.denuncianteNombre || raw?.reporterName || '').trim() || null,
       denunciadoNombre: String(raw?.denunciadoNombre || raw?.reportedUserName || '').trim() || null,
       chatNombreSnapshot: String(raw?.chatNombreSnapshot || raw?.chatNombre || '').trim() || null,
+      resolucionMotivo: String(raw?.resolucionMotivo || '').trim() || null,
+      historial: historial.map((entry: any) => this.normalizeComplaintHistoryItem(entry)),
+      historialDenuncia: historial.map((entry: any) => this.normalizeComplaintHistoryItem(entry)),
+    };
+  }
+
+  private normalizeComplaintHistoryItem(raw: any): ComplaintHistoryDTO {
+    return {
+      id: raw?.id ?? null,
+      estadoAnterior: String(raw?.estadoAnterior || '').trim() || null,
+      estadoNuevo: String(raw?.estadoNuevo || raw?.estado || '').trim() || 'PENDIENTE',
+      estadoLabel: String(raw?.estadoLabel || '').trim() || null,
+      motivo: String(raw?.motivo || '').trim() || null,
+      detalle: String(raw?.detalle || raw?.descripcion || '').trim() || null,
+      resolucionMotivo: String(raw?.resolucionMotivo || '').trim() || null,
+      fecha:
+        String(raw?.fecha || raw?.createdAt || raw?.updatedAt || '').trim() || null,
+      adminId: Number(raw?.adminId || 0) || null,
+      accion: String(raw?.accion || '').trim() || null,
     };
   }
 
@@ -673,7 +702,11 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   public cargarDenunciasAdmin(page: number = 0): void {
     this.loadingComplaints = true;
     this.complaintsPage = Number.isFinite(Number(page)) ? Number(page) : 0;
-    this.complaintService.listAdminComplaints(this.complaintsPage, this.complaintsPageSize).subscribe({
+    this.complaintService.listAdminComplaints(
+      this.complaintsPage,
+      this.complaintsPageSize,
+      this.complaintsViewFilter
+    ).subscribe({
       next: (data) => {
         const content = Array.isArray(data?.content)
           ? data.content.map((raw) => this.normalizeComplaint(raw))
@@ -790,9 +823,17 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.selectedChatMensajes = [];
     this.selectedChatMessagesSource = 'admin';
     this.headerSubtitle = 'Denuncias de usuarios con lectura y badge en tiempo real.';
+    this.complaintsViewFilter = 'PENDIENTE';
     this.cargarDenunciasAdmin(0);
     this.refreshComplaintsBadgeCount();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  public setComplaintsViewFilter(filter: UserComplaintEstado): void {
+    if (this.complaintsViewFilter === filter) return;
+    this.complaintsViewFilter = filter;
+    this.complaintsPage = 0;
+    this.cargarDenunciasAdmin(0);
   }
 
   public setAppealViewFilter(
@@ -830,6 +871,10 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   }
 
   public get complaintsEmptyText(): string {
+    if (this.complaintsViewFilter === 'PENDIENTE') return 'No hay denuncias pendientes por mostrar.';
+    if (this.complaintsViewFilter === 'EN_REVISION') return 'No hay denuncias en revisión por mostrar.';
+    if (this.complaintsViewFilter === 'RESUELTA') return 'No hay denuncias resueltas por mostrar.';
+    if (this.complaintsViewFilter === 'DESCARTADA') return 'No hay denuncias descartadas por mostrar.';
     return 'No hay denuncias registradas por ahora.';
   }
 
@@ -1604,71 +1649,380 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       } catch {}
     }
 
-    await Swal.fire({
-      html: `
-        <div class="swal-complaint-modal">
-          <div class="swal-complaint-header">
-            <div class="swal-complaint-icon-bg" aria-hidden="true">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <span class="swal-complaint-status-badge">Incidente Reportado</span>
-            <h1>Detalle de Denuncia</h1>
-          </div>
-
-          <div class="swal-complaint-info-grid">
-            <div class="swal-complaint-info-item">
-              <span class="swal-complaint-label">Denunciante</span>
-              <span class="swal-complaint-value swal-complaint-value--reporter">
-                ${this.escapeHtml(this.getComplaintReporterLabel(currentItem))}
-              </span>
-            </div>
-
-            <div class="swal-complaint-grid-two">
-              <div class="swal-complaint-info-item">
-                <span class="swal-complaint-label">Denunciado</span>
-                <span class="swal-complaint-value">
-                  ${this.escapeHtml(this.getComplaintTargetLabel(currentItem))}
-                </span>
-              </div>
-              <div class="swal-complaint-info-item">
-                <span class="swal-complaint-label">Chat</span>
-                <span class="swal-complaint-value">
-                  ${this.escapeHtml(String(currentItem?.chatNombreSnapshot || 'Sin chat asociado'))}
-                </span>
-              </div>
-            </div>
-
-            <div class="swal-complaint-info-item">
-              <span class="swal-complaint-label">Motivo</span>
-              <span class="swal-complaint-value swal-complaint-value--accent-red">
-                ${this.escapeHtml(String(currentItem?.motivo || 'Sin motivo'))}
-              </span>
-            </div>
-
-            <div class="swal-complaint-info-item">
-              <span class="swal-complaint-label">Detalle del mensaje</span>
-              <div class="swal-complaint-detail-box">
-                <p>"${this.escapeHtml(String(currentItem?.detalle || 'Sin detalle'))}"</p>
-              </div>
-            </div>
-
-            <p class="swal-complaint-id-text">
-              ID de reporte: #DEN-${String(complaintId).padStart(5, '0')}
-            </p>
-          </div>
-        </div>
-      `,
-      showConfirmButton: true,
-      confirmButtonText: 'Cerrar y Revisar',
+    const estadoActual = this.normalizeComplaintStatus(currentItem?.estado);
+    const swalBase = {
+      showCloseButton: true,
+      allowEscapeKey: true,
       customClass: {
         popup: 'swal-complaint-popup',
         htmlContainer: 'swal-complaint-html',
         confirmButton: 'swal-complaint-confirm',
+        cancelButton: 'swal-complaint-cancel',
+        denyButton: 'swal-complaint-deny',
         actions: 'swal-complaint-actions',
       },
+    };
+
+    if (estadoActual === 'RESUELTA' || estadoActual === 'DESCARTADA') {
+      await Swal.fire({
+        ...swalBase,
+        html: this.buildComplaintReadonlyModalHtml(currentItem),
+        showConfirmButton: true,
+        confirmButtonText: 'Cerrar',
+      });
+      return;
+    }
+
+    if (estadoActual === 'PENDIENTE') {
+      const result = await Swal.fire({
+        ...swalBase,
+        html: this.buildComplaintPendingModalHtml(currentItem),
+        showConfirmButton: true,
+        showCancelButton: true,
+        confirmButtonText: 'Pasar a revisión',
+        cancelButtonText: 'Cancelar',
+      });
+      if (!result.isConfirmed) return;
+      await this.patchComplaintStatus(currentItem, 'EN_REVISION', null);
+      return;
+    }
+
+    const result = await Swal.fire({
+      ...swalBase,
+      html: this.buildComplaintReviewModalHtml(currentItem),
+      showConfirmButton: true,
+      showDenyButton: true,
+      showCancelButton: true,
+      confirmButtonText: 'Resolver denuncia',
+      denyButtonText: 'Descartar denuncia',
+      cancelButtonText: 'Cancelar',
+      preConfirm: () =>
+        (document.getElementById('complaint-resolution-textarea') as HTMLTextAreaElement | null)?.value || '',
+      preDeny: () =>
+        (document.getElementById('complaint-resolution-textarea') as HTMLTextAreaElement | null)?.value || '',
     });
+
+    if (result.isDismissed) return;
+    if (result.isDenied) {
+      await this.patchComplaintStatus(
+        currentItem,
+        'DESCARTADA',
+        String(result.value || '').trim() || null
+      );
+      return;
+    }
+    if (!result.isConfirmed) return;
+    await this.patchComplaintStatus(
+      currentItem,
+      'RESUELTA',
+      String(result.value || '').trim() || null
+    );
+  }
+
+  private normalizeComplaintStatus(raw: unknown): UserComplaintEstado {
+    const value = String(raw || '').trim().toUpperCase();
+    if (value === 'EN_REVISION') return 'EN_REVISION';
+    if (value === 'RESUELTA') return 'RESUELTA';
+    if (value === 'DESCARTADA') return 'DESCARTADA';
+    return 'PENDIENTE';
+  }
+
+  private getComplaintStatusLabel(raw: unknown): string {
+    const estado = this.normalizeComplaintStatus(raw);
+    if (estado === 'EN_REVISION') return 'En revisión';
+    if (estado === 'RESUELTA') return 'Resuelta';
+    if (estado === 'DESCARTADA') return 'Descartada';
+    return 'Pendiente';
+  }
+
+  private getComplaintStatusBadgeClass(raw: unknown): string {
+    const estado = this.normalizeComplaintStatus(raw);
+    if (estado === 'RESUELTA') return 'swal-complaint-status-badge is-success';
+    if (estado === 'DESCARTADA') return 'swal-complaint-status-badge is-danger';
+    if (estado === 'EN_REVISION') return 'swal-complaint-status-badge is-review';
+    return 'swal-complaint-status-badge';
+  }
+
+  private getComplaintHistory(item: UserComplaintDTO): ComplaintHistoryDTO[] {
+    const source = Array.isArray(item?.historialDenuncia)
+      ? item.historialDenuncia
+      : Array.isArray(item?.historial)
+      ? item.historial
+      : [];
+    return source.filter((entry): entry is ComplaintHistoryDTO => !!entry);
+  }
+
+  private getComplaintHistoryHtml(item: UserComplaintDTO): string {
+    const history = this.getComplaintHistory(item);
+    if (!history.length) return '';
+    return `
+      <div class="swal-complaint-info-item">
+        <span class="swal-complaint-label">Historial</span>
+        <div class="swal-complaint-timeline">
+          ${history
+            .map((entry) => {
+              const estado = this.escapeHtml(
+                String(
+                  entry?.estadoLabel ||
+                    this.getComplaintStatusLabel(entry?.estadoNuevo) ||
+                    entry?.accion ||
+                    'Actualización'
+                )
+              );
+              const motivo = this.escapeHtml(String(entry?.motivo || '').trim());
+              const detalle = this.escapeHtml(String(entry?.detalle || '').trim());
+              const resolucion = this.escapeHtml(String(entry?.resolucionMotivo || '').trim());
+              const fecha = this.escapeHtml(String(entry?.fecha || 'Sin fecha').trim() || 'Sin fecha');
+              return `
+                <div class="swal-complaint-timeline-item">
+                  <div class="swal-complaint-timeline-dot"></div>
+                  <div class="swal-complaint-timeline-content">
+                    <div class="swal-complaint-timeline-head">
+                      <span class="swal-complaint-timeline-state">${estado}</span>
+                      <span class="swal-complaint-timeline-date">${fecha}</span>
+                    </div>
+                    ${motivo ? `<p class="swal-complaint-timeline-text"><strong>Motivo:</strong> ${motivo}</p>` : ''}
+                    ${detalle ? `<p class="swal-complaint-timeline-text"><strong>Detalle:</strong> ${detalle}</p>` : ''}
+                    ${resolucion ? `<p class="swal-complaint-timeline-text"><strong>Resolución:</strong> ${resolucion}</p>` : ''}
+                  </div>
+                </div>
+              `;
+            })
+            .join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  private buildComplaintBaseModalHtml(
+    item: UserComplaintDTO,
+    config: {
+      title: string;
+      badgeLabel: string;
+      badgeClass?: string;
+      resolutionEditable?: boolean;
+      showResolution?: boolean;
+      showHistory?: boolean;
+      readonly?: boolean;
+    }
+  ): string {
+    const resolution = this.escapeHtml(String(item?.resolucionMotivo || '').trim());
+    const updatedAt = this.escapeHtml(String(item?.updatedAt || 'Sin fecha').trim() || 'Sin fecha');
+    const leidaAt = this.escapeHtml(String(item?.leidaAt || 'Sin fecha').trim() || 'Sin fecha');
+    return `
+      <div class="swal-complaint-modal">
+        <div class="swal-complaint-header">
+          <div class="swal-complaint-icon-bg" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <span class="${config.badgeClass || 'swal-complaint-status-badge'}">${this.escapeHtml(config.badgeLabel)}</span>
+          <h1>${this.escapeHtml(config.title)}</h1>
+        </div>
+
+        <div class="swal-complaint-info-grid">
+          <div class="swal-complaint-info-item">
+            <span class="swal-complaint-label">Denunciante</span>
+            <span class="swal-complaint-value swal-complaint-value--reporter">
+              ${this.escapeHtml(this.getComplaintReporterLabel(item))}
+            </span>
+          </div>
+
+          <div class="swal-complaint-grid-two">
+            <div class="swal-complaint-info-item">
+              <span class="swal-complaint-label">Denunciado</span>
+              <span class="swal-complaint-value">
+                ${this.escapeHtml(this.getComplaintTargetLabel(item))}
+              </span>
+            </div>
+            <div class="swal-complaint-info-item">
+              <span class="swal-complaint-label">Estado</span>
+              <span class="swal-complaint-value">
+                ${this.escapeHtml(this.getComplaintStatusLabel(item?.estado))}
+              </span>
+            </div>
+          </div>
+
+          <div class="swal-complaint-grid-two">
+            <div class="swal-complaint-info-item">
+              <span class="swal-complaint-label">Chat</span>
+              <span class="swal-complaint-value">
+                ${this.escapeHtml(String(item?.chatNombreSnapshot || 'Sin chat asociado'))}
+              </span>
+            </div>
+            <div class="swal-complaint-info-item">
+              <span class="swal-complaint-label">Fecha</span>
+              <span class="swal-complaint-value">
+                ${this.escapeHtml(String(item?.createdAt || 'Sin fecha'))}
+              </span>
+            </div>
+          </div>
+
+          <div class="swal-complaint-info-item">
+            <span class="swal-complaint-label">Motivo</span>
+            <span class="swal-complaint-value swal-complaint-value--accent-red">
+              ${this.escapeHtml(String(item?.motivo || 'Sin motivo'))}
+            </span>
+          </div>
+
+          <div class="swal-complaint-info-item">
+            <span class="swal-complaint-label">Detalle del mensaje</span>
+            <div class="swal-complaint-detail-box">
+              <p>"${this.escapeHtml(String(item?.detalle || 'Sin detalle'))}"</p>
+            </div>
+          </div>
+
+          ${
+            config.showResolution
+              ? (
+                config.resolutionEditable
+              ? `
+              <div class="swal-complaint-info-item">
+                <span class="swal-complaint-label">Resolución</span>
+                <textarea id="complaint-resolution-textarea" class="swal-complaint-textarea" placeholder="Motivo de resolución o descarte (opcional)">${resolution}</textarea>
+              </div>
+            `
+              : `
+              <div class="swal-complaint-info-item">
+                <span class="swal-complaint-label">Resolución</span>
+                <div class="swal-complaint-detail-box">
+                  <p>${resolution || 'Sin resolución registrada.'}</p>
+                </div>
+              </div>
+            `
+              ) : ''
+          }
+
+          ${
+            config.readonly
+              ? `
+              <div class="swal-complaint-grid-two">
+                <div class="swal-complaint-info-item">
+                  <span class="swal-complaint-label">Actualizada</span>
+                  <span class="swal-complaint-value">${updatedAt}</span>
+                </div>
+                <div class="swal-complaint-info-item">
+                  <span class="swal-complaint-label">Leída</span>
+                  <span class="swal-complaint-value">${leidaAt}</span>
+                </div>
+              </div>
+            `
+              : ''
+          }
+          ${config.showHistory ? this.getComplaintHistoryHtml(item) : ''}
+          <p class="swal-complaint-id-text">
+            ID de reporte: #DEN-${String(Number(item?.id || 0)).padStart(5, '0')}
+          </p>
+        </div>
+      </div>
+    `;
+  }
+
+  private buildComplaintPendingModalHtml(item: UserComplaintDTO): string {
+    return this.buildComplaintBaseModalHtml(item, {
+      title: 'Detalle de Denuncia',
+      badgeLabel: 'Pendiente',
+      badgeClass: this.getComplaintStatusBadgeClass('PENDIENTE'),
+      showResolution: false,
+      showHistory: false,
+    });
+  }
+
+  private buildComplaintReviewModalHtml(item: UserComplaintDTO): string {
+    return this.buildComplaintBaseModalHtml(item, {
+      title: 'Revisión de Denuncia',
+      badgeLabel: 'En revisión',
+      badgeClass: this.getComplaintStatusBadgeClass('EN_REVISION'),
+      resolutionEditable: false,
+      showResolution: false,
+      showHistory: false,
+    });
+  }
+
+  private buildComplaintReadonlyModalHtml(item: UserComplaintDTO): string {
+    return this.buildComplaintBaseModalHtml(item, {
+      title: 'Detalle de Denuncia',
+      badgeLabel: this.getComplaintStatusLabel(item?.estado),
+      badgeClass: this.getComplaintStatusBadgeClass(item?.estado),
+      showResolution: false,
+      showHistory: false,
+      readonly: false,
+    });
+  }
+
+  private async patchComplaintStatus(
+    item: UserComplaintDTO,
+    estado: UserComplaintEstado,
+    resolucionMotivo?: string | null
+  ): Promise<boolean> {
+    const id = Number(item?.id || 0);
+    if (!Number.isFinite(id) || id <= 0) return false;
+    try {
+      const response = await firstValueFrom(
+        this.complaintService.actualizarEstadoDenuncia(id, {
+          estado,
+          resolucionMotivo,
+        })
+      );
+      const merged = this.normalizeComplaint({
+        ...item,
+        ...(response || {}),
+        id,
+        estado,
+        resolucionMotivo:
+          String((response as any)?.resolucionMotivo ?? resolucionMotivo ?? '').trim() || null,
+        updatedAt:
+          String((response as any)?.updatedAt || new Date().toISOString()).trim() ||
+          new Date().toISOString(),
+      });
+      this.upsertComplaint(merged);
+      this.refreshComplaintsBadgeCount();
+      const targetPage =
+        this.complaintsItems.length === 1 &&
+        this.normalizeComplaintStatus(merged.estado) !== this.complaintsViewFilter &&
+        this.complaintsPage > 0
+          ? this.complaintsPage - 1
+          : this.complaintsPage;
+      this.cargarDenunciasAdmin(targetPage);
+      await Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title:
+          estado === 'EN_REVISION'
+            ? 'Denuncia enviada a revisión'
+            : estado === 'RESUELTA'
+            ? 'Denuncia resuelta'
+            : 'Denuncia descartada',
+        showConfirmButton: false,
+        timer: 2200,
+        timerProgressBar: true,
+      });
+      return true;
+    } catch (err: any) {
+      if (this.rateLimitService.isRateLimitHttpError(err)) {
+        const remaining = this.rateLimitService.getScopeRemainingSeconds(
+          RATE_LIMIT_SCOPES.ADMIN_GLOBAL
+        );
+        await Swal.fire({
+          title: 'Límite temporal',
+          text: `Demasiadas acciones administrativas. Reintenta en ${remaining || 30}s.`,
+          icon: 'warning',
+          confirmButtonColor: '#2563eb',
+        });
+        return false;
+      }
+      await Swal.fire({
+        title: 'Error',
+        text:
+          err?.error?.mensaje ||
+          'No se pudo actualizar el estado de la denuncia. Intenta nuevamente.',
+        icon: 'error',
+        confirmButtonColor: '#ef4444',
+      });
+      return false;
+    }
   }
 
   private applyUserActiveFromAppeal(

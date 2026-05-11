@@ -1570,3 +1570,292 @@
     align-items: center;
     gap: 4px;
 }
+
+.swal-complaint-popup {
+    width: min(920px, calc(100vw - 24px));
+    max-height: min(78vh, 640px);
+    border-radius: 24px;
+    padding: 0;
+    overflow: hidden;
+}
+
+.swal-complaint-html {
+    margin: 0;
+    padding: 0;
+}
+
+.swal-complaint-modal {
+    padding: 20px 24px 18px;
+    text-align: left;
+}
+
+.swal-complaint-header {
+    display: grid;
+    justify-items: start;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.swal-complaint-icon-bg {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #fee2e2 0%, #fef3c7 100%);
+    color: #b91c1c;
+}
+
+.swal-complaint-status-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fde68a;
+}
+
+.swal-complaint-status-badge.is-review {
+    background: #dbeafe;
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+}
+
+.swal-complaint-status-badge.is-success {
+    background: #dcfce7;
+    color: #166534;
+    border-color: #86efac;
+}
+
+.swal-complaint-status-badge.is-danger {
+    background: #fee2e2;
+    color: #991b1b;
+    border-color: #fca5a5;
+}
+
+.swal-complaint-header h1 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 24px;
+    font-weight: 800;
+}
+
+.swal-complaint-info-grid {
+    display: grid;
+    gap: 12px;
+}
+
+.swal-complaint-grid-two {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.swal-complaint-info-item {
+    display: grid;
+    gap: 6px;
+}
+
+.swal-complaint-label {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #64748b;
+    letter-spacing: 0.04em;
+}
+
+.swal-complaint-value {
+    font-size: 14px;
+    color: #0f172a;
+    font-weight: 600;
+}
+
+.swal-complaint-value--reporter {
+    color: #1d4ed8;
+}
+
+.swal-complaint-value--accent-red {
+    color: #be123c;
+}
+
+.swal-complaint-detail-box,
+.swal-complaint-history-item {
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 14px;
+    padding: 10px 12px;
+}
+
+.swal-complaint-detail-box p,
+.swal-complaint-history-text {
+    margin: 0;
+    color: #334155;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.swal-complaint-textarea {
+    width: 100%;
+    min-height: 96px;
+    max-height: 140px;
+    resize: vertical;
+    border: 1px solid #cbd5e1;
+    border-radius: 14px;
+    padding: 12px 14px;
+    font-size: 14px;
+    color: #0f172a;
+    background: #fff;
+    outline: none;
+}
+
+.swal-complaint-textarea:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+}
+
+.swal-complaint-history {
+    display: grid;
+    gap: 10px;
+}
+
+.swal-complaint-history-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.swal-complaint-history-state {
+    font-size: 12px;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.swal-complaint-history-date {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.swal-complaint-id-text {
+    display: none;
+}
+
+.swal-complaint-timeline {
+    position: relative;
+    display: grid;
+    gap: 12px;
+    padding-left: 18px;
+}
+
+.swal-complaint-timeline::before {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    background: #e2e8f0;
+}
+
+.swal-complaint-timeline-item {
+    position: relative;
+}
+
+.swal-complaint-timeline-dot {
+    position: absolute;
+    left: -18px;
+    top: 6px;
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    background: #2563eb;
+    border: 2px solid #dbeafe;
+    box-shadow: 0 0 0 4px #ffffff;
+}
+
+.swal-complaint-timeline-content {
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 14px;
+    padding: 10px 12px;
+}
+
+.swal-complaint-timeline-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.swal-complaint-timeline-state {
+    font-size: 12px;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.swal-complaint-timeline-date {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.swal-complaint-timeline-text {
+    margin: 0;
+    color: #334155;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.swal-complaint-timeline-text + .swal-complaint-timeline-text {
+    margin-top: 6px;
+}
+
+.swal-complaint-actions {
+    gap: 10px;
+    padding: 0 24px 18px;
+}
+
+.swal-complaint-confirm,
+.swal-complaint-cancel,
+.swal-complaint-deny {
+    border-radius: 12px !important;
+    font-weight: 800 !important;
+    padding: 10px 16px !important;
+    margin: 0 !important;
+}
+
+.swal-complaint-confirm {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+}
+
+.swal-complaint-cancel {
+    background: #e2e8f0 !important;
+    color: #334155 !important;
+}
+
+.swal-complaint-deny {
+    background: #fee2e2 !important;
+    color: #991b1b !important;
+}
+
+@media (max-width: 640px) {
+    .swal-complaint-modal {
+        padding: 16px;
+    }
+
+    .swal-complaint-grid-two {
+        grid-template-columns: 1fr;
+    }
+
+    .swal-complaint-actions {
+        padding: 0 16px 16px;
+    }
+}

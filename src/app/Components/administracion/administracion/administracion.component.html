@@ -583,9 +583,10 @@
       </div>
     </section>
 <app-admin-complaints-section
-      [active]="isComplaintsView"
-      [headerSubtitle]="headerSubtitle"
-      [loadingComplaints]="loadingComplaints"
+        [active]="isComplaintsView"
+        [headerSubtitle]="headerSubtitle"
+        [complaintsViewFilter]="complaintsViewFilter"
+        [loadingComplaints]="loadingComplaints"
       [complaintsItems]="complaintsItems"
       [complaintsEmptyText]="complaintsEmptyText"
       [complaintsPage]="complaintsPage"
@@ -595,9 +596,10 @@
       [showUserDetail]="complaintUserRecordOpen"
       [userRecordLoading]="complaintUserRecordLoading"
       [userRecord]="complaintUserRecord"
-      [userRecordFallbackName]="complaintUserRecordFallbackName"
-      (backRequested)="showDashboard()"
-      (userDetailBackRequested)="closeComplaintUserRecord()"
+        [userRecordFallbackName]="complaintUserRecordFallbackName"
+        (backRequested)="showDashboard()"
+        (filterChanged)="setComplaintsViewFilter($event)"
+        (userDetailBackRequested)="closeComplaintUserRecord()"
       (complaintClicked)="onComplaintCardClick($event)"
       (userNameClicked)="openComplaintUserRecord($event)"
       (warningRequested)="onComplaintUserWarning($event)"
@@ -1121,7 +1123,6 @@
       </button>
     </div>
 </div>
-
 
 
 

@@ -5,7 +5,18 @@
       <div class="topbar__left">
         <i class="fas fa-bars topbar__menu-movil"></i>
         <img src="assets/Nexo.svg" alt="Nexo" class="topbar__logo" />
-        <span class="topbar__brand"><span class="topbar__brand-n">N</span>exo</span>
+        <div class="topbar__brand">
+          <span class="topbar__brand-label"><span class="topbar__brand-n">N</span>exo</span>
+          <button
+            type="button"
+            class="topbar__theme-toggle"
+            [attr.aria-label]="isDarkMode ? 'Activar modo claro' : 'Activar modo oscuro'"
+            [attr.title]="isDarkMode ? 'Modo claro' : 'Modo oscuro'"
+            (click)="toggleTheme()"
+          >
+            <i class="bi" [ngClass]="isDarkMode ? 'bi-sun-fill' : 'bi-moon-stars-fill'"></i>
+          </button>
+        </div>
       </div>
 
       <div class="topbar__search">
@@ -119,42 +130,89 @@
 
     <div class="cuerpoChat" [class.modo-chat-movil]="sidebarSection === 'CHATS' && chatSeleccionadoId !== null">
 
-      <div class="barraLateral">
-        <div class="iconos-superiores">
-          <i class="fas fa-home icono-barra"></i>
-          <i
-            class="bi bi-chat-dots icono-barra icono-barra--messages"
-            [class.icono-barra--active]="sidebarSection === 'CHATS'"
-            title="Chats"
-            role="button"
+      <div class="barraLateral sidebar-nav">
+
+        <div class="iconos-superiores sidebar-nav__group">
+
+          <!-- Inicio -->
+          <button class="sidebar-nav__item" type="button" title="Inicio">
+            <span class="sidebar-nav__active-indicator"></span>
+            <i class="fas fa-home icono-barra"></i>
+            <span class="sidebar-nav__tooltip">Inicio</span>
+          </button>
+
+          <!-- Chats -->
+          <button
+            class="sidebar-nav__item"
+            [class.sidebar-nav__item--active]="sidebarSection === 'CHATS'"
+            type="button"
             tabindex="0"
             (click)="openChatsSidebarView($event)"
-          ></i>
-          <i
-            class="fas fa-star icono-barra icono-barra--star"
-            [class.icono-barra--active-star]="sidebarSection === 'STARRED'"
-            title="Mensajes destacados"
-            role="button"
+          >
+            <span class="sidebar-nav__active-indicator"></span>
+            <i
+              class="bi bi-chat-dots icono-barra icono-barra--messages"
+              [class.icono-barra--active]="sidebarSection === 'CHATS'"
+            ></i>
+            <span class="sidebar-nav__tooltip">Chats</span>
+          </button>
+
+          <!-- Favoritos -->
+          <button
+            class="sidebar-nav__item"
+            [class.sidebar-nav__item--active]="sidebarSection === 'STARRED'"
+            type="button"
             tabindex="0"
             (click)="openStarredSidebarView($event)"
-          ></i>
-          <i
-            class="fas fa-users icono-barra icono-barra--public"
-            [class.icono-barra--active]="isPublicChatsView"
-            [class.icono-barra--active-public]="isPublicChatsView"
-            title="Comunidades publicas"
-            role="button"
+          >
+            <span class="sidebar-nav__active-indicator"></span>
+            <i
+              class="fas fa-star icono-barra icono-barra--star"
+              [class.icono-barra--active-star]="sidebarSection === 'STARRED'"
+            ></i>
+            <span class="sidebar-nav__tooltip">Favoritos</span>
+          </button>
+
+          <!-- Comunidades -->
+          <button
+            class="sidebar-nav__item"
+            [class.sidebar-nav__item--active]="isPublicChatsView"
+            type="button"
             tabindex="0"
             (click)="openPublicChatsSidebarView($event)"
-          ></i>
+          >
+            <span class="sidebar-nav__active-indicator"></span>
+            <i
+              class="fas fa-users icono-barra icono-barra--public"
+              [class.icono-barra--active]="isPublicChatsView"
+              [class.icono-barra--active-public]="isPublicChatsView"
+            ></i>
+            <span class="sidebar-nav__tooltip">Comunidades</span>
+          </button>
+
         </div>
-        <div class="usuario-config">
-          <img *ngIf="usuarioFotoUrl; else sideAvatarFallback" [src]="usuarioFotoUrl" alt="Perfil" class="topbar__avatar" />
-          <ng-template #sideAvatarFallback>
-            <span class="topbar__avatar-fallback">{{ usuarioIniciales }}</span>
-          </ng-template>
-          <i class="fas fa-cog icono-barra"></i>
+
+        <div class="usuario-config sidebar-nav__bottom">
+
+          <!-- Avatar / Perfil -->
+          <button class="sidebar-nav__item sidebar-nav__item--avatar" type="button" title="Perfil">
+            <span class="sidebar-nav__active-indicator"></span>
+            <img *ngIf="usuarioFotoUrl; else sideAvatarFallback" [src]="usuarioFotoUrl" alt="Perfil" class="topbar__avatar sidebar-nav__avatar-img" />
+            <ng-template #sideAvatarFallback>
+              <span class="topbar__avatar-fallback sidebar-nav__avatar-fallback">{{ usuarioIniciales }}</span>
+            </ng-template>
+            <span class="sidebar-nav__tooltip">Perfil</span>
+          </button>
+
+          <!-- Ajustes -->
+          <button class="sidebar-nav__item" type="button" title="Ajustes">
+            <span class="sidebar-nav__active-indicator"></span>
+            <i class="fas fa-cog icono-barra"></i>
+            <span class="sidebar-nav__tooltip">Ajustes</span>
+          </button>
+
         </div>
+
       </div>
 
       <div class="listadoChats" *ngIf="!isStarredView">

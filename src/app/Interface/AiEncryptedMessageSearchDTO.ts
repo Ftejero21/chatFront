@@ -54,8 +54,17 @@ export interface AiEncryptedMessageSearchResult {
   estadoDenuncia?: string | null;
   fechaDenuncia?: string | null;
   motivo?: string | null;
+  motivoDenuncia?: string | null;
+  detalleDenuncia?: string | null;
   gravedad?: string | null;
   nombreUsuarioDenunciado?: string | null;
+  denuncianteId?: number | null;
+  denuncianteNombre?: string | null;
+  denunciadoId?: number | null;
+  denunciadoNombre?: string | null;
+  chatNombreSnapshot?: string | null;
+  chatNombreSnapshotDenuncia?: string | null;
+  resultadoAproximado?: boolean | null;
   // APP_REPORT_STATUS fields
   reporteId?: number | null;
   tipoReporte?: string | null;
@@ -71,6 +80,7 @@ export interface AiEncryptedMessageSearchResult {
   chatCerradoMotivoSnapshot?: string | null;
   mejorResultadoAproximado?: boolean | null;
   historialReporte?: AiEncryptedMessageSearchReportHistoryItem[] | null;
+  historialDenuncia?: AiEncryptedMessageSearchComplaintHistoryItem[] | null;
 }
 
 export interface AiEncryptedMessageSearchReportHistoryItem {
@@ -87,4 +97,16 @@ export interface AiEncryptedMessageSearchReportHistoryItem {
   imagenReporteNombre?: string | null;
   imagenReporteSize?: number | null;
   imagenReporteUrl?: string | null;
+}
+
+export interface AiEncryptedMessageSearchComplaintHistoryItem {
+  estadoAnterior?: string | null;
+  estadoNuevo?: string | null;
+  estadoLabel?: string | null;
+  motivo?: string | null;
+  detalle?: string | null;
+  resolucionMotivo?: string | null;
+  fecha?: string | null;
+  adminId?: number | null;
+  accion?: string | null;
 }

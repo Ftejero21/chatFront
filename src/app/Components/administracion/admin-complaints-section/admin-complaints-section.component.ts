@@ -1,5 +1,8 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { UserComplaintDTO } from '../../../Interface/UserComplaintDTO';
+import {
+  UserComplaintDTO,
+  UserComplaintEstado,
+} from '../../../Interface/UserComplaintDTO';
 import {
   UserComplaintExpedienteDTO,
   UserModerationHistoryItemDTO,
@@ -11,6 +14,7 @@ import {
   styleUrls: ['./admin-complaints-section.component.css'],
 })
 export class AdminComplaintsSectionComponent {
+  @Input() complaintsViewFilter: UserComplaintEstado = 'PENDIENTE';
   @Input() active: boolean = false;
   @Input() headerSubtitle: string = '';
   @Input() loadingComplaints: boolean = false;
@@ -26,6 +30,7 @@ export class AdminComplaintsSectionComponent {
   @Input() userRecordFallbackName: string = '';
 
   @Output() backRequested = new EventEmitter<void>();
+  @Output() filterChanged = new EventEmitter<UserComplaintEstado>();
   @Output() userDetailBackRequested = new EventEmitter<void>();
   @Output() complaintClicked = new EventEmitter<UserComplaintDTO>();
   @Output() userNameClicked = new EventEmitter<{ userId: number; name: string }>();
@@ -47,6 +52,36 @@ export class AdminComplaintsSectionComponent {
     if (label) return label;
     const userId = Number(item?.denunciadoId || 0);
     return userId > 0 ? `Usuario #${userId}` : 'Usuario desconocido';
+  }
+
+  public trackComplaint = (_: number, item: UserComplaintDTO) =>
+    Number(item?.id || 0);
+
+  public isFilterActive(filter: UserComplaintEstado): boolean {
+    return this.complaintsViewFilter === filter;
+  }
+
+  public getComplaintEstadoClass(item: UserComplaintDTO): string {
+    const estado = String(item?.estado || '').trim().toUpperCase();
+    if (estado === 'RESUELTA') return 'appeal-chip appeal-chip--ok';
+    if (estado === 'DESCARTADA') return 'appeal-chip appeal-chip--danger';
+    if (estado === 'EN_REVISION') return 'appeal-chip appeal-chip--review';
+    return 'appeal-chip appeal-chip--pending';
+  }
+
+  public getComplaintEstadoLabel(item: UserComplaintDTO): string {
+    const estado = String(item?.estado || '').trim().toUpperCase();
+    if (estado === 'EN_REVISION') return 'En revisión';
+    if (estado === 'RESUELTA') return 'Resuelta';
+    if (estado === 'DESCARTADA') return 'Descartada';
+    return 'Pendiente';
+  }
+
+  public getComplaintCtaLabel(item: UserComplaintDTO): string {
+    const estado = String(item?.estado || '').trim().toUpperCase();
+    if (estado === 'PENDIENTE') return 'Click para revisar detalle';
+    if (estado === 'EN_REVISION') return 'Click para resolver o descartar';
+    return 'Click para ver detalle';
   }
 
   public onReporterNameClick(item: UserComplaintDTO, event: MouseEvent): void {

@@ -3,7 +3,10 @@ import { Injectable } from '@angular/core';
 import { Observable, Subject, tap } from 'rxjs';
 import { environment } from '../../environments';
 import { PageResponse } from '../../Interface/PageResponse';
-import { UserComplaintDTO } from '../../Interface/UserComplaintDTO';
+import {
+  UserComplaintDTO,
+  UserComplaintEstado,
+} from '../../Interface/UserComplaintDTO';
 import { UserComplaintEventDTO } from '../../Interface/UserComplaintEventDTO';
 import { UserComplaintExpedienteDTO } from '../../Interface/UserComplaintExpedienteDTO';
 
@@ -50,11 +53,16 @@ export class ComplaintService {
 
   public listAdminComplaints(
     page: number = 0,
-    size: number = 10
+    size: number = 10,
+    estado?: UserComplaintEstado | null
   ): Observable<PageResponse<UserComplaintDTO>> {
-    const params = new HttpParams()
+    let params = new HttpParams()
       .set('page', String(Number.isFinite(page) ? page : 0))
       .set('size', String(Number.isFinite(size) ? size : 10));
+    const normalizedEstado = String(estado || '').trim().toUpperCase();
+    if (normalizedEstado) {
+      params = params.set('estado', normalizedEstado);
+    }
 
     return this.http.get<PageResponse<UserComplaintDTO>>(
       `${this.baseUrl}/admin/denuncias`,
@@ -74,6 +82,30 @@ export class ComplaintService {
         {}
       )
       .pipe(tap((item) => this.emitEvent('USER_COMPLAINT_UPDATED', item)));
+  }
+
+  public actualizarEstadoDenuncia(
+    id: number,
+    payload: { estado: UserComplaintEstado; resolucionMotivo?: string | null }
+  ): Observable<UserComplaintDTO> {
+    const complaintId = Number(id);
+    return this.http
+      .patch<UserComplaintDTO>(
+        `${this.baseUrl}/admin/denuncias/${complaintId}/estado`,
+        {
+          estado: String(payload?.estado || '').trim().toUpperCase(),
+          resolucionMotivo:
+            String(payload?.resolucionMotivo || '').trim() || null,
+        }
+      )
+      .pipe(tap((item) => this.emitEvent('USER_COMPLAINT_UPDATED', item)));
+  }
+
+  public updateComplaintStatus(
+    id: number,
+    payload: { estado: UserComplaintEstado; resolucionMotivo?: string | null }
+  ): Observable<UserComplaintDTO> {
+    return this.actualizarEstadoDenuncia(id, payload);
   }
 
   public getAdminComplaintUserExpediente(

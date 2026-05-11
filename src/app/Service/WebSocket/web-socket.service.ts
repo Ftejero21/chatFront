@@ -635,15 +635,27 @@ export class WebSocketService {
   suscribirseAProgressoBusquedaIA(handler: (payload: any) => void): void {
     this.desuscribirseDeProgressoBusquedaIA();
     this.esperarConexion(() => {
+      console.log('[AI_SEARCH][WS_SERVICE] subscribing to /user/queue/ai-search-progress');
       this.subAiSearchProgress = this.stompClient.subscribe(
         '/user/queue/ai-search-progress',
-        (msg) => { try { handler(JSON.parse(msg.body)); } catch {} }
+        (msg) => {
+          try {
+            const payload = JSON.parse(msg.body);
+            console.log('[AI_SEARCH][WS_SERVICE] raw message', payload);
+            handler(payload);
+          } catch (error) {
+            console.error('[AI_SEARCH][WS_SERVICE] parse error /user/queue/ai-search-progress', error, msg?.body);
+          }
+        }
       );
     });
   }
 
   desuscribirseDeProgressoBusquedaIA(): void {
-    try { this.subAiSearchProgress?.unsubscribe(); } catch {}
+    console.log('[AI_SEARCH][WS_SERVICE] unsubscribing from /user/queue/ai-search-progress');
+    try { this.subAiSearchProgress?.unsubscribe(); } catch (error) {
+      console.error('[AI_SEARCH][WS_SERVICE] unsubscribe error /user/queue/ai-search-progress', error);
+    }
     this.subAiSearchProgress = undefined;
   }
 
@@ -1991,5 +2003,4 @@ export class WebSocketService {
     };
   }
 }
-
 

@@ -1,10 +1,16 @@
 import { HttpClient } from '@angular/common/http';
 import { ChangeDetectorRef, Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, Output, SimpleChanges } from '@angular/core';
-import { AiEncryptedMessageSearchReportHistoryItem, AiEncryptedMessageSearchResult } from '../../../Interface/AiEncryptedMessageSearchDTO';
+import {
+  AiEncryptedMessageSearchComplaintHistoryItem,
+  AiEncryptedMessageSearchReportHistoryItem,
+  AiEncryptedMessageSearchResult,
+} from '../../../Interface/AiEncryptedMessageSearchDTO';
 import { MensajeriaService } from '../../../Service/mensajeria/mensajeria.service';
 import { CryptoService } from '../../../Service/crypto/crypto.service';
 import { WebSocketService } from '../../../Service/WebSocket/web-socket.service';
-import { clampPercent, formatDuration, parseAudioDurationMs } from '../../../utils/chat-utils';
+import { firstValueFrom } from 'rxjs';
+import { environment } from '../../../environments';
+import { clampPercent, formatDuration, parseAudioDurationMs, resolveMediaUrl } from '../../../utils/chat-utils';
 
 type AiSearchProgressStatus = 'STARTED' | 'COMPLETED' | 'FAILED';
 type AiSearchProgressStep =
@@ -77,6 +83,34 @@ interface ReportHistoryItem {
   imagenReporteSize: number | null;
   imagenReporteUrl: string | null;
 }
+interface ComplaintStatusCard {
+  key: string;
+  denunciaId: number | null;
+  estadoDenuncia: string;
+  motivoDenuncia: string;
+  detalleDenuncia: string;
+  denuncianteNombre: string | null;
+  denunciadoNombre: string | null;
+  chatId: number | null;
+  chatNombreSnapshot: string | null;
+  fechaDenuncia: string;
+  mejorResultadoAproximado: boolean;
+  relevancia: number | null;
+  historialDenuncia: ComplaintHistoryItem[];
+}
+interface ComplaintHistoryItem {
+  key: string;
+  estadoAnterior: string | null;
+  estadoNuevo: string;
+  estadoLabel: string | null;
+  motivo: string;
+  detalle: string | null;
+  resolucionMotivo: string | null;
+  fecha: string;
+  adminId: number | null;
+  accion: string | null;
+  timestampMs: number;
+}
 type SearchImagePayload =
   | {
       type: 'E2E_IMAGE';
@@ -85,7 +119,7 @@ type SearchImagePayload =
       imageMime?: string;
       imageNombre?: string;
       forEmisor: string;
-      forAdmin: string;
+      forAdmin?: string; // optional — sticker payloads may omit it
       forReceptor: string;
     }
   | {
@@ -95,7 +129,7 @@ type SearchImagePayload =
       imageMime?: string;
       imageNombre?: string;
       forEmisor: string;
-      forAdmin: string;
+      forAdmin?: string; // optional
       forReceptores: Record<string, string>;
     };
 type SearchAudioPayload =
@@ -183,8 +217,14 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   public historyReportImagePreviewName = 'Imagen adjunta';
   public historyReportImagePreviewSize = '';
   public historyReportImagePreviewMime = 'image/jpeg';
+  public showSearchResultMediaPreview = false;
+  public searchResultMediaPreviewUrl = '';
+  public searchResultMediaPreviewName = 'Imagen';
+  public searchResultMediaPreviewSize = '';
+  public searchResultMediaPreviewMime = 'image/jpeg';
   public visibleProgressEvents: VisibleAiProgressEvent[] = [];
   public reportCards: ReportCard[] = [];
+  public complaintStatusCards: ComplaintStatusCard[] = [];
   public resultAnimationKey = '';
   private loadingTimers: ReturnType<typeof setTimeout>[] = [];
   private httpResponseReady = false;
@@ -203,10 +243,17 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       this.clearReportImageState();
       this.closeHistoryReportImagePreview();
       this.clearHistoryReportImageCache();
+      this.closeSearchResultMediaPreview();
     }
     if (changes['resultados']) {
+      console.debug('[AI_SEARCH_RENDER] codigo=%s resultados=%o', this.searchCodigo, this.resultados);
       this.hydrateVisibleResultAssets();
       this.reportCards = this.getSortedReportResults(this.resultados);
+      this.complaintStatusCards = this.getSortedComplaintStatusResults(this.resultados);
+      console.debug(
+        '[AI_SEARCH_RENDER] renderingComplaintStatus=%s',
+        this.isComplaintStatusResponse() && this.complaintStatusCards.length > 0
+      );
       this.hydrateReportHistoryImages();
     }
     if (changes['loading']) {
@@ -218,9 +265,13 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
           this.stopLoadingAnimation();
         } else {
           this.httpResponseReady = true;
+          if (this.isEmptyAiResponse()) {
+            this.wsStepsComplete = true;
+          }
           console.log('[AI_SEARCH][HTTP] final response ready', {
             wsStepsComplete: this.wsStepsComplete,
             queueLength: this.progressQueue.length,
+            searchCodigo: this.searchCodigo,
           });
           if (this.wsStepsComplete) {
             this.scheduleFinalResultDisplay();
@@ -374,6 +425,39 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     return String(item?.contenidoVisible || '').trim() || '[Sticker]';
   }
 
+  public isImageSearchResult(item: AiEncryptedMessageSearchResult): boolean {
+    return this.resolveResultMessageType(item) === 'IMAGE';
+  }
+
+  public isStickerSearchResult(item: AiEncryptedMessageSearchResult): boolean {
+    return this.resolveResultMessageType(item) === 'STICKER';
+  }
+
+  public getSearchResultMediaRawUrl(item: AiEncryptedMessageSearchResult): string {
+    return String(item?.imageUrl || item?.mediaUrl || '').trim();
+  }
+
+  public openSearchResultPreview(item: AiEncryptedMessageSearchResult, event: Event): void {
+    event.stopPropagation();
+    const url = this.getResultMediaUrl(item);
+    if (!url) return;
+    const type = this.resolveResultMessageType(item);
+    this.searchResultMediaPreviewUrl = url;
+    this.searchResultMediaPreviewName = String(
+      item?.imageNombre || item?.descripcionTipoMensaje || (type === 'STICKER' ? 'Sticker' : 'Imagen')
+    ).trim() || (type === 'STICKER' ? 'Sticker' : 'Imagen');
+    this.searchResultMediaPreviewMime = String(item?.imageMime || item?.mimeType || 'image/jpeg').trim() || 'image/jpeg';
+    this.searchResultMediaPreviewSize = '';
+    this.showSearchResultMediaPreview = true;
+    this.cdr.markForCheck();
+  }
+
+  public closeSearchResultMediaPreview(): void {
+    this.showSearchResultMediaPreview = false;
+    this.searchResultMediaPreviewUrl = '';
+    this.cdr.markForCheck();
+  }
+
   public getResultAudioFallback(item: AiEncryptedMessageSearchResult): string {
     return String(item?.contenidoVisible || '').trim() || '[Audio]';
   }
@@ -506,7 +590,7 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     return 'priority-red';
   }
 
-  public getComplaintBadgeClass(item: AiEncryptedMessageSearchResult): Record<string, boolean> {
+  public getLegacyComplaintBadgeClass(item: AiEncryptedMessageSearchResult): Record<string, boolean> {
     const estado = String(item?.estadoDenuncia || '').trim().toUpperCase();
     const resolved = estado === 'RESUELTO' || estado === 'CERRADO';
     return { 'badge-green': resolved, 'badge-red': !resolved };
@@ -536,15 +620,19 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   }
 
   public onResultMediaError(item: AiEncryptedMessageSearchResult, event: Event): void {
-    this.mediaLoadErrors.add(this.getMediaKey(item));
+    const key = this.getMediaKey(item);
+    this.mediaLoadErrors.add(key);
+    const prev = this.hydratedMediaUrls.get(key);
+    if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
+    this.hydratedMediaUrls.delete(key);
+    const rawUrl = String(item?.imageUrl || item?.mediaUrl || '').trim();
     console.error('[ai-search-popup][media][img-error]', {
       mensajeId: Number(item?.mensajeId || 0),
-      chatId: Number(item?.chatId || 0),
-      tipo: this.resolveResultMessageType(item),
-      renderedUrl: this.getResultMediaUrl(item),
-      rawUrl: String(item?.mediaUrl || '').trim(),
+      rawUrl,
+      normalizedUrl: this.normalizeSearchMediaUrl(rawUrl),
     });
     event.stopPropagation();
+    this.cdr.markForCheck();
   }
 
   public get canSubmit(): boolean {
@@ -1029,8 +1117,32 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     return String(this.searchCodigo || '').trim().toUpperCase() === 'APP_REPORT_STATUS_OK';
   }
 
+  public isComplaintStatusResponse(): boolean {
+    return String(this.searchCodigo || '').trim().toUpperCase() === 'COMPLAINT_STATUS_OK';
+  }
+
+  public isEmptyAiResponse(): boolean {
+    const codigo = String(this.searchCodigo || '').trim().toUpperCase();
+    return codigo.endsWith('_EMPTY');
+  }
+
+  public getEmptyAiResponseMessage(): string {
+    const codigo = String(this.searchCodigo || '').trim().toUpperCase();
+    if (codigo === 'COMPLAINT_STATUS_EMPTY') {
+      return 'No se encontraron denuncias para esa búsqueda.';
+    }
+    if (codigo === 'APP_REPORT_STATUS_EMPTY') {
+      return 'No se encontraron reportes para esa búsqueda.';
+    }
+    return 'Sin resultados.';
+  }
+
   public getReportCards(): ReportCard[] {
     return this.reportCards;
+  }
+
+  public getComplaintStatusCards(): ComplaintStatusCard[] {
+    return this.complaintStatusCards;
   }
 
   public trackByVisibleProgressEvent(_index: number, event: VisibleAiProgressEvent): string {
@@ -1041,13 +1153,22 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     return item.key;
   }
 
+  public trackByComplaintId(_index: number, item: ComplaintStatusCard): string {
+    return item.key;
+  }
+
   public trackByHistoryItem(_index: number, item: ReportHistoryItem): string {
+    return item.key;
+  }
+
+  public trackByComplaintHistoryItem(_index: number, item: ComplaintHistoryItem): string {
     return item.key;
   }
 
   public trackBySearchResult(index: number, result: AiEncryptedMessageSearchResult): string | number {
     const tipo = String(result?.tipoResultado || '').trim().toUpperCase();
     if (tipo === 'APP_REPORT_STATUS') return this.normalizeReportGroupKey(result);
+    if (tipo === 'COMPLAINT_STATUS') return this.normalizeComplaintGroupKey(result);
     const mensajeId = Number(result?.mensajeId || 0);
     if (Number.isFinite(mensajeId) && mensajeId > 0) return mensajeId;
     return index;
@@ -1061,6 +1182,13 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     return (resultados || [])
       .filter((result) => String(result?.tipoResultado || '').trim().toUpperCase() === 'APP_REPORT_STATUS')
       .map((result) => this.mapReportCard(result));
+  }
+
+  public getSortedComplaintStatusResults(resultados: AiEncryptedMessageSearchResult[]): ComplaintStatusCard[] {
+    if (!this.isComplaintStatusResponse()) return [];
+    return (resultados || [])
+      .filter((result) => this.isComplaintStatusResult(result))
+      .map((result) => this.mapComplaintStatusCard(result));
   }
 
   public normalizeReportGroupKey(result: AiEncryptedMessageSearchResult): string {
@@ -1250,6 +1378,77 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     return item?.fecha ? `${prefix} ${item.fecha}` : prefix;
   }
 
+  public normalizeComplaintGroupKey(result: AiEncryptedMessageSearchResult): string {
+    const complaintId = Number(result?.denunciaId || 0);
+    if (Number.isFinite(complaintId) && complaintId > 0) return `complaint-id:${complaintId}`;
+    const motivo = String(result?.motivoDenuncia || result?.motivo || '').trim().toUpperCase();
+    const detalle = String(result?.detalleDenuncia || result?.contenido || '').trim().toUpperCase();
+    return `complaint:${motivo}:${detalle}`;
+  }
+
+  public isComplaintStatusResult(result: AiEncryptedMessageSearchResult | null | undefined): boolean {
+    const tipo = String(result?.tipoResultado || '').trim().toUpperCase();
+    const hasComplaintTipo =
+      tipo === 'COMPLAINT_STATUS' ||
+      tipo === 'COMPLAINT_CREATED' ||
+      tipo === 'COMPLAINT_RECEIVED';
+    const denunciaId = Number(result?.denunciaId || 0);
+    const hasDenunciaId = Number.isFinite(denunciaId) && denunciaId > 0;
+    const hasHistory = Array.isArray(result?.historialDenuncia) && result!.historialDenuncia!.length > 0;
+    return hasComplaintTipo || hasDenunciaId || hasHistory;
+  }
+
+  public getComplaintStatusLabel(
+    resultOrStatus: AiEncryptedMessageSearchResult | ComplaintHistoryItem | string | null | undefined
+  ): string {
+    const estado = typeof resultOrStatus === 'string'
+      ? String(resultOrStatus || '').trim().toUpperCase()
+      : String(
+          (resultOrStatus as AiEncryptedMessageSearchResult)?.estadoDenuncia ||
+          (resultOrStatus as ComplaintHistoryItem)?.estadoNuevo ||
+          ''
+        ).trim().toUpperCase();
+    if (estado === 'PENDIENTE') return 'Pendiente';
+    if (estado === 'EN_REVISION') return 'En revisión';
+    if (estado === 'RESUELTA') return 'Resuelta';
+    if (estado === 'DESCARTADA') return 'Descartada';
+    return estado || 'Desconocido';
+  }
+
+  public getComplaintBadgeClass(status: string | null | undefined): string {
+    const estado = String(status || '').trim().toUpperCase();
+    if (estado === 'PENDIENTE') return 'badge-pendiente';
+    if (estado === 'EN_REVISION') return 'badge-revision';
+    if (estado === 'RESUELTA') return 'badge-aprobada';
+    if (estado === 'DESCARTADA') return 'badge-rechazada';
+    return 'badge-pendiente';
+  }
+
+  public getComplaintCircleClass(status: string | null | undefined): string {
+    const estado = String(status || '').trim().toUpperCase();
+    if (estado === 'PENDIENTE') return 'status-circle--pendiente';
+    if (estado === 'EN_REVISION') return 'status-circle--revision';
+    if (estado === 'RESUELTA') return 'status-circle--aprobada';
+    if (estado === 'DESCARTADA') return 'status-circle--rechazada';
+    return 'status-circle--pendiente';
+  }
+
+  public getComplaintIconClass(status: string | null | undefined): string {
+    const estado = String(status || '').trim().toUpperCase();
+    if (estado === 'PENDIENTE') return 'bi bi-hourglass-split';
+    if (estado === 'EN_REVISION') return 'bi bi-clock';
+    if (estado === 'RESUELTA') return 'bi bi-check-lg';
+    if (estado === 'DESCARTADA') return 'bi bi-x-lg';
+    return 'bi bi-hourglass-split';
+  }
+
+  public getComplaintDateText(item: ComplaintHistoryItem): string {
+    const accion = String(item?.accion || '').trim().toUpperCase();
+    const estado = String(item?.estadoNuevo || '').trim().toUpperCase();
+    const prefix = accion === 'CREACION' || estado === 'PENDIENTE' ? 'Creado el' : 'Actualizado el';
+    return item?.fecha ? `${prefix} ${item.fecha}` : prefix;
+  }
+
   private mapReportCard(result: AiEncryptedMessageSearchResult): ReportCard {
     const historial = this.buildReportHistory(result);
     return {
@@ -1336,6 +1535,80 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     };
   }
 
+  private mapComplaintStatusCard(result: AiEncryptedMessageSearchResult): ComplaintStatusCard {
+    return {
+      key: this.normalizeComplaintGroupKey(result),
+      denunciaId: Number.isFinite(Number(result?.denunciaId)) && Number(result?.denunciaId) > 0 ? Number(result?.denunciaId) : null,
+      estadoDenuncia: String(result?.estadoDenuncia || '').trim().toUpperCase() || 'PENDIENTE',
+      motivoDenuncia: String(result?.motivoDenuncia || result?.motivo || '').trim(),
+      detalleDenuncia: String(result?.detalleDenuncia || result?.contenido || result?.contenidoVisible || '').trim(),
+      denuncianteNombre: String(result?.denuncianteNombre || '').trim() || null,
+      denunciadoNombre: String(result?.denunciadoNombre || result?.nombreUsuarioDenunciado || '').trim() || null,
+      chatId: Number.isFinite(Number(result?.chatId)) && Number(result?.chatId) > 0 ? Number(result?.chatId) : null,
+      chatNombreSnapshot: String(
+        result?.chatNombreSnapshotDenuncia ||
+        result?.chatNombreSnapshot ||
+        result?.nombreChatGrupal ||
+        ''
+      ).trim() || null,
+      fechaDenuncia: String(result?.fechaDenuncia || result?.createdAt || result?.fechaEnvio || '').trim(),
+      mejorResultadoAproximado: result?.mejorResultadoAproximado === true || result?.resultadoAproximado === true,
+      relevancia: typeof result?.relevancia === 'number' && Number.isFinite(result.relevancia) ? result.relevancia : null,
+      historialDenuncia: this.buildComplaintHistory(result),
+    };
+  }
+
+  private buildComplaintHistory(result: AiEncryptedMessageSearchResult): ComplaintHistoryItem[] {
+    const rawHistory = Array.isArray(result?.historialDenuncia) ? result.historialDenuncia : [];
+    const history = rawHistory
+      .map((item, index) => this.mapComplaintHistoryItem(item, result, index))
+      .filter((item): item is ComplaintHistoryItem => !!item);
+    if (history.length > 0) return [...history];
+    return [this.buildFallbackComplaintHistoryItem(result)];
+  }
+
+  private mapComplaintHistoryItem(
+    item: AiEncryptedMessageSearchComplaintHistoryItem | null | undefined,
+    result: AiEncryptedMessageSearchResult,
+    index: number
+  ): ComplaintHistoryItem | null {
+    const estadoNuevo = String(item?.estadoNuevo || '').trim().toUpperCase();
+    const fecha = String(item?.fecha || '').trim();
+    if (!estadoNuevo && !fecha && !item?.motivo && !item?.detalle && !item?.resolucionMotivo) return null;
+    return {
+      key: `${this.normalizeComplaintGroupKey(result)}:history:${index}:${estadoNuevo || 'UNKNOWN'}:${fecha || 'no-date'}`,
+      estadoAnterior: item?.estadoAnterior ? String(item.estadoAnterior).trim().toUpperCase() : null,
+      estadoNuevo: estadoNuevo || String(result?.estadoDenuncia || '').trim().toUpperCase() || 'PENDIENTE',
+      estadoLabel: item?.estadoLabel ? String(item.estadoLabel).trim() : null,
+      motivo: String(item?.motivo || result?.motivoDenuncia || result?.motivo || '').trim(),
+      detalle: String(item?.detalle || result?.detalleDenuncia || result?.contenido || '').trim() || null,
+      resolucionMotivo: String(item?.resolucionMotivo || '').trim() || null,
+      fecha,
+      adminId: Number.isFinite(Number(item?.adminId)) ? Number(item?.adminId) : null,
+      accion: String(item?.accion || '').trim() || null,
+      timestampMs: this.parseReportDate(fecha)?.getTime() ?? 0,
+    };
+  }
+
+  private buildFallbackComplaintHistoryItem(result: AiEncryptedMessageSearchResult): ComplaintHistoryItem {
+    const estado = String(result?.estadoDenuncia || '').trim().toUpperCase() || 'PENDIENTE';
+    const accion = estado === 'PENDIENTE' ? 'CREACION' : 'CAMBIO_ESTADO';
+    const fecha = String(result?.fechaDenuncia || result?.createdAt || result?.fechaEnvio || '').trim();
+    return {
+      key: `${this.normalizeComplaintGroupKey(result)}:history:fallback`,
+      estadoAnterior: null,
+      estadoNuevo: estado,
+      estadoLabel: null,
+      motivo: String(result?.motivoDenuncia || result?.motivo || '').trim(),
+      detalle: String(result?.detalleDenuncia || result?.contenido || result?.contenidoVisible || '').trim() || null,
+      resolucionMotivo: String(result?.resolucionMotivo || '').trim() || null,
+      fecha,
+      adminId: null,
+      accion,
+      timestampMs: this.parseReportDate(fecha)?.getTime() ?? 0,
+    };
+  }
+
   private getAppReportStartedLabel(tipoReporte: string): string {
     const t = tipoReporte.toUpperCase();
     if (t === 'QUEJA')                         return 'Generando queja...';
@@ -1406,60 +1679,120 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
 
       const rawUrl = this.getPreferredAssetUrl(item, type);
       const key = this.getMediaKey(item);
-      if (!rawUrl || this.hydratedMediaUrls.has(key) || this.hydratingMediaKeys.has(key)) continue;
+      if (!rawUrl || this.hydratedMediaUrls.has(key) || this.hydratingMediaKeys.has(key) || this.mediaLoadErrors.has(key)) continue;
 
-      const chatId = Number(item?.chatId || 0);
-      const mensajeId = Number(item?.mensajeId || 0);
-      if (!Number.isFinite(chatId) || chatId <= 0 || !Number.isFinite(mensajeId) || mensajeId <= 0) {
-        console.error('[ai-search-popup][media][invalid-context]', {
-          mensajeId,
-          chatId,
-          tipo: type,
-          rawUrl,
-        });
-        continue;
-      }
-
-      this.hydratingMediaKeys.add(key);
-      void this.mensajeriaService
-        .downloadChatAttachmentBlob(rawUrl, chatId, mensajeId, 1)
-        .then(async (blob) => {
-          const imagePayload = type === 'IMAGE' || type === 'STICKER'
-            ? this.parseImageE2EPayload(this.getAttachmentPayloadSource(item))
-            : null;
-          const audioPayload = type === 'AUDIO'
-            ? this.parseAudioE2EPayload(this.getAttachmentPayloadSource(item))
-            : null;
-          const safeBlob = imagePayload
-            ? await this.decryptImageBlobFromPayload(blob, imagePayload, item)
-            : audioPayload
-              ? await this.decryptAudioBlobFromPayload(blob, audioPayload, item)
-              : this.normalizeAssetBlobMime(blob, item, type);
-          if (type === 'IMAGE' || type === 'STICKER') {
-            await this.assertRenderableImageBlob(safeBlob, {
-              mensajeId,
-              chatId,
-              rawUrl,
-              mimeType: this.getPreferredAssetMime(item, type),
-              tipo: type,
-            });
+      if (type === 'IMAGE' || type === 'STICKER') {
+        // Fetch directly with JWT interceptor — backend decrypts for admin.
+        // No proxy needed; chatId/mensajeId not required for this path.
+        this.hydrateImageOrStickerResult(item, rawUrl, key);
+      } else {
+        // AUDIO: use proxy (requires chatId/mensajeId for auth check)
+        const chatId = Number(item?.chatId || 0);
+        const mensajeId = Number(item?.mensajeId || 0);
+        if (!Number.isFinite(chatId) || chatId <= 0 || !Number.isFinite(mensajeId) || mensajeId <= 0) {
+          const audioPayload = this.parseAudioE2EPayload(this.getAttachmentPayloadSource(item));
+          if (!audioPayload) {
+            this.hydratedMediaUrls.set(key, rawUrl);
+            this.mediaLoadErrors.delete(key);
+            this.cdr.markForCheck();
           }
-          const objectUrl = URL.createObjectURL(safeBlob);
-          const previous = this.hydratedMediaUrls.get(key);
-          if (previous?.startsWith('blob:')) URL.revokeObjectURL(previous);
-          this.hydratedMediaUrls.set(key, objectUrl);
-          this.mediaLoadErrors.delete(key);
-          this.cdr.markForCheck();
-        })
-        .catch(() => {
-          this.hydratedMediaUrls.delete(key);
-          this.cdr.markForCheck();
-        })
-        .finally(() => {
-          this.hydratingMediaKeys.delete(key);
-          this.cdr.markForCheck();
-        });
+          continue;
+        }
+        this.hydrateAudioResult(item, rawUrl, key, chatId, mensajeId);
+      }
     }
+  }
+
+  private normalizeSearchMediaUrl(rawUrl: string): string {
+    return resolveMediaUrl(rawUrl, environment.backendBaseUrl);
+  }
+
+  private hydrateImageOrStickerResult(
+    item: AiEncryptedMessageSearchResult,
+    rawUrl: string,
+    key: string
+  ): void {
+    const mensajeId = Number(item?.mensajeId || 0);
+    const chatId = Number(item?.chatId || 0);
+    const type = this.resolveResultMessageType(item);
+    const imagePayload = this.parseImageE2EPayload(this.getAttachmentPayloadSource(item));
+    // Use relative URL for proxy (same as InicioComponent). rawUrl may already be normalized.
+    const relativeUrl = String(imagePayload?.imageUrl || item?.imageUrl || item?.mediaUrl || '').trim();
+    const fallbackUrl = rawUrl || this.normalizeSearchMediaUrl(relativeUrl);
+
+    console.log('[ai-search-popup][media][hydrate-start]', { mensajeId, tipo: type, relativeUrl, chatId });
+
+    if (!relativeUrl && !fallbackUrl) {
+      this.mediaLoadErrors.add(key);
+      this.cdr.markForCheck();
+      return;
+    }
+
+    this.hydratingMediaKeys.add(key);
+
+    const useProxy = Number.isFinite(chatId) && chatId > 0 && Number.isFinite(mensajeId) && mensajeId > 0;
+    const fetchPromise: Promise<Blob> = useProxy
+      ? this.mensajeriaService.downloadChatAttachmentBlob(relativeUrl || fallbackUrl, chatId, mensajeId, 1)
+      : firstValueFrom(this.http.get(fallbackUrl, { responseType: 'blob' }));
+
+    void fetchPromise
+      .then(async (blob) => {
+        if (!blob) throw new Error('EMPTY_BLOB');
+        let safeBlob: Blob;
+        if (imagePayload) {
+          safeBlob = await this.decryptImageBlobFromPayload(blob, imagePayload, item);
+        } else {
+          safeBlob = this.normalizeAssetBlobMime(blob, item, type);
+        }
+        const objectUrl = URL.createObjectURL(safeBlob);
+        const previous = this.hydratedMediaUrls.get(key);
+        if (previous?.startsWith('blob:')) URL.revokeObjectURL(previous);
+        this.hydratedMediaUrls.set(key, objectUrl);
+        this.mediaLoadErrors.delete(key);
+        console.log('[ai-search-popup][media][hydrate-ok]', { mensajeId, hasPreview: true });
+      })
+      .catch((err: unknown) => {
+        this.hydratedMediaUrls.delete(key);
+        this.mediaLoadErrors.add(key);
+        console.error('[ai-search-popup][media][hydrate-error]', { mensajeId, error: err });
+      })
+      .finally(() => {
+        this.hydratingMediaKeys.delete(key);
+        this.cdr.markForCheck();
+      });
+  }
+
+  private hydrateAudioResult(
+    item: AiEncryptedMessageSearchResult,
+    rawUrl: string,
+    key: string,
+    chatId: number,
+    mensajeId: number
+  ): void {
+    this.hydratingMediaKeys.add(key);
+    void this.mensajeriaService
+      .downloadChatAttachmentBlob(rawUrl, chatId, mensajeId, 1)
+      .then(async (blob) => {
+        const audioPayload = this.parseAudioE2EPayload(this.getAttachmentPayloadSource(item));
+        const safeBlob = audioPayload
+          ? await this.decryptAudioBlobFromPayload(blob, audioPayload, item)
+          : this.normalizeAssetBlobMime(blob, item, 'AUDIO');
+        const objectUrl = URL.createObjectURL(safeBlob);
+        const previous = this.hydratedMediaUrls.get(key);
+        if (previous?.startsWith('blob:')) URL.revokeObjectURL(previous);
+        this.hydratedMediaUrls.set(key, objectUrl);
+        this.mediaLoadErrors.delete(key);
+        this.cdr.markForCheck();
+      })
+      .catch(() => {
+        this.hydratedMediaUrls.delete(key);
+        this.mediaLoadErrors.add(key);
+        this.cdr.markForCheck();
+      })
+      .finally(() => {
+        this.hydratingMediaKeys.delete(key);
+        this.cdr.markForCheck();
+      });
   }
 
   private getPreferredAssetUrl(
@@ -1471,7 +1804,9 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       return String(payload?.audioUrl || item?.mediaUrl || '').trim();
     }
     const payload = this.parseImageE2EPayload(this.getAttachmentPayloadSource(item));
-    return String(payload?.imageUrl || item?.imageUrl || item?.mediaUrl || '').trim();
+    const raw = String(payload?.imageUrl || item?.imageUrl || item?.mediaUrl || '').trim();
+    // Normalize to absolute URL so the cache key is stable regardless of relative/absolute form
+    return raw ? this.normalizeSearchMediaUrl(raw) : '';
   }
 
   private getPreferredAssetMime(
@@ -1581,7 +1916,7 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     if (payloadType !== 'E2E_IMAGE' && payloadType !== 'E2E_GROUP_IMAGE') return null;
     if (typeof payload?.ivFile !== 'string' || !payload.ivFile.trim()) return null;
     if (typeof payload?.forEmisor !== 'string' || !payload.forEmisor.trim()) return null;
-    if (typeof payload?.forAdmin !== 'string' || !payload.forAdmin.trim()) return null;
+    // forAdmin is optional — sticker search results may not include it
 
     if (payloadType === 'E2E_IMAGE') {
       if (typeof payload?.forReceptor !== 'string' || !payload.forReceptor.trim()) return null;
@@ -1592,7 +1927,7 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
         imageMime: typeof payload?.imageMime === 'string' ? payload.imageMime : undefined,
         imageNombre: typeof payload?.imageNombre === 'string' ? payload.imageNombre : undefined,
         forEmisor: payload.forEmisor,
-        forAdmin: payload.forAdmin,
+        forAdmin: typeof payload?.forAdmin === 'string' && payload.forAdmin.trim() ? payload.forAdmin : undefined,
         forReceptor: payload.forReceptor,
       };
     }
@@ -1610,7 +1945,7 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       imageMime: typeof payload?.imageMime === 'string' ? payload.imageMime : undefined,
       imageNombre: typeof payload?.imageNombre === 'string' ? payload.imageNombre : undefined,
       forEmisor: payload.forEmisor,
-      forAdmin: payload.forAdmin,
+      forAdmin: typeof payload?.forAdmin === 'string' && payload.forAdmin.trim() ? payload.forAdmin : undefined,
       forReceptores,
     };
   }
@@ -1663,6 +1998,9 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       if (!clean || orderedCandidates.includes(clean)) return;
       orderedCandidates.push(clean);
     };
+
+    // Admin context: try forAdmin first so admin can always decrypt regardless of chat role
+    pushIfAny(payload.forAdmin);
 
     if (isSender) pushIfAny(payload.forEmisor);
 

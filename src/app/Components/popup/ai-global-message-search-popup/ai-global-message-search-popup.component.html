@@ -119,7 +119,7 @@
           <span class="ai-global-search-popup__count">{{ resultados.length }} coincidencias</span>
         </div>
 
-        <div *ngIf="resultados.length > 0" class="ai-global-search-popup__results">
+        <div *ngIf="!isEmptyAiResponse() && resultados.length > 0" class="ai-global-search-popup__results">
           <div *ngIf="isApproximateResult" class="ai-approximate-notice">
             <i class="bi bi-info-circle"></i> Resultado aproximado: no se encontro coincidencia exacta
           </div>
@@ -244,7 +244,87 @@
             </div>
           </ng-container>
 
-          <ng-container *ngIf="!isAppReportStatusResponse()">
+          <ng-container *ngIf="isComplaintStatusResponse()">
+            <div class="app-report-status-results">
+              <div
+                *ngFor="let complaint of getComplaintStatusCards(); trackBy: trackByComplaintId"
+                class="report-timeline-card"
+              >
+                <div class="report-card-header">
+                  <div class="report-card-header-main">
+                    <span class="report-type">Denuncia</span>
+                    <span *ngIf="complaint.denunciaId" class="report-id">#{{ complaint.denunciaId }}</span>
+                  </div>
+                  <span class="report-badge" [ngClass]="getComplaintBadgeClass(complaint.estadoDenuncia)">
+                    {{ getComplaintStatusLabel(complaint.estadoDenuncia) }}
+                  </span>
+                </div>
+
+                <div class="report-card-related">
+                  <span>{{ complaint.denuncianteNombre || 'Usuario' }} -> {{ complaint.denunciadoNombre || 'Usuario' }}</span>
+                  <span *ngIf="complaint.chatNombreSnapshot">· {{ complaint.chatNombreSnapshot }}</span>
+                </div>
+
+                <div class="report-card-meta">
+                  <span *ngIf="complaint.mejorResultadoAproximado" class="approx-badge">
+                    Resultado aproximado
+                  </span>
+                  <span *ngIf="complaint.relevancia != null" class="ars-relevance">
+                    Relevancia: {{ complaint.relevancia }}%
+                  </span>
+                </div>
+
+                <div class="report-history-list">
+                  <div
+                    *ngFor="let item of complaint.historialDenuncia; trackBy: trackByComplaintHistoryItem; let last = last"
+                    class="timeline-container"
+                  >
+                    <div *ngIf="!last" class="timeline-line"></div>
+
+                    <div class="status-circle" [ngClass]="getComplaintCircleClass(item.estadoNuevo)">
+                      <i [ngClass]="getComplaintIconClass(item.estadoNuevo)"></i>
+                    </div>
+
+                    <div class="timeline-content">
+                      <div class="timeline-header">
+                        <span class="report-badge" [ngClass]="getComplaintBadgeClass(item.estadoNuevo)">
+                          {{ getComplaintStatusLabel(item) }}
+                        </span>
+                      </div>
+
+                      <div *ngIf="item.motivo" class="motivo-box">
+                        <span class="label-motivo">
+                          <i class="bi bi-chat-left-text"></i>
+                          Motivo
+                        </span>
+                        <p class="ars-motivo-text">"{{ item.motivo }}"</p>
+                      </div>
+
+                      <div *ngIf="item.detalle" class="motivo-box">
+                        <span class="label-motivo">
+                          <i class="bi bi-card-text"></i>
+                          Detalle
+                        </span>
+                        <p class="ars-motivo-text">"{{ item.detalle }}"</p>
+                      </div>
+
+                      <div *ngIf="item.resolucionMotivo" class="resolucion-box">
+                        <span class="label-resolucion">
+                          <i class="bi bi-file-text"></i>
+                          Resolución
+                        </span>
+                        <p class="ars-resolution-text">"{{ item.resolucionMotivo }}"</p>
+                      </div>
+
+                      <span class="report-date">{{ getComplaintDateText(item) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ng-container>
+
+          <ng-container *ngIf="!isAppReportStatusResponse() && !isComplaintStatusResponse()">
             <div
               class="ai-global-search-popup__result result-card"
               role="button"
@@ -269,7 +349,7 @@
                     </p>
                   </div>
                   <div class="src-complaint-badges">
-                    <span class="src-complaint-badge" [ngClass]="getComplaintBadgeClass(r)">
+                    <span class="src-complaint-badge" [ngClass]="getLegacyComplaintBadgeClass(r)">
                       {{ r.estadoDenuncia || 'Pendiente' }}
                     </span>
                     <span *ngIf="r.gravedad" class="src-complaint-gravedad" [ngClass]="getComplaintGravedadClass(r)">
@@ -324,32 +404,40 @@
                     <ng-container *ngSwitchCase="'IMAGE'">
                       <div *ngIf="getResultMediaUrl(r) as imageUrl; else imagePendingOrFallback" class="ai-result-media-wrap">
                         <img
-                          class="starred-media-image"
+                          class="result-media-preview"
                           [src]="imageUrl"
                           [alt]="r.descripcionTipoMensaje || 'Imagen'"
                           loading="lazy"
                           (error)="onResultMediaError(r, $event)"
+                          (click)="openSearchResultPreview(r, $event)"
                         />
                       </div>
                       <ng-template #imagePendingOrFallback>
                         <p *ngIf="isHydratingResultMedia(r)" class="row-mid-text">Cargando imagen...</p>
-                        <p *ngIf="!isHydratingResultMedia(r)" class="row-mid-text">{{ getResultImageFallback(r) }}</p>
+                        <ng-container *ngIf="!isHydratingResultMedia(r)">
+                          <p class="row-mid-text result-media-error-label">No se pudo cargar la imagen</p>
+                          <p *ngIf="r.contenidoVisible" class="row-mid-text result-media-error-secondary">{{ r.contenidoVisible }}</p>
+                        </ng-container>
                       </ng-template>
                     </ng-container>
 
                     <ng-container *ngSwitchCase="'STICKER'">
                       <div *ngIf="getResultMediaUrl(r) as stickerUrl; else stickerPendingOrFallback" class="ai-result-media-wrap ai-result-media-wrap--sticker">
                         <img
-                          class="msg-sticker"
+                          class="result-sticker-preview"
                           [src]="stickerUrl"
                           [alt]="r.descripcionTipoMensaje || 'Sticker'"
                           loading="lazy"
                           (error)="onResultMediaError(r, $event)"
+                          (click)="openSearchResultPreview(r, $event)"
                         />
                       </div>
                       <ng-template #stickerPendingOrFallback>
                         <p *ngIf="isHydratingResultMedia(r)" class="row-mid-text">Cargando sticker...</p>
-                        <p *ngIf="!isHydratingResultMedia(r)" class="row-mid-text">{{ getResultStickerFallback(r) }}</p>
+                        <ng-container *ngIf="!isHydratingResultMedia(r)">
+                          <p class="row-mid-text result-media-error-label">No se pudo cargar el sticker</p>
+                          <p *ngIf="r.contenidoVisible" class="row-mid-text result-media-error-secondary">{{ r.contenidoVisible }}</p>
+                        </ng-container>
                       </ng-template>
                     </ng-container>
 
@@ -431,7 +519,7 @@
           </ng-container>
         </div>
 
-        <div *ngIf="!error && resultados.length === 0" class="ai-global-search-popup__empty">
+        <div *ngIf="!error && (isEmptyAiResponse() || resultados.length === 0)" class="ai-global-search-popup__empty">
           <ng-container *ngIf="shouldShowAiSummaryCard; else noResultsPlain">
             <div class="ai-global-search-popup__ai-summary">
               <div class="ai-global-search-popup__ai-summary-header">
@@ -442,8 +530,11 @@
                 {{ aiSummaryLoading ? 'Generando resumen...' : (resolvedAiSummary || 'No hay resumen disponible.') }}
               </p>
             </div>
+            <div class="ai-global-search-popup__empty-message">
+              {{ getEmptyAiResponseMessage() }}
+            </div>
           </ng-container>
-          <ng-template #noResultsPlain>Sin resultados.</ng-template>
+          <ng-template #noResultsPlain>{{ getEmptyAiResponseMessage() }}</ng-template>
         </div>
       </div>
     </div>
@@ -460,5 +551,15 @@
     [fileType]="'Imagen'"
     [fileMime]="historyReportImagePreviewMime"
     (closed)="closeHistoryReportImagePreview()"
+  ></app-file-preview-viewer>
+
+  <app-file-preview-viewer
+    [open]="showSearchResultMediaPreview"
+    [fileUrl]="searchResultMediaPreviewUrl"
+    [fileName]="searchResultMediaPreviewName"
+    [fileSize]="searchResultMediaPreviewSize"
+    [fileType]="'Imagen'"
+    [fileMime]="searchResultMediaPreviewMime"
+    (closed)="closeSearchResultMediaPreview()"
   ></app-file-preview-viewer>
 </div>
