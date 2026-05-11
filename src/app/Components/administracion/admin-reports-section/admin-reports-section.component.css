@@ -113,6 +113,13 @@
   word-break: break-word;
 }
 
+.report-card-meta-badges {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .report-card-date {
   margin: 8px 0 0;
   color: #64748b;
@@ -179,6 +186,13 @@
   background: #fee2e2;
   border-color: #fca5a5;
   color: #b91c1c;
+}
+
+.appeal-chip--image {
+  gap: 5px;
+  background: #f5f3ff;
+  border-color: #d8b4fe;
+  color: #6b21a8;
 }
 
 .admin-pagination-wrap {

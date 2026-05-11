@@ -1,24 +1,82 @@
+import { HttpClient } from '@angular/common/http';
 import { ChangeDetectorRef, Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, Output, SimpleChanges } from '@angular/core';
-import { AiEncryptedMessageSearchResult } from '../../../Interface/AiEncryptedMessageSearchDTO';
+import { AiEncryptedMessageSearchReportHistoryItem, AiEncryptedMessageSearchResult } from '../../../Interface/AiEncryptedMessageSearchDTO';
 import { MensajeriaService } from '../../../Service/mensajeria/mensajeria.service';
 import { CryptoService } from '../../../Service/crypto/crypto.service';
 import { WebSocketService } from '../../../Service/WebSocket/web-socket.service';
 import { clampPercent, formatDuration, parseAudioDurationMs } from '../../../utils/chat-utils';
 
-type AiSearchProgressStep = 'ANALYZING_CONTEXT' | 'ANALYZING_MESSAGES' | 'MESSAGE_FOUND' | 'MESSAGE_NOT_FOUND' | 'ERROR';
+type AiSearchProgressStatus = 'STARTED' | 'COMPLETED' | 'FAILED';
+type AiSearchProgressStep =
+  | 'ANALYZING_CONTEXT'
+  | 'ANALYZING_MESSAGES'
+  | 'MESSAGE_FOUND'
+  | 'MESSAGE_NOT_FOUND'
+  | 'APP_REPORT'
+  | 'APP_REPORT_STATUS'
+  | 'ERROR'
+  | string;
 interface AiSearchProgressWS {
   requestId?: string;
   step?: AiSearchProgressStep;
-  status: 'STARTED' | 'COMPLETED' | 'FAILED';
+  status: AiSearchProgressStatus;
   message?: string;
+  timestamp?: string;
   hasApproximateResult?: boolean;
-  // APP_REPORT fields
   target?: string;
   phase?: string;
   tipoReporte?: string;
 }
+interface VisibleAiProgressEvent {
+  requestId: string;
+  step: AiSearchProgressStep;
+  status: AiSearchProgressStatus;
+  label: string;
+  iconClass: string;
+  state: 'active' | 'done' | 'warning' | 'error';
+  hasApproximateResult: boolean;
+  dedupeKey: string;
+}
 
 type SearchResultMessageType = 'TEXT' | 'AUDIO' | 'IMAGE' | 'STICKER' | 'FILE' | 'UNKNOWN';
+type ReportStatusState = 'APROBADA' | 'EN_REVISION' | 'PENDIENTE' | 'RECHAZADA';
+interface ReportTimelineItem {
+  result: AiEncryptedMessageSearchResult;
+  stateOrder: number;
+  timestampMs: number;
+}
+interface ReportCard {
+  key: string;
+  reporteId: number | null;
+  tipoReporte: string;
+  estadoReporte: string;
+  motivoReporte: string;
+  resolucionMotivoReporte: string | null;
+  fechaCreacionReporte: string;
+  fechaActualizacionReporte: string;
+  mejorResultadoAproximado: boolean;
+  relevancia: number | null;
+  historialReporte: ReportHistoryItem[];
+  currentStateOrder: number;
+  latestTimestampMs: number;
+}
+interface ReportHistoryItem {
+  key: string;
+  estadoAnterior: string | null;
+  estadoNuevo: string;
+  estadoLabel: string | null;
+  motivo: string;
+  resolucionMotivo: string | null;
+  fecha: string;
+  adminId: number | null;
+  accion: string | null;
+  timestampMs: number;
+  tieneImagenReporte: boolean;
+  imagenReporteMimeType: string | null;
+  imagenReporteNombre: string | null;
+  imagenReporteSize: number | null;
+  imagenReporteUrl: string | null;
+}
 type SearchImagePayload =
   | {
       type: 'E2E_IMAGE';
@@ -68,9 +126,18 @@ type SearchAudioPayload =
   styleUrls: ['./ai-global-message-search-popup.component.css'],
 })
 export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy {
+  private readonly allowedReportImageMimeTypes = new Set([
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+  ]);
+  private readonly maxReportImageSizeBytes = 5 * 1024 * 1024;
   private readonly mediaLoadErrors = new Set<string>();
   private readonly hydratedMediaUrls = new Map<string, string>();
   private readonly hydratingMediaKeys = new Set<string>();
+  private readonly reportHistoryImagePreviewUrls = new Map<string, string>();
+  private readonly reportHistoryImageLoadingKeys = new Set<string>();
+  private readonly reportHistoryImageErrorKeys = new Set<string>();
   private currentPlayingResultId: number | null = null;
   public readonly audioStates = new Map<number, { playing: boolean; current: number; duration: number }>();
 
@@ -81,51 +148,82 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   @Input() resumenBusqueda: string | null = null;
   @Input() resultados: AiEncryptedMessageSearchResult[] = [];
   @Input() aiSummary: string | null = null;
+  @Input() aiSummaryLoading = false;
+  @Input() searchCodigo: string | null = null;
 
   @Output() closed = new EventEmitter<void>();
   @Output() consultaChange = new EventEmitter<string>();
-  @Output() submitted = new EventEmitter<{ consulta: string; requestId: string }>();
+  @Output() submitted = new EventEmitter<{
+    consulta: string;
+    requestId: string;
+    imagenReporteBase64?: string;
+    imagenReporteMimeType?: string;
+    imagenReporteNombre?: string;
+  }>();
   @Output() resultSelected = new EventEmitter<AiEncryptedMessageSearchResult>();
+
+  public imagenReporteBase64: string | null = null;
+  public imagenReporteMimeType: string | null = null;
+  public imagenReporteNombre: string | null = null;
 
   public constructor(
     private readonly host: ElementRef<HTMLElement>,
     private readonly mensajeriaService: MensajeriaService,
     private readonly cryptoService: CryptoService,
     private readonly webSocketService: WebSocketService,
+    private readonly http: HttpClient,
     private readonly cdr: ChangeDetectorRef
   ) {}
 
   public animationActive = false;
+  public showResult = false;
   public isApproximateResult = false;
-  public loadingSteps: Array<{ label: string; state: 'hidden' | 'active' | 'done' | 'error' }> = [];
+  public showHistoryReportImagePreview = false;
+  public historyReportImagePreviewSrc = '';
+  public historyReportImagePreviewName = 'Imagen adjunta';
+  public historyReportImagePreviewSize = '';
+  public historyReportImagePreviewMime = 'image/jpeg';
+  public visibleProgressEvents: VisibleAiProgressEvent[] = [];
+  public reportCards: ReportCard[] = [];
+  public resultAnimationKey = '';
   private loadingTimers: ReturnType<typeof setTimeout>[] = [];
   private httpResponseReady = false;
   private wsStepsComplete = false;
   private currentRequestId = '';
-  private stepStartedAtMap = new Map<string, number>();
-  private readonly STEP_MIN_MS = 500;
-  private readonly handledAppReportKeys = new Set<string>();
+  private wsProgressRequestId = '';
+  private renderedResultRequestId = '';
+  private progressQueue: VisibleAiProgressEvent[] = [];
+  private isProcessingProgressQueue = false;
+  private finalResultDelayScheduled = false;
+  private readonly handledProgressKeys = new Set<string>();
+  private readonly finalResultDelayMs = 750;
 
   public ngOnChanges(changes: SimpleChanges): void {
-    if (changes['resultados']) this.hydrateVisibleResultAssets();
+    if (changes['open'] && changes['open'].currentValue === false) {
+      this.clearReportImageState();
+      this.closeHistoryReportImagePreview();
+      this.clearHistoryReportImageCache();
+    }
+    if (changes['resultados']) {
+      this.hydrateVisibleResultAssets();
+      this.reportCards = this.getSortedReportResults(this.resultados);
+      this.hydrateReportHistoryImages();
+    }
     if (changes['loading']) {
       if (this.loading) {
-        // handled by onSubmit before emit
+        this.showResult = false;
       } else if (this.animationActive) {
         if (this.error) {
+          this.showResult = true;
           this.stopLoadingAnimation();
         } else {
           this.httpResponseReady = true;
+          console.log('[AI_SEARCH][HTTP] final response ready', {
+            wsStepsComplete: this.wsStepsComplete,
+            queueLength: this.progressQueue.length,
+          });
           if (this.wsStepsComplete) {
-            this.resolveAnimation();
-          } else {
-            // Safety fallback: if WS events never arrive, resolve after 5s
-            this.loadingTimers.push(setTimeout(() => {
-              if (this.animationActive) {
-                this.wsStepsComplete = true;
-                this.resolveAnimation();
-              }
-            }, 5000));
+            this.scheduleFinalResultDisplay();
           }
         }
       }
@@ -139,6 +237,7 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       if (url.startsWith('blob:')) URL.revokeObjectURL(url);
     }
     this.hydratedMediaUrls.clear();
+    this.clearHistoryReportImageCache();
   }
 
   public onBackdropClick(): void {
@@ -160,10 +259,71 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     const normalized = String(this.consulta || '').trim();
     if (!normalized) return;
     const requestId = this.generateRequestId();
+    console.log('[AI_SEARCH][POPUP] submit', { requestId, consulta: normalized });
     this.currentRequestId = requestId;
+    this.showResult = false;
+    this.resultAnimationKey = '';
     this.startLoadingAnimation();
     this.subscribeToWsProgress(requestId);
-    this.submitted.emit({ consulta: normalized, requestId });
+    this.submitted.emit({
+      consulta: normalized,
+      requestId,
+      imagenReporteBase64: this.imagenReporteBase64 || undefined,
+      imagenReporteMimeType: this.imagenReporteMimeType || undefined,
+      imagenReporteNombre: this.imagenReporteNombre || undefined,
+    });
+  }
+
+  public triggerReportImageInput(fileInput: HTMLInputElement): void {
+    if (this.loading || this.animationActive) return;
+    fileInput.click();
+  }
+
+  public async onReportImageSelected(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement | null;
+    const file = input?.files?.[0] ?? null;
+    if (!file) return;
+
+    if (!this.allowedReportImageMimeTypes.has(file.type)) {
+      this.clearReportImageState(input);
+      this.error = 'Solo se permiten imagenes PNG, JPG o WEBP.';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (file.size > this.maxReportImageSizeBytes) {
+      this.clearReportImageState(input);
+      this.error = 'La imagen supera el limite de 5 MB.';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    try {
+      const base64 = await this.fileToBase64(file);
+      this.imagenReporteBase64 = base64;
+      this.imagenReporteMimeType = file.type;
+      this.imagenReporteNombre = file.name;
+      this.error = null;
+    } catch {
+      this.clearReportImageState(input);
+      this.error = 'No se pudo procesar la imagen seleccionada.';
+    } finally {
+      if (input) input.value = '';
+      this.cdr.markForCheck();
+    }
+  }
+
+  public removeReportImage(event?: Event): void {
+    event?.stopPropagation();
+    this.clearReportImageState();
+    if (!this.loading) {
+      this.error = null;
+    }
+    this.cdr.markForCheck();
+  }
+
+  public get hasReportImage(): boolean {
+    return !!this.imagenReporteBase64 && !!this.imagenReporteMimeType && !!this.imagenReporteNombre;
   }
 
   public onSelectResult(item: AiEncryptedMessageSearchResult): void {
@@ -395,20 +555,174 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     return !!String(this.resumenBusqueda || '').trim();
   }
 
+  public get resolvedAiSummary(): string | null {
+    const decrypted = String(this.aiSummary || '').trim();
+    if (decrypted) return decrypted;
+    const fallback = String(this.resumenBusqueda || '').trim();
+    return fallback || null;
+  }
+
+  public get shouldShowAiSummaryCard(): boolean {
+    return this.aiSummaryLoading || !!this.resolvedAiSummary;
+  }
+
+  public hasHistoryReportImage(item: ReportHistoryItem): boolean {
+    return (
+      item?.tieneImagenReporte === true &&
+      !!String(item?.imagenReporteUrl || '').trim() &&
+      String(item?.imagenReporteMimeType || '').trim().toLowerCase().startsWith('image/')
+    );
+  }
+
+  public isLoadingHistoryReportImage(item: ReportHistoryItem): boolean {
+    return this.reportHistoryImageLoadingKeys.has(item.key);
+  }
+
+  public hasHistoryReportImageError(item: ReportHistoryItem): boolean {
+    return this.reportHistoryImageErrorKeys.has(item.key);
+  }
+
+  public getHistoryReportImagePreviewUrl(item: ReportHistoryItem): string {
+    return String(this.reportHistoryImagePreviewUrls.get(item.key) || '').trim();
+  }
+
+  public getHistoryReportImageMeta(item: ReportHistoryItem): string {
+    const name = String(item?.imagenReporteNombre || '').trim();
+    const size = this.formatHistoryReportImageSize(item?.imagenReporteSize);
+    if (name && size) return `${name} · ${size}`;
+    return name || size || 'Imagen adjunta';
+  }
+
+  public openHistoryReportImagePreview(item: ReportHistoryItem, event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const objectUrl = this.getHistoryReportImagePreviewUrl(item);
+    if (!objectUrl) return;
+    this.historyReportImagePreviewSrc = objectUrl;
+    this.historyReportImagePreviewName =
+      String(item?.imagenReporteNombre || '').trim() || 'Imagen adjunta';
+    this.historyReportImagePreviewSize = this.formatHistoryReportImageSize(item?.imagenReporteSize);
+    this.historyReportImagePreviewMime =
+      String(item?.imagenReporteMimeType || '').trim() || 'image/jpeg';
+    this.showHistoryReportImagePreview = true;
+    this.cdr.markForCheck();
+  }
+
+  public closeHistoryReportImagePreview(): void {
+    this.showHistoryReportImagePreview = false;
+    this.historyReportImagePreviewSrc = '';
+    this.historyReportImagePreviewName = 'Imagen adjunta';
+    this.historyReportImagePreviewSize = '';
+    this.historyReportImagePreviewMime = 'image/jpeg';
+    this.cdr.markForCheck();
+  }
+
+  public formatHistoryReportImageSize(value: number | null | undefined): string {
+    const size = Number(value);
+    if (!Number.isFinite(size) || size <= 0) return '';
+    if (size < 1024) return `${Math.round(size)} B`;
+    if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  private clearReportImageState(input?: HTMLInputElement | null): void {
+    this.imagenReporteBase64 = null;
+    this.imagenReporteMimeType = null;
+    this.imagenReporteNombre = null;
+    if (input) input.value = '';
+  }
+
+  private fileToBase64(file: File): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        const commaIndex = result.indexOf(',');
+        const base64 = commaIndex >= 0 ? result.slice(commaIndex + 1) : result;
+        if (!base64) {
+          reject(new Error('REPORT_IMAGE_BASE64_EMPTY'));
+          return;
+        }
+        resolve(base64);
+      };
+      reader.onerror = () => reject(reader.error || new Error('REPORT_IMAGE_READ_ERROR'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  private hydrateReportHistoryImages(): void {
+    for (const report of this.reportCards || []) {
+      for (const item of report.historialReporte || []) {
+        if (!this.hasHistoryReportImage(item)) continue;
+        this.loadHistoryReportImage(item);
+      }
+    }
+  }
+
+  private loadHistoryReportImage(item: ReportHistoryItem): void {
+    if (!this.hasHistoryReportImage(item)) return;
+    if (this.reportHistoryImagePreviewUrls.has(item.key)) return;
+    if (this.reportHistoryImageLoadingKeys.has(item.key)) return;
+
+    const url = String(item?.imagenReporteUrl || '').trim();
+    if (!url) return;
+
+    this.reportHistoryImageLoadingKeys.add(item.key);
+    this.reportHistoryImageErrorKeys.delete(item.key);
+
+    this.http.get(url, { responseType: 'blob' }).subscribe({
+      next: (blob) => {
+        const mime = String(blob?.type || item?.imagenReporteMimeType || '').trim().toLowerCase();
+        if (!mime.startsWith('image/')) {
+          this.reportHistoryImageErrorKeys.add(item.key);
+          return;
+        }
+        const safeBlob =
+          blob.type && blob.type.toLowerCase().startsWith('image/')
+            ? blob
+            : blob.slice(
+                0,
+                blob.size,
+                String(item?.imagenReporteMimeType || 'image/jpeg').trim() || 'image/jpeg'
+              );
+        const previous = this.reportHistoryImagePreviewUrls.get(item.key);
+        if (previous?.startsWith('blob:')) URL.revokeObjectURL(previous);
+        this.reportHistoryImagePreviewUrls.set(item.key, URL.createObjectURL(safeBlob));
+        this.reportHistoryImageErrorKeys.delete(item.key);
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.reportHistoryImageErrorKeys.add(item.key);
+        this.cdr.markForCheck();
+      },
+      complete: () => {
+        this.reportHistoryImageLoadingKeys.delete(item.key);
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  private clearHistoryReportImageCache(): void {
+    for (const url of this.reportHistoryImagePreviewUrls.values()) {
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+    }
+    this.reportHistoryImagePreviewUrls.clear();
+    this.reportHistoryImageLoadingKeys.clear();
+    this.reportHistoryImageErrorKeys.clear();
+  }
+
   private startLoadingAnimation(): void {
     this.stopLoadingAnimation();
     this.httpResponseReady = false;
     this.wsStepsComplete = false;
     this.isApproximateResult = false;
     this.animationActive = true;
-    this.stepStartedAtMap.clear();
-    this.handledAppReportKeys.clear();
-    this.stepStartedAtMap.set('ANALYZING_CONTEXT', Date.now());
-    this.loadingSteps = [
-      { label: 'Analizando contexto', state: 'active' },
-      { label: 'Analizando mensajes', state: 'hidden' },
-      { label: '',                     state: 'hidden' },
-    ];
+    this.wsProgressRequestId = '';
+    this.visibleProgressEvents = [];
+    this.progressQueue = [];
+    this.isProcessingProgressQueue = false;
+    this.finalResultDelayScheduled = false;
+    this.handledProgressKeys.clear();
     this.cdr.markForCheck();
   }
 
@@ -418,167 +732,608 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     this.animationActive = false;
     this.httpResponseReady = false;
     this.wsStepsComplete = false;
-    this.loadingSteps = [];
-    this.stepStartedAtMap.clear();
-    this.handledAppReportKeys.clear();
+    this.wsProgressRequestId = '';
+    this.visibleProgressEvents = [];
+    this.progressQueue = [];
+    this.isProcessingProgressQueue = false;
+    this.finalResultDelayScheduled = false;
+    this.handledProgressKeys.clear();
     this.unsubscribeWsProgress();
     this.cdr.markForCheck();
   }
 
   private resolveAnimation(): void {
-    this.loadingTimers.push(
-      setTimeout(() => {
-        this.animationActive = false;
-        this.unsubscribeWsProgress();
-        this.cdr.markForCheck();
-      }, 500)
-    );
-  }
-
-  private applyStepComplete(step: string, fn: () => void): void {
-    const startedAt = this.stepStartedAtMap.get(step) ?? Date.now();
-    const remaining = Math.max(0, this.STEP_MIN_MS - (Date.now() - startedAt));
-    if (remaining === 0) {
-      fn();
-    } else {
-      this.loadingTimers.push(setTimeout(() => {
-        if (this.animationActive) fn();
-      }, remaining));
-    }
-  }
-
-  private setStep(index: number, state: 'hidden' | 'active' | 'done' | 'error', label?: string): void {
-    const steps = this.loadingSteps.map((s, i) =>
-      i === index ? { label: label ?? s.label, state } : s
-    );
-    this.loadingSteps = steps;
+    this.showResult = true;
+    this.activateResultAnimation();
+    this.animationActive = false;
+    this.unsubscribeWsProgress();
     this.cdr.markForCheck();
   }
 
+  private scheduleFinalResultDisplay(): void {
+    if (this.finalResultDelayScheduled) return;
+    this.finalResultDelayScheduled = true;
+    console.log('[AI_SEARCH][FINAL] scheduling final result display', {
+      currentRequestId: this.currentRequestId,
+      delayMs: this.finalResultDelayMs,
+    });
+    this.loadingTimers.push(setTimeout(() => {
+      if (!this.animationActive || !this.httpResponseReady || !this.wsStepsComplete) {
+        this.finalResultDelayScheduled = false;
+        return;
+      }
+      console.log('[AI_SEARCH][FINAL] showing final results', {
+        currentRequestId: this.currentRequestId,
+      });
+      this.resolveAnimation();
+    }, this.finalResultDelayMs));
+  }
+
   private handleWsProgressEvent(event: AiSearchProgressWS): void {
-    if (!this.animationActive) return;
-
-    const phase  = String(event?.phase  || '').trim().toUpperCase();
-    const target = String(event?.target || '').trim().toUpperCase();
-
-    // APP_REPORT branch — separate flow from message-search steps
-    if (phase === 'APP_REPORT' || target === 'APP_REPORT') {
-      this.handleAppReportProgressEvent(event);
+    if (!this.animationActive) {
+      console.log('[AI_SEARCH][WS] ignored: animation inactive', event);
       return;
     }
-
-    const step = event?.step;
-    if (!step) return;
-    const status = event?.status;
-    console.log('[AI_SEARCH][WS]', step, status, event);
-
-    if (step === 'ERROR') {
-      console.error('[AI_SEARCH][WS] Error terminal recibido', event);
-      this.stopLoadingAnimation();
-      return;
+    console.log('[AI_SEARCH][WS] received raw', {
+      currentRequestId: this.currentRequestId,
+      event,
+    });
+    const normalizedEvent = this.normalizeProgressEvent(event);
+    if (!normalizedEvent) return;
+    console.log('[AI_SEARCH][WS] enqueue normalized', normalizedEvent);
+    this.enqueueProgressEvent(normalizedEvent);
+  }
+  private normalizeProgressEvent(event: AiSearchProgressWS): VisibleAiProgressEvent | null {
+    const requestId = String(event?.requestId || '').trim();
+    if (!requestId) {
+      console.log('[AI_SEARCH][WS] drop: missing requestId', event);
+      return null;
     }
 
-    if (status === 'STARTED') {
-      this.stepStartedAtMap.set(step, Date.now());
+    if (!this.wsProgressRequestId) {
+      this.wsProgressRequestId = requestId;
+      console.log('[AI_SEARCH][WS] bound requestId adopted from backend event', {
+        submitRequestId: this.currentRequestId,
+        wsProgressRequestId: this.wsProgressRequestId,
+        event,
+      });
+    }
 
-      if (step === 'ANALYZING_CONTEXT') {
-        this.setStep(0, 'active', 'Analizando contexto');
-      } else if (step === 'ANALYZING_MESSAGES') {
-        this.setStep(0, 'done');
-        this.setStep(1, 'active', 'Analizando mensajes');
-      } else if (step === 'MESSAGE_FOUND') {
-        this.setStep(1, 'done');
-        this.setStep(2, 'active', 'Mensaje encontrado');
-      } else if (step === 'MESSAGE_NOT_FOUND') {
-        this.setStep(1, 'done');
-        this.setStep(2, 'active', 'Mensaje no encontrado');
-      }
+    if (requestId !== this.wsProgressRequestId) {
+      console.log('[AI_SEARCH][WS] drop: wsProgressRequestId mismatch', {
+        submitRequestId: this.currentRequestId,
+        wsProgressRequestId: this.wsProgressRequestId,
+        incomingRequestId: requestId,
+        event,
+      });
+      return null;
+    }
 
-    } else if (status === 'COMPLETED') {
+    const rawStatus = String(event?.status || '').trim().toUpperCase() as AiSearchProgressStatus;
+    if (rawStatus !== 'STARTED' && rawStatus !== 'COMPLETED' && rawStatus !== 'FAILED') {
+      console.log('[AI_SEARCH][WS] drop: unsupported status', { rawStatus, event });
+      return null;
+    }
 
-      if (step === 'ANALYZING_CONTEXT') {
-        this.applyStepComplete('ANALYZING_CONTEXT', () => this.setStep(0, 'done'));
+    const rawStep = String(event?.step || '').trim().toUpperCase();
+    const rawPhase = String(event?.phase || '').trim().toUpperCase();
+    const rawTarget = String(event?.target || '').trim().toUpperCase();
+    const step = this.resolveProgressStep(rawStep, rawPhase, rawTarget);
+    const dedupeKey = `${requestId}:${step}:${rawStatus}`;
+    if (this.handledProgressKeys.has(dedupeKey)) {
+      console.log('[AI_SEARCH][WS] drop: duplicate', { dedupeKey, event });
+      return null;
+    }
+    this.handledProgressKeys.add(dedupeKey);
+    const backendMessage = this.sanitizeVisibleText(String(event?.message || '').trim());
+    const hasApproximateResult = event?.hasApproximateResult === true;
 
-      } else if (step === 'ANALYZING_MESSAGES') {
-        this.applyStepComplete('ANALYZING_MESSAGES', () => this.setStep(1, 'done'));
+    console.log('[AI_SEARCH][WS] normalized fields', {
+      requestId,
+      rawStep,
+      rawPhase,
+      rawTarget,
+      submitRequestId: this.currentRequestId,
+      wsProgressRequestId: this.wsProgressRequestId,
+      resolvedStep: step,
+      rawStatus,
+      backendMessage,
+      hasApproximateResult,
+    });
 
-      } else if (step === 'MESSAGE_FOUND') {
-        this.applyStepComplete('MESSAGE_FOUND', () => {
-          this.setStep(2, 'done', 'Mensaje encontrado');
-          this.wsStepsComplete = true;
-          if (this.httpResponseReady) this.resolveAnimation();
+    return {
+      requestId,
+      step,
+      status: rawStatus,
+      label: this.resolveProgressEventLabel(step, rawStatus, backendMessage, hasApproximateResult),
+      iconClass: this.resolveProgressEventIconClass(step, rawStatus, hasApproximateResult),
+      state: this.resolveProgressEventState(step, rawStatus, hasApproximateResult),
+      hasApproximateResult,
+      dedupeKey,
+    };
+  }
+  private enqueueProgressEvent(event: VisibleAiProgressEvent): void {
+    this.progressQueue = [...this.progressQueue, event];
+    console.log('[AI_SEARCH][WS] queue push', {
+      added: event,
+      queueLength: this.progressQueue.length,
+      visibleCount: this.visibleProgressEvents.length,
+    });
+    void this.processProgressQueue();
+  }
+  private async processProgressQueue(): Promise<void> {
+    if (this.isProcessingProgressQueue) {
+      console.log('[AI_SEARCH][WS] queue skip: already processing', {
+        queueLength: this.progressQueue.length,
+      });
+      return;
+    }
+    if (!this.animationActive) {
+      console.log('[AI_SEARCH][WS] queue skip: animation inactive', {
+        queueLength: this.progressQueue.length,
+      });
+      return;
+    }
+    this.isProcessingProgressQueue = true;
+    console.log('[AI_SEARCH][WS] queue start', { queueLength: this.progressQueue.length });
+    try {
+      while (this.animationActive && this.progressQueue.length > 0) {
+        const nextEvent = this.progressQueue.shift();
+        if (!nextEvent) continue;
+        console.log('[AI_SEARCH][WS] queue pop', {
+          event: nextEvent,
+          remainingQueue: this.progressQueue.length,
         });
-
-      } else if (step === 'MESSAGE_NOT_FOUND') {
-        const approx = event.hasApproximateResult === true;
-        if (approx) {
-          console.warn('[AI_SEARCH][WS] Sin resultado claro — devuelto resultado aproximado', event);
-        } else {
-          console.warn('[AI_SEARCH][WS] Sin resultados', event);
+        this.applyVisibleProgressEvent(nextEvent);
+        if (nextEvent.status === 'FAILED') {
+          this.wsStepsComplete = true;
+          console.log('[AI_SEARCH][WS] failed event visible', nextEvent);
+          if (this.httpResponseReady) this.scheduleFinalResultDisplay();
+          return;
         }
-        this.applyStepComplete('MESSAGE_NOT_FOUND', () => {
-          this.isApproximateResult = approx;
-          this.setStep(2, 'done', 'Mensaje no encontrado');
+        if (this.isTerminalProgressEvent(nextEvent)) {
           this.wsStepsComplete = true;
-          if (this.httpResponseReady) this.resolveAnimation();
-        });
+          console.log('[AI_SEARCH][WS] terminal progress event', {
+            step: nextEvent.step,
+            httpResponseReady: this.httpResponseReady,
+          });
+          if (this.httpResponseReady) this.scheduleFinalResultDisplay();
+        }
       }
+    } finally {
+      this.isProcessingProgressQueue = false;
+      console.log('[AI_SEARCH][WS] queue end', {
+        queueLength: this.progressQueue.length,
+        animationActive: this.animationActive,
+      });
+    }
+  }
+  private applyVisibleProgressEvent(event: VisibleAiProgressEvent): void {
+    const currentEvents = [...this.visibleProgressEvents];
+    const existingIndex = currentEvents.findIndex((item) => item.requestId === event.requestId && item.step === event.step);
+    if (event.step === 'MESSAGE_NOT_FOUND' && event.status === 'COMPLETED') {
+      this.isApproximateResult = event.hasApproximateResult;
+    }
+    if (existingIndex >= 0) {
+      currentEvents[existingIndex] = event;
+    } else {
+      currentEvents.push(event);
+    }
+    this.visibleProgressEvents = currentEvents;
+    console.log('[AI_SEARCH][WS] visible progress updated', {
+      event,
+      visibleProgressEvents: this.visibleProgressEvents,
+    });
+    this.cdr.markForCheck();
+  }
+  private isTerminalProgressEvent(event: VisibleAiProgressEvent): boolean {
+    if (event.status !== 'COMPLETED') return false;
+    return (
+      event.step === 'MESSAGE_FOUND' ||
+      event.step === 'MESSAGE_NOT_FOUND' ||
+      event.step === 'APP_REPORT' ||
+      event.step === 'APP_REPORT_STATUS' ||
+      event.step === 'ERROR'
+    );
+  }
+  private resolveProgressStep(rawStep: string, rawPhase: string, rawTarget: string): string {
+    if (rawTarget === 'APP_REPORT_STATUS' || rawPhase === 'APP_REPORT_STATUS') {
+      return 'APP_REPORT_STATUS';
+    }
+    if (rawTarget === 'APP_REPORT' || rawPhase === 'APP_REPORT') {
+      return 'APP_REPORT';
+    }
+    return rawStep || rawPhase || rawTarget || 'UNKNOWN';
+  }
+
+  private sanitizeVisibleText(value: string): string {
+    return String(value || '')
+      .replace(/BÃºsqueda/g, 'Busqueda')
+      .replace(/bÃºsqueda/g, 'busqueda')
+      .replace(/denuncias finalizad[ao]s?/g, 'denuncias finalizadas')
+      .replace(/Ã¡/g, 'a')
+      .replace(/Ã©/g, 'e')
+      .replace(/Ã­/g, 'i')
+      .replace(/Ã³/g, 'o')
+      .replace(/Ãº/g, 'u')
+      .replace(/Ã±/g, 'n')
+      .replace(/Â/g, '')
+      .replace(/�/g, '');
+  }
+
+  private resolveProgressEventLabel(
+    step: string,
+    status: AiSearchProgressStatus,
+    backendMessage: string,
+    hasApproximateResult: boolean
+  ): string {
+    if (step === 'ANALYZING_CONTEXT') {
+      if (status === 'STARTED') return 'Analizando contexto...';
+      if (status === 'COMPLETED') return 'Contexto analizado';
+    }
+    if (step === 'ANALYZING_MESSAGES') {
+      if (status === 'STARTED') return 'Analizando mensajes...';
+      if (status === 'COMPLETED') return 'Mensajes analizados';
+    }
+    if (step === 'MESSAGE_FOUND') {
+      if (status === 'STARTED') return 'Preparando resultado...';
+      if (status === 'COMPLETED') return 'Mensaje encontrado';
+    }
+    if (step === 'MESSAGE_NOT_FOUND') {
+      if (status === 'STARTED') return 'Revisando coincidencias...';
+      if (status === 'COMPLETED') {
+        return hasApproximateResult
+          ? 'No se encontro una coincidencia clara. Resultado aproximado'
+          : 'No se encontro una coincidencia clara';
+      }
+    }
+    if (step === 'APP_REPORT') {
+      if (status === 'STARTED') return backendMessage || 'Generando reporte...';
+      if (status === 'COMPLETED') return backendMessage || 'Reporte generado';
+      if (status === 'FAILED') return backendMessage || 'No se pudo generar el reporte';
+    }
+    if (step === 'APP_REPORT_STATUS') {
+      if (status === 'STARTED') return backendMessage || 'Buscando tus reportes...';
+      if (status === 'COMPLETED') return backendMessage || 'Busqueda de reportes finalizada';
+      if (status === 'FAILED') return backendMessage || 'No se pudo consultar el estado del reporte';
+    }
+    if (step === 'ERROR') return backendMessage || 'Error al procesar la busqueda';
+    if (status === 'STARTED') return backendMessage || 'Procesando...';
+    if (status === 'COMPLETED') return backendMessage || 'Completado';
+    return backendMessage || 'No se pudo completar la operacion';
+  }
+  private resolveProgressEventState(
+    step: string,
+    status: AiSearchProgressStatus,
+    hasApproximateResult: boolean
+  ): 'active' | 'done' | 'warning' | 'error' {
+    if (status === 'STARTED') return 'active';
+    if (status === 'FAILED') return 'error';
+    if (step === 'ERROR') return 'error';
+    if (step === 'MESSAGE_NOT_FOUND') return 'warning';
+    if (hasApproximateResult) return 'warning';
+    return 'done';
+  }
+  private resolveProgressEventIconClass(
+    step: string,
+    status: AiSearchProgressStatus,
+    hasApproximateResult: boolean
+  ): string {
+    if (status === 'STARTED') return 'bi-arrow-repeat';
+    if (status === 'FAILED' || step === 'ERROR') return 'bi-exclamation-circle-fill';
+    if (step === 'MESSAGE_NOT_FOUND') return hasApproximateResult ? 'bi-exclamation-triangle-fill' : 'bi-exclamation-triangle';
+    return 'bi-check-circle-fill';
+  }
+
+  public isAppReportStatusResponse(): boolean {
+    return String(this.searchCodigo || '').trim().toUpperCase() === 'APP_REPORT_STATUS_OK';
+  }
+
+  public getReportCards(): ReportCard[] {
+    return this.reportCards;
+  }
+
+  public trackByVisibleProgressEvent(_index: number, event: VisibleAiProgressEvent): string {
+    return `${event.requestId}:${event.step}`;
+  }
+
+  public trackByReporteId(_index: number, item: ReportCard): string {
+    return item.key;
+  }
+
+  public trackByHistoryItem(_index: number, item: ReportHistoryItem): string {
+    return item.key;
+  }
+
+  public trackBySearchResult(index: number, result: AiEncryptedMessageSearchResult): string | number {
+    const tipo = String(result?.tipoResultado || '').trim().toUpperCase();
+    if (tipo === 'APP_REPORT_STATUS') return this.normalizeReportGroupKey(result);
+    const mensajeId = Number(result?.mensajeId || 0);
+    if (Number.isFinite(mensajeId) && mensajeId > 0) return mensajeId;
+    return index;
+  }
+
+  public getVisibleProgressEventIconClass(event: VisibleAiProgressEvent): string {
+    return event.iconClass;
+  }
+
+  public getSortedReportResults(resultados: AiEncryptedMessageSearchResult[]): ReportCard[] {
+    return (resultados || [])
+      .filter((result) => String(result?.tipoResultado || '').trim().toUpperCase() === 'APP_REPORT_STATUS')
+      .map((result) => this.mapReportCard(result));
+  }
+
+  public normalizeReportGroupKey(result: AiEncryptedMessageSearchResult): string {
+    const reportId = this.parseReportId(result?.reporteId);
+    if (reportId != null) return `report-id:${reportId}`;
+
+    const tipo = String(result?.tipoReporte || '').trim().toUpperCase();
+    const motivo = this.normalizeReportText(this.getReportMotivo(result));
+    const resolution = this.normalizeReportText(this.getReportResolution(result) || '');
+    return `report:${tipo}:${motivo}:${resolution}`;
+  }
+
+  public getReportStateOrder(estadoReporte: string | null | undefined): number {
+    const estado = String(estadoReporte || '').trim().toUpperCase();
+    if (estado === 'APROBADA') return 1;
+    if (estado === 'EN_REVISION') return 2;
+    if (estado === 'PENDIENTE') return 3;
+    if (estado === 'RECHAZADA') return 4;
+    return 99;
+  }
+
+  public getReportStatusLabel(
+    resultOrStatus: AiEncryptedMessageSearchResult | ReportHistoryItem | string | null | undefined,
+    tipoReporte?: string | null | undefined
+  ): string {
+    const estado = typeof resultOrStatus === 'string'
+      ? String(resultOrStatus || '').trim().toUpperCase()
+      : String(
+          (resultOrStatus as AiEncryptedMessageSearchResult)?.estadoReporte ||
+          (resultOrStatus as ReportHistoryItem)?.estadoNuevo ||
+          ''
+        ).trim().toUpperCase();
+    const tipo = typeof resultOrStatus === 'object' && resultOrStatus
+      ? String((resultOrStatus as AiEncryptedMessageSearchResult)?.tipoReporte || tipoReporte || '').trim().toUpperCase()
+      : String(tipoReporte || '').trim().toUpperCase();
+    switch (estado) {
+      case 'PENDIENTE':   return 'Pendiente';
+      case 'EN_REVISION': return 'En revision';
+      case 'APROBADA':
+        if (tipo === 'INCIDENCIA' || tipo === 'ERROR_APP')   return 'Resuelto';
+        if (tipo === 'QUEJA')                                return 'Atendida';
+        if (tipo === 'MEJORA' || tipo === 'SUGERENCIA')      return 'Revisada';
+        if (tipo === 'DESBANEO')                             return 'Aprobada';
+        if (tipo === 'CHAT_CERRADO')                         return 'Reabierto';
+        return 'Revisado';
+      case 'RECHAZADA':
+        if (tipo === 'INCIDENCIA' || tipo === 'ERROR_APP')              return 'Descartado';
+        if (tipo === 'QUEJA' || tipo === 'MEJORA' || tipo === 'SUGERENCIA') return 'Descartada';
+        if (tipo === 'DESBANEO')                             return 'Rechazada';
+        if (tipo === 'CHAT_CERRADO')                         return 'No reabierto';
+        return 'Descartado';
+      default: return estado || 'Desconocido';
     }
   }
 
-  private handleAppReportProgressEvent(event: AiSearchProgressWS): void {
-    const status      = event?.status;
-    const tipoReporte = String(event?.tipoReporte || '').trim();
-    const backendMsg  = String(event?.message || '').trim();
-    const reqId       = String(event?.requestId || '').trim();
+  public getReportStatusClass(r: AiEncryptedMessageSearchResult | ReportHistoryItem | string | null | undefined): string {
+    const estado = typeof r === 'string'
+      ? String(r || '').trim().toUpperCase()
+      : String((r as AiEncryptedMessageSearchResult)?.estadoReporte || (r as ReportHistoryItem)?.estadoNuevo || '').trim().toUpperCase();
+    if (estado === 'PENDIENTE')   return 'pendiente';
+    if (estado === 'EN_REVISION') return 'en-revision';
+    if (estado === 'APROBADA')    return 'aprobada';
+    if (estado === 'RECHAZADA')   return 'rechazada';
+    return 'pendiente';
+  }
 
-    const dedupKey = `${reqId}:APP_REPORT:${status}`;
-    if (this.handledAppReportKeys.has(dedupKey)) return;
-    this.handledAppReportKeys.add(dedupKey);
+  public getReportIconClass(r: AiEncryptedMessageSearchResult | ReportHistoryItem | string | null | undefined): string {
+    const estado = typeof r === 'string'
+      ? String(r || '').trim().toUpperCase()
+      : String((r as AiEncryptedMessageSearchResult)?.estadoReporte || (r as ReportHistoryItem)?.estadoNuevo || '').trim().toUpperCase();
+    if (estado === 'PENDIENTE')   return 'bi bi-clock';
+    if (estado === 'EN_REVISION') return 'bi bi-clock';
+    if (estado === 'APROBADA')    return 'bi bi-check-lg';
+    if (estado === 'RECHAZADA')   return 'bi bi-x-lg';
+    return 'bi bi-clock';
+  }
 
-    console.log('[AI_SEARCH][WS][APP_REPORT]', status, tipoReporte, event);
-
-    if (status === 'STARTED') {
-      // 1.5s delay before showing the step — feels natural after "Analizando contexto"
-      this.loadingTimers.push(
-        setTimeout(() => {
-          if (!this.animationActive) return;
-          this.stepStartedAtMap.set('APP_REPORT', Date.now());
-          if (this.loadingSteps[1]?.state !== 'done') {
-            this.setStep(1, 'done');
-          }
-          const label = backendMsg || this.getAppReportStartedLabel(tipoReporte);
-          this.setStep(2, 'active', label);
-        }, 1500)
-      );
-
-    } else if (status === 'COMPLETED') {
-      const label = backendMsg || 'Reporte enviado correctamente';
-      this.applyStepComplete('APP_REPORT', () => {
-        this.setStep(2, 'done', label);
-        // Hold green check 1.5s then resolve
-        this.loadingTimers.push(
-          setTimeout(() => {
-            if (!this.animationActive) return;
-            this.wsStepsComplete = true;
-            if (this.httpResponseReady) this.resolveAnimation();
-          }, 1500)
-        );
-      });
-
-    } else if (status === 'FAILED') {
-      const label = backendMsg || 'No se pudo generar el reporte';
-      console.error('[AI_SEARCH][WS][APP_REPORT] Fallo al generar reporte', event);
-      this.applyStepComplete('APP_REPORT', () => {
-        this.setStep(2, 'error', label);
-        // Hold error icon 1.5s then dismiss
-        this.loadingTimers.push(
-          setTimeout(() => {
-            if (this.animationActive) this.stopLoadingAnimation();
-          }, 1500)
-        );
-      });
+  public getReportTypeLabel(tipoReporte: string | AiEncryptedMessageSearchResult | ReportCard | null | undefined): string {
+    const tipo = typeof tipoReporte === 'string'
+      ? String(tipoReporte || '').trim().toUpperCase()
+      : String(tipoReporte?.tipoReporte || '').trim().toUpperCase();
+    switch (tipo) {
+      case 'INCIDENCIA':   return 'Incidencia';
+      case 'ERROR_APP':    return 'Error de aplicación';
+      case 'QUEJA':        return 'Queja';
+      case 'MEJORA':       return 'Mejora';
+      case 'SUGERENCIA':   return 'Sugerencia';
+      case 'DESBANEO':     return 'Desbaneo';
+      case 'CHAT_CERRADO': return 'Chat bloqueado';
+      case 'OTRO':         return 'Reporte general';
+      default:
+        return tipo
+          ? tipo.split('_').map(w => w.charAt(0) + w.slice(1).toLowerCase()).join(' ')
+          : 'Reporte';
     }
+  }
+
+  public getReportTypeClass(r: AiEncryptedMessageSearchResult): string {
+    const tipo = String(r?.tipoReporte || '').trim().toUpperCase();
+    if (tipo === 'INCIDENCIA')   return 'incidencia';
+    if (tipo === 'ERROR_APP')    return 'error';
+    if (tipo === 'QUEJA')        return 'queja';
+    if (tipo === 'MEJORA')       return 'mejora';
+    if (tipo === 'SUGERENCIA')   return 'sugerencia';
+    if (tipo === 'DESBANEO')     return 'desbaneo';
+    if (tipo === 'CHAT_CERRADO') return 'chat';
+    return 'otro';
+  }
+
+  public getReportDateLabel(r: AiEncryptedMessageSearchResult): string {
+    const estado = String(r?.estadoReporte || '').trim().toUpperCase();
+    return estado === 'PENDIENTE' ? 'Creado el' : 'Actualizado el';
+  }
+
+  public getReportDateValue(r: AiEncryptedMessageSearchResult): string {
+    const rawDate = this.getReportRelevantDate(r);
+    const parsed = this.parseReportDate(rawDate);
+    if (!parsed) return '';
+
+    return parsed.toLocaleDateString('es-ES', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+  }
+
+  public getReportMotivo(r: AiEncryptedMessageSearchResult): string {
+    return String(r?.motivoReporte || r?.motivo || r?.motivoCoincidencia || '').trim();
+  }
+
+  public getReportResolution(r: AiEncryptedMessageSearchResult): string | null {
+    const val = String(r?.resolucionMotivoReporte || r?.resolucionMotivo || '').trim();
+    return val || null;
+  }
+
+  public getReportTimelineItems(card: ReportCard): ReportHistoryItem[] {
+    return this.getSortedReportHistory(card?.historialReporte || []);
+  }
+
+  public getReportGroupTypeLabel(card: ReportCard): string {
+    return this.getReportTypeLabel(card?.tipoReporte || null);
+  }
+
+  public hasReportRelevance(r: AiEncryptedMessageSearchResult | ReportCard): boolean {
+    return typeof r?.relevancia === 'number' && Number.isFinite(r.relevancia);
+  }
+
+  public isApproximateReportResult(r: AiEncryptedMessageSearchResult): boolean {
+    return r?.mejorResultadoAproximado === true;
+  }
+
+  public getSortedReportHistory(historial: ReportHistoryItem[]): ReportHistoryItem[] {
+    return Array.isArray(historial) ? [...historial] : [];
+  }
+
+  public getReportHistoryStatusOrder(status: string | null | undefined): number {
+    const estado = String(status || '').trim().toUpperCase();
+    if (estado === 'PENDIENTE') return 1;
+    if (estado === 'EN_REVISION') return 2;
+    if (estado === 'APROBADA') return 3;
+    if (estado === 'RECHAZADA') return 3;
+    return 99;
+  }
+
+  public getReportBadgeClass(status: string | null | undefined): string {
+    const estado = String(status || '').trim().toUpperCase();
+    if (estado === 'PENDIENTE') return 'badge-pendiente';
+    if (estado === 'EN_REVISION') return 'badge-revision';
+    if (estado === 'APROBADA') return 'badge-aprobada';
+    if (estado === 'RECHAZADA') return 'badge-rechazada';
+    return 'badge-pendiente';
+  }
+
+  public getReportCircleClass(status: string | null | undefined): string {
+    const estado = String(status || '').trim().toUpperCase();
+    if (estado === 'PENDIENTE') return 'status-circle--pendiente';
+    if (estado === 'EN_REVISION') return 'status-circle--revision';
+    if (estado === 'APROBADA') return 'status-circle--aprobada';
+    if (estado === 'RECHAZADA') return 'status-circle--rechazada';
+    return 'status-circle--pendiente';
+  }
+
+  public getReportDateText(item: ReportHistoryItem): string {
+    const accion = String(item?.accion || '').trim().toUpperCase();
+    const estado = String(item?.estadoNuevo || '').trim().toUpperCase();
+    const prefix = accion === 'CREACION' || estado === 'PENDIENTE' ? 'Creado el' : 'Actualizado el';
+    return item?.fecha ? `${prefix} ${item.fecha}` : prefix;
+  }
+
+  private mapReportCard(result: AiEncryptedMessageSearchResult): ReportCard {
+    const historial = this.buildReportHistory(result);
+    return {
+      key: this.normalizeReportGroupKey(result),
+      reporteId: this.parseReportId(result?.reporteId),
+      tipoReporte: String(result?.tipoReporte || '').trim().toUpperCase(),
+      estadoReporte: String(result?.estadoReporte || '').trim().toUpperCase(),
+      motivoReporte: this.getReportMotivo(result),
+      resolucionMotivoReporte: this.getReportResolution(result),
+      fechaCreacionReporte: String(result?.fechaCreacionReporte || result?.createdAt || result?.fechaEnvio || '').trim(),
+      fechaActualizacionReporte: String(result?.fechaActualizacionReporte || result?.updatedAt || result?.fechaCreacionReporte || result?.createdAt || result?.fechaEnvio || '').trim(),
+      mejorResultadoAproximado: result?.mejorResultadoAproximado === true,
+      relevancia: typeof result?.relevancia === 'number' && Number.isFinite(result.relevancia) ? result.relevancia : null,
+      historialReporte: historial,
+      currentStateOrder: this.getReportStateOrder(result?.estadoReporte),
+      latestTimestampMs: historial.reduce((max, item) => Math.max(max, item.timestampMs), this.getReportSortTimestamp(result)),
+    };
+  }
+
+  private buildReportHistory(result: AiEncryptedMessageSearchResult): ReportHistoryItem[] {
+    const rawHistory = Array.isArray(result?.historialReporte) ? result.historialReporte : [];
+    const history = rawHistory
+      .map((item, index) => this.mapReportHistoryItem(item, result, index))
+      .filter((item): item is ReportHistoryItem => !!item);
+
+    if (history.length > 0) return this.getSortedReportHistory(history);
+    return [this.buildFallbackReportHistoryItem(result)];
+  }
+
+  private mapReportHistoryItem(
+    item: AiEncryptedMessageSearchReportHistoryItem | null | undefined,
+    result: AiEncryptedMessageSearchResult,
+    index: number
+  ): ReportHistoryItem | null {
+    const estadoNuevo = String(item?.estadoNuevo || '').trim().toUpperCase();
+    const fecha = String(item?.fecha || '').trim();
+    if (!estadoNuevo && !fecha && !item?.motivo && !item?.resolucionMotivo) return null;
+
+    return {
+      key: `${this.normalizeReportGroupKey(result)}:history:${index}:${estadoNuevo || 'UNKNOWN'}:${fecha || 'no-date'}`,
+      estadoAnterior: item?.estadoAnterior ? String(item.estadoAnterior).trim().toUpperCase() : null,
+      estadoNuevo: estadoNuevo || String(result?.estadoReporte || '').trim().toUpperCase() || 'PENDIENTE',
+      estadoLabel: item?.estadoLabel ? String(item.estadoLabel).trim() : null,
+      motivo: String(item?.motivo || result?.motivoReporte || result?.motivo || '').trim(),
+      resolucionMotivo: String(item?.resolucionMotivo || '').trim() || null,
+      fecha,
+      adminId: Number.isFinite(Number(item?.adminId)) ? Number(item?.adminId) : null,
+      accion: String(item?.accion || '').trim() || null,
+      timestampMs: this.parseReportDate(fecha)?.getTime() ?? 0,
+      tieneImagenReporte: item?.tieneImagenReporte === true,
+      imagenReporteMimeType: String(item?.imagenReporteMimeType || '').trim() || null,
+      imagenReporteNombre: String(item?.imagenReporteNombre || '').trim() || null,
+      imagenReporteSize:
+        Number.isFinite(Number(item?.imagenReporteSize)) && Number(item?.imagenReporteSize) >= 0
+          ? Number(item?.imagenReporteSize)
+          : null,
+      imagenReporteUrl: String(item?.imagenReporteUrl || '').trim() || null,
+    };
+  }
+
+  private buildFallbackReportHistoryItem(result: AiEncryptedMessageSearchResult): ReportHistoryItem {
+    const estado = String(result?.estadoReporte || '').trim().toUpperCase() || 'PENDIENTE';
+    const accion = estado === 'PENDIENTE' ? 'CREACION' : 'CAMBIO_ESTADO';
+    const fecha = estado === 'PENDIENTE'
+      ? String(result?.fechaCreacionReporte || result?.createdAt || result?.fechaEnvio || '').trim()
+      : String(result?.fechaActualizacionReporte || result?.updatedAt || result?.fechaCreacionReporte || result?.createdAt || result?.fechaEnvio || '').trim();
+
+    return {
+      key: `${this.normalizeReportGroupKey(result)}:fallback:${estado}:${fecha || 'no-date'}`,
+      estadoAnterior: null,
+      estadoNuevo: estado,
+      estadoLabel: null,
+      motivo: this.getReportMotivo(result),
+      resolucionMotivo: this.getReportResolution(result),
+      fecha,
+      adminId: Number.isFinite(Number(result?.reviewedByAdminId)) ? Number(result?.reviewedByAdminId) : null,
+      accion,
+      timestampMs: this.parseReportDate(fecha)?.getTime() ?? 0,
+      tieneImagenReporte: false,
+      imagenReporteMimeType: null,
+      imagenReporteNombre: null,
+      imagenReporteSize: null,
+      imagenReporteUrl: null,
+    };
   }
 
   private getAppReportStartedLabel(tipoReporte: string): string {
@@ -591,12 +1346,15 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   }
 
   private subscribeToWsProgress(_requestId: string): void {
+    console.log('[AI_SEARCH][WS] subscribe requested', { requestId: _requestId });
     this.webSocketService.suscribirseAProgressoBusquedaIA((payload) => {
+      console.log('[AI_SEARCH][WS] payload from service', payload);
       this.handleWsProgressEvent(payload as AiSearchProgressWS);
     });
   }
 
   private unsubscribeWsProgress(): void {
+    console.log('[AI_SEARCH][WS] unsubscribe requested', { currentRequestId: this.currentRequestId });
     this.webSocketService.desuscribirseDeProgressoBusquedaIA();
   }
 
@@ -1051,4 +1809,54 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       URL.revokeObjectURL(objectUrl);
     }
   }
+
+  private getReportRelevantDate(r: AiEncryptedMessageSearchResult): string {
+    const estado = String(r?.estadoReporte || '').trim().toUpperCase();
+    if (estado === 'PENDIENTE') {
+      return String(r?.fechaCreacionReporte || r?.createdAt || r?.fechaEnvio || '').trim();
+    }
+    return String(r?.fechaActualizacionReporte || r?.updatedAt || r?.fechaCreacionReporte || r?.createdAt || r?.fechaEnvio || '').trim();
+  }
+
+  private getReportSortTimestamp(r: AiEncryptedMessageSearchResult): number {
+    const parsed = this.parseReportDate(this.getReportRelevantDate(r));
+    return parsed?.getTime() ?? 0;
+  }
+
+  private parseReportDate(raw: string | null | undefined): Date | null {
+    const value = String(raw || '').trim();
+    if (!value) return null;
+    const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (match) {
+      const [, day, month, year, hour = '00', minute = '00', second = '00'] = match;
+      const date = new Date(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second)
+      );
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private normalizeReportText(value: string): string {
+    return String(value || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  }
+
+  private parseReportId(value: number | null | undefined): number | null {
+    const reportId = Number(value);
+    return Number.isFinite(reportId) && reportId > 0 ? reportId : null;
+  }
+
+  private activateResultAnimation(): void {
+    if (!this.currentRequestId || this.renderedResultRequestId === this.currentRequestId) return;
+    this.renderedResultRequestId = this.currentRequestId;
+    this.resultAnimationKey = this.currentRequestId;
+  }
 }
+
+

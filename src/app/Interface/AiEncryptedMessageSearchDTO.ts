@@ -7,6 +7,9 @@ export interface AiEncryptedMessageSearchRequest {
   fechaFin?: string | null;
   incluirGrupales?: boolean;
   incluirIndividuales?: boolean;
+  imagenReporteBase64?: string;
+  imagenReporteMimeType?: string;
+  imagenReporteNombre?: string;
 }
 
 export interface AiEncryptedMessageSearchResponse {
@@ -53,4 +56,35 @@ export interface AiEncryptedMessageSearchResult {
   motivo?: string | null;
   gravedad?: string | null;
   nombreUsuarioDenunciado?: string | null;
+  // APP_REPORT_STATUS fields
+  reporteId?: number | null;
+  tipoReporte?: string | null;
+  estadoReporte?: string | null;
+  motivoReporte?: string | null;
+  resolucionMotivoReporte?: string | null;
+  fechaCreacionReporte?: string | null;
+  fechaActualizacionReporte?: string | null;
+  resolucionMotivo?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  reviewedByAdminId?: number | null;
+  chatCerradoMotivoSnapshot?: string | null;
+  mejorResultadoAproximado?: boolean | null;
+  historialReporte?: AiEncryptedMessageSearchReportHistoryItem[] | null;
+}
+
+export interface AiEncryptedMessageSearchReportHistoryItem {
+  estadoAnterior?: string | null;
+  estadoNuevo?: string | null;
+  estadoLabel?: string | null;
+  motivo?: string | null;
+  resolucionMotivo?: string | null;
+  fecha?: string | null;
+  adminId?: number | null;
+  accion?: string | null;
+  tieneImagenReporte?: boolean | null;
+  imagenReporteMimeType?: string | null;
+  imagenReporteNombre?: string | null;
+  imagenReporteSize?: number | null;
+  imagenReporteUrl?: string | null;
 }

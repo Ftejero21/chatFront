@@ -28,17 +28,51 @@
     </div>
 
     <div class="ai-global-search-popup__form">
-      <label for="aiGlobalSearchConsulta">Consulta con Lenguaje Natural</label>
+      <label for="aiGlobalSearchConsulta">Consulta con lenguaje natural</label>
       <div class="ai-global-search-popup__textarea-wrap">
+        <input
+          #reportImageInput
+          type="file"
+          class="ai-global-search-popup__file-input"
+          accept="image/png,image/jpeg,image/webp"
+          [disabled]="loading || animationActive"
+          (change)="onReportImageSelected($event)"
+        />
         <textarea
           id="aiGlobalSearchConsulta"
           rows="4"
-          placeholder="Ej: ¿Qué le dije a Daniel el otro día?"
+          placeholder="Pregunta por tus mensajes, reportes, denuncias o incidencias..."
           [ngModel]="consulta"
           [disabled]="loading"
           (ngModelChange)="onConsultaChange($event)"
         ></textarea>
-        <div class="ai-global-search-popup__textarea-hint">Analizado por IA</div>
+        <div class="ai-global-search-popup__textarea-footer">
+          <button
+            type="button"
+            class="ai-global-search-popup__attach-badge"
+            [class.ai-global-search-popup__attach-badge--selected]="hasReportImage"
+            [disabled]="loading || animationActive"
+            (click)="triggerReportImageInput(reportImageInput)"
+          >
+            <i class="bi bi-stars"></i>
+            {{ hasReportImage ? 'Imagen adjunta' : 'Adjuntar imagen' }}
+          </button>
+          <div class="ai-global-search-popup__textarea-hint">Analizado por IA</div>
+        </div>
+      </div>
+      <div *ngIf="hasReportImage" class="ai-global-search-popup__attachment-chip">
+        <span class="ai-global-search-popup__attachment-chip-name">
+          <i class="bi bi-image"></i>
+          {{ imagenReporteNombre }}
+        </span>
+        <button
+          type="button"
+          class="ai-global-search-popup__attachment-remove"
+          aria-label="Quitar imagen adjunta"
+          (click)="removeReportImage($event)"
+        >
+          <i class="bi bi-x-lg"></i>
+        </button>
       </div>
 
       <button
@@ -49,25 +83,27 @@
         (click)="onSubmit()"
       >
         <i class="bi bi-search"></i>
-        Buscar Mensajes
+        Buscar mensajes
       </button>
 
       <div *ngIf="animationActive" class="ai-search-checklist">
-        <ng-container *ngFor="let step of loadingSteps">
+        <ng-container *ngFor="let event of visibleProgressEvents; trackBy: trackByVisibleProgressEvent">
           <div
-            *ngIf="step.state !== 'hidden'"
             class="ai-search-step"
-            [class.ai-search-step--active]="step.state === 'active'"
-            [class.ai-search-step--done]="step.state === 'done'"
-            [class.ai-search-step--error]="step.state === 'error'"
+            [class.ai-search-step--active]="event.state === 'active'"
+            [class.ai-search-step--done]="event.state === 'done'"
+            [class.ai-search-step--warning]="event.state === 'warning'"
+            [class.ai-search-step--error]="event.state === 'error'"
           >
             <span class="ai-search-step__icon">
-              <span *ngIf="step.state === 'done'"   class="ai-step-check">✓</span>
-              <span *ngIf="step.state === 'active'"  class="ai-step-pulse"></span>
-              <span *ngIf="step.state === 'error'"   class="ai-step-error">✕</span>
+              <i
+                class="bi"
+                [ngClass]="getVisibleProgressEventIconClass(event)"
+                [class.ai-search-step__icon--spinning]="event.state === 'active'"
+              ></i>
             </span>
             <span class="ai-search-step__text">
-              {{ step.label }}<span *ngIf="step.state === 'active'" class="ai-loading-dots"><span>.</span><span>.</span><span>.</span></span>
+              {{ event.label }}
             </span>
           </div>
         </ng-container>
@@ -76,227 +112,353 @@
       <div *ngIf="error" class="ai-global-search-popup__error">{{ error }}</div>
     </div>
 
-    <div *ngIf="!animationActive" class="ai-global-search-popup__results-section">
-      <div class="ai-global-search-popup__results-header">
-        <h3>Resultados encontrados</h3>
-        <span class="ai-global-search-popup__count">{{ resultados.length }} coincidencias</span>
-      </div>
-
-      <div *ngIf="resultados.length > 0" class="ai-global-search-popup__results">
-        <div *ngIf="isApproximateResult" class="ai-approximate-notice">
-          <i class="bi bi-info-circle"></i> Resultado aproximado — no se encontró coincidencia exacta
+    <div *ngIf="showResult" class="ai-global-search-popup__results-section" [attr.data-result-key]="resultAnimationKey">
+      <div class="ai-global-search-popup__results-shell result-enter">
+        <div class="ai-global-search-popup__results-header">
+          <h3>Resultados encontrados</h3>
+          <span class="ai-global-search-popup__count">{{ resultados.length }} coincidencias</span>
         </div>
-        <div *ngIf="hasResumenBusqueda" class="ai-global-search-popup__summary-note">
-          <div class="ai-global-search-popup__ai-summary-header">
-            <img src="assets/Nexo.svg" alt="Nexo" class="ai-summary-nexo-icon" />
-            <span>Respuesta de Nexo IA</span>
+
+        <div *ngIf="resultados.length > 0" class="ai-global-search-popup__results">
+          <div *ngIf="isApproximateResult" class="ai-approximate-notice">
+            <i class="bi bi-info-circle"></i> Resultado aproximado: no se encontro coincidencia exacta
           </div>
-          <p class="ai-global-search-popup__ai-summary-text">{{ resumenBusqueda }}</p>
-        </div>
-        <div
-          class="ai-global-search-popup__result result-card result-card--animated"
-          role="button"
-          tabindex="0"
-          [style.animation-delay.ms]="i * 120"
-          [ngClass]="{
-            'individual': r.tipoChat === 'INDIVIDUAL' && !isComplaintResult(r),
-            'grupal':     r.tipoChat === 'GRUPAL'     && !isComplaintResult(r),
-            'complaint':  isComplaintResult(r)
-          }"
-          *ngFor="let r of resultados; let i = index"
-          (click)="onSelectResult(r)"
-          (keydown)="onResultCardKeydown($event, r)"
-        >
-          <!-- COMPLAINT RESULT -->
-          <ng-container *ngIf="isComplaintResult(r)">
-            <div class="src-complaint-indicator" [ngClass]="getComplaintIndicatorClass(r)"></div>
-
-            <div class="src-complaint-header">
-              <div class="src-complaint-user-info">
-                <h3 class="src-complaint-title">{{ getComplaintTitle(r) }}</h3>
-                <p *ngIf="r.nombreUsuarioDenunciado" class="src-complaint-target">
-                  Sobre <strong>{{ r.nombreUsuarioDenunciado }}</strong>
-                </p>
-              </div>
-              <div class="src-complaint-badges">
-                <span class="src-complaint-badge" [ngClass]="getComplaintBadgeClass(r)">
-                  {{ r.estadoDenuncia || 'Pendiente' }}
-                </span>
-                <span *ngIf="r.gravedad" class="src-complaint-gravedad" [ngClass]="getComplaintGravedadClass(r)">
-                  {{ r.gravedad }}
-                </span>
-              </div>
-            </div>
-
-            <span class="src-complaint-reason">{{ getComplaintMotivo(r) }}</span>
-
-            <div *ngIf="getComplaintDetalle(r)" class="src-complaint-message">
-              "{{ getComplaintDetalle(r) }}"
-            </div>
-
-            <div class="src-complaint-footer">
-              <span *ngIf="r.fechaDenuncia" class="src-complaint-timestamp">
-                <i class="bi bi-clock"></i> {{ r.fechaDenuncia }}
-              </span>
-              <span *ngIf="r.motivoCoincidencia" class="src-complaint-match">
-                {{ r.motivoCoincidencia }}
-              </span>
-            </div>
-          </ng-container>
-
-          <!-- MESSAGE RESULT -->
-          <ng-container *ngIf="!isComplaintResult(r)">
-          <ng-container *ngIf="resolveResultMessageType(r) as resolvedType">
-          <div class="row-top">
-            <div class="row-top-left">
-              <span
-                class="result-type-badge"
-                [ngClass]="{
-                  'result-type-badge--individual': r.tipoChat === 'INDIVIDUAL',
-                  'result-type-badge--grupal': r.tipoChat === 'GRUPAL'
-                }"
-              >
-                {{ r.tipoChat === 'GRUPAL' ? 'Grupal' : 'Individual' }}
-              </span>
-              <span class="result-chat-name">
-                {{
-                  r.tipoChat === 'GRUPAL'
-                    ? (r.nombreChatGrupal || 'Chat grupal')
-                    : (r.nombreReceptor || 'Chat individual')
-                }}
-              </span>
-            </div>
-            <span class="result-relevance">Relevancia: {{ r.relevancia }}%</span>
-          </div>
-
-          <div class="row-mid" [ngSwitch]="resolvedType">
-            <p *ngSwitchCase="'TEXT'" class="row-mid-text">"{{ getResultTextContent(r) }}"</p>
-
-            <ng-container *ngSwitchCase="'IMAGE'">
-              <div *ngIf="getResultMediaUrl(r) as imageUrl; else imagePendingOrFallback" class="ai-result-media-wrap">
-                <img
-                  class="starred-media-image"
-                  [src]="imageUrl"
-                  [alt]="r.descripcionTipoMensaje || 'Imagen'"
-                  loading="lazy"
-                  (error)="onResultMediaError(r, $event)"
-                />
-              </div>
-              <ng-template #imagePendingOrFallback>
-                <p *ngIf="isHydratingResultMedia(r)" class="row-mid-text">Cargando imagen...</p>
-                <p *ngIf="!isHydratingResultMedia(r)" class="row-mid-text">{{ getResultImageFallback(r) }}</p>
-              </ng-template>
-            </ng-container>
-
-            <ng-container *ngSwitchCase="'STICKER'">
-              <div *ngIf="getResultMediaUrl(r) as stickerUrl; else stickerPendingOrFallback" class="ai-result-media-wrap ai-result-media-wrap--sticker">
-                <img
-                  class="msg-sticker"
-                  [src]="stickerUrl"
-                  [alt]="r.descripcionTipoMensaje || 'Sticker'"
-                  loading="lazy"
-                  (error)="onResultMediaError(r, $event)"
-                />
-              </div>
-              <ng-template #stickerPendingOrFallback>
-                <p *ngIf="isHydratingResultMedia(r)" class="row-mid-text">Cargando sticker...</p>
-                <p *ngIf="!isHydratingResultMedia(r)" class="row-mid-text">{{ getResultStickerFallback(r) }}</p>
-              </ng-template>
-            </ng-container>
-
-            <ng-container *ngSwitchCase="'AUDIO'">
-              <div
-                *ngIf="getResultAudioSrc(r) as audioSrc; else audioFallback"
-                class="audio-bubble"
-                [class.mine]="isResultMine(r)"
-                (click)="stopResultNavigation($event)"
-              >
-                <button
-                  type="button"
-                  class="audio-play"
-                  [attr.aria-label]="(audioStates.get(r.mensajeId)?.playing ? 'Pausar' : 'Reproducir') + ' audio'"
-                  (click)="toggleResultAudio(r, resultAudioRef, $event)"
-                >
-                  <i
-                    class="fas"
-                    [ngClass]="audioStates.get(r.mensajeId)?.playing ? 'fa-pause' : 'fa-play'"
-                  ></i>
-                </button>
-                <div class="audio-wave">
-                  <div class="audio-track">
-                    <div class="audio-progress" [style.width.%]="getResultAudioProgressPercent(r)"></div>
-                  </div>
-                  <div class="audio-time">{{ getResultAudioTimeLabel(r) }}</div>
-                </div>
-                <audio
-                  #resultAudioRef
-                  data-ai-search-audio="true"
-                  preload="none"
-                  [src]="audioSrc"
-                  (click)="stopResultNavigation($event)"
-                  (loadedmetadata)="onResultAudioLoadedMetadata(r, resultAudioRef)"
-                  (timeupdate)="onResultAudioTimeUpdate(r, resultAudioRef)"
-                  (ended)="onResultAudioEnded(r)"
-                ></audio>
-              </div>
-              <ng-template #audioFallback>
-                <p *ngIf="isHydratingResultMedia(r)" class="row-mid-text">Cargando audio...</p>
-                <p *ngIf="!isHydratingResultMedia(r)" class="row-mid-text">{{ getResultAudioFallback(r) }}</p>
-              </ng-template>
-            </ng-container>
-
-            <ng-container *ngSwitchCase="'FILE'">
-              <div class="starred-media-file-wrap">
-                <a
-                  *ngIf="r.mediaUrl; else fileNoLink"
-                  class="starred-media-file"
-                  [href]="r.mediaUrl"
-                  [attr.download]="getResultFileName(r)"
-                  target="_blank"
-                  rel="noopener"
-                  (click)="stopResultNavigation($event)"
-                >
-                  <i class="bi bi-file-earmark"></i>
-                  <span class="starred-media-file__meta">
-                    <span class="starred-media-file__name">{{ getResultFileName(r) }}</span>
-                  </span>
-                </a>
-                <ng-template #fileNoLink>
-                  <p class="row-mid-text">{{ getResultFileFallback(r) }}</p>
-                </ng-template>
-              </div>
-            </ng-container>
-
-            <p *ngSwitchDefault class="row-mid-text">{{ r.contenidoVisible || r.descripcionTipoMensaje || '[Mensaje]' }}</p>
-          </div>
-
-          <div class="row-bottom">
-            <span class="result-date">Enviado el {{ r.fechaEnvio | date:'dd MMM HH:mm' }}</span>
-            <span class="result-go-link">{{ r.tipoChat === 'GRUPAL' ? 'Ir al grupo' : 'Ir al chat' }}</span>
-          </div>
-
-          <div class="result-reason">{{ r.motivoCoincidencia }}</div>
-          </ng-container>
-          </ng-container><!-- /MESSAGE RESULT -->
-        </div>
-      </div>
-
-      <div *ngIf="!error && resultados.length === 0" class="ai-global-search-popup__empty">
-        <ng-container *ngIf="aiSummary || resumenBusqueda; else noResultsPlain">
-          <div class="ai-global-search-popup__ai-summary">
+          <div *ngIf="shouldShowAiSummaryCard" class="ai-global-search-popup__summary-note">
             <div class="ai-global-search-popup__ai-summary-header">
               <img src="assets/Nexo.svg" alt="Nexo" class="ai-summary-nexo-icon" />
               <span>Respuesta de Nexo IA</span>
             </div>
-            <p class="ai-global-search-popup__ai-summary-text">{{ aiSummary || resumenBusqueda }}</p>
+            <p class="ai-global-search-popup__ai-summary-text">
+              {{ aiSummaryLoading ? 'Generando resumen...' : (resolvedAiSummary || 'No hay resumen disponible.') }}
+            </p>
           </div>
-        </ng-container>
-        <ng-template #noResultsPlain>Sin resultados.</ng-template>
+
+          <ng-container *ngIf="isAppReportStatusResponse()">
+            <div class="app-report-status-results">
+              <div
+                *ngFor="let report of getReportCards(); trackBy: trackByReporteId"
+                class="report-timeline-card"
+              >
+                <div class="report-card-header">
+                  <div class="report-card-header-main">
+                    <span class="report-type">{{ getReportTypeLabel(report.tipoReporte) }}</span>
+                    <span *ngIf="report.reporteId" class="report-id">#{{ report.reporteId }}</span>
+                  </div>
+                  <span class="report-badge" [ngClass]="getReportBadgeClass(report.estadoReporte)">
+                    {{ getReportStatusLabel(report.estadoReporte, report.tipoReporte) }}
+                  </span>
+                </div>
+
+                <div class="report-card-meta">
+                  <span *ngIf="report.mejorResultadoAproximado" class="approx-badge">
+                    Resultado aproximado
+                  </span>
+                  <span *ngIf="hasReportRelevance(report)" class="ars-relevance">
+                    Relevancia: {{ report.relevancia }}%
+                  </span>
+                </div>
+
+                <div class="report-history-list">
+                  <div
+                    *ngFor="let item of getSortedReportHistory(report.historialReporte); trackBy: trackByHistoryItem; let last = last"
+                    class="timeline-container"
+                  >
+                    <div *ngIf="!last" class="timeline-line"></div>
+
+                    <div class="status-circle" [ngClass]="getReportCircleClass(item.estadoNuevo)">
+                      <i [ngClass]="getReportIconClass(item.estadoNuevo)"></i>
+                    </div>
+
+                    <div class="timeline-content">
+                      <div class="timeline-header">
+                        <span class="report-badge" [ngClass]="getReportBadgeClass(item.estadoNuevo)">
+                          {{ getReportStatusLabel(item.estadoNuevo, report.tipoReporte) }}
+                        </span>
+                      </div>
+
+                      <div *ngIf="item.motivo" class="motivo-box">
+                        <span class="label-motivo">
+                          <i class="bi bi-chat-left-text"></i>
+                          Motivo
+                        </span>
+                        <p class="ars-motivo-text">"{{ item.motivo }}"</p>
+                        <div *ngIf="hasHistoryReportImage(item)" class="report-history-image-card">
+                          <div
+                            *ngIf="getHistoryReportImagePreviewUrl(item) as historyImageUrl; else historyImageState"
+                            class="report-history-image-card__body"
+                          >
+                            <button
+                              type="button"
+                              class="report-history-image-card__preview-btn"
+                              aria-label="Abrir imagen adjunta"
+                              (click)="openHistoryReportImagePreview(item, $event)"
+                            >
+                              <img
+                                class="report-history-image-card__preview"
+                                [src]="historyImageUrl"
+                                [alt]="item.imagenReporteNombre || 'Imagen adjunta'"
+                              />
+                            </button>
+                            <div class="report-history-image-card__meta">
+                              <span class="report-history-image-card__name">
+                                {{ item.imagenReporteNombre || 'Imagen adjunta' }}
+                              </span>
+                              <button
+                                type="button"
+                                class="report-history-image-card__expand"
+                                aria-label="Ampliar imagen adjunta"
+                                (click)="openHistoryReportImagePreview(item, $event)"
+                              >
+                                <i class="bi bi-arrows-fullscreen"></i>
+                              </button>
+                            </div>
+                            <span *ngIf="formatHistoryReportImageSize(item.imagenReporteSize)" class="report-history-image-card__size">
+                              {{ formatHistoryReportImageSize(item.imagenReporteSize) }}
+                            </span>
+                          </div>
+                          <ng-template #historyImageState>
+                            <div *ngIf="isLoadingHistoryReportImage(item)" class="report-history-image-card__loading">
+                              <div class="report-history-image-card__skeleton"></div>
+                              <span>Cargando imagen...</span>
+                            </div>
+                            <div *ngIf="!isLoadingHistoryReportImage(item) && hasHistoryReportImageError(item)" class="report-history-image-card__error">
+                              No se pudo cargar la imagen.
+                            </div>
+                          </ng-template>
+                        </div>
+                      </div>
+
+                      <div *ngIf="item.resolucionMotivo" class="resolucion-box">
+                        <span class="label-resolucion">
+                          <i class="bi bi-file-text"></i>
+                          Resolucion
+                        </span>
+                        <p class="ars-resolution-text">"{{ item.resolucionMotivo }}"</p>
+                      </div>
+
+                      <span class="report-date">{{ getReportDateText(item) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ng-container>
+
+          <ng-container *ngIf="!isAppReportStatusResponse()">
+            <div
+              class="ai-global-search-popup__result result-card"
+              role="button"
+              tabindex="0"
+              [ngClass]="{
+                'individual': r.tipoChat === 'INDIVIDUAL' && !isComplaintResult(r),
+                'grupal': r.tipoChat === 'GRUPAL' && !isComplaintResult(r),
+                'complaint': isComplaintResult(r)
+              }"
+              *ngFor="let r of resultados; trackBy: trackBySearchResult"
+              (click)="onSelectResult(r)"
+              (keydown)="onResultCardKeydown($event, r)"
+            >
+              <ng-container *ngIf="isComplaintResult(r)">
+                <div class="src-complaint-indicator" [ngClass]="getComplaintIndicatorClass(r)"></div>
+
+                <div class="src-complaint-header">
+                  <div class="src-complaint-user-info">
+                    <h3 class="src-complaint-title">{{ getComplaintTitle(r) }}</h3>
+                    <p *ngIf="r.nombreUsuarioDenunciado" class="src-complaint-target">
+                      Sobre <strong>{{ r.nombreUsuarioDenunciado }}</strong>
+                    </p>
+                  </div>
+                  <div class="src-complaint-badges">
+                    <span class="src-complaint-badge" [ngClass]="getComplaintBadgeClass(r)">
+                      {{ r.estadoDenuncia || 'Pendiente' }}
+                    </span>
+                    <span *ngIf="r.gravedad" class="src-complaint-gravedad" [ngClass]="getComplaintGravedadClass(r)">
+                      {{ r.gravedad }}
+                    </span>
+                  </div>
+                </div>
+
+                <span class="src-complaint-reason">{{ getComplaintMotivo(r) }}</span>
+
+                <div *ngIf="getComplaintDetalle(r)" class="src-complaint-message">
+                  "{{ getComplaintDetalle(r) }}"
+                </div>
+
+                <div class="src-complaint-footer">
+                  <span *ngIf="r.fechaDenuncia" class="src-complaint-timestamp">
+                    <i class="bi bi-clock"></i> {{ r.fechaDenuncia }}
+                  </span>
+                  <span *ngIf="r.motivoCoincidencia" class="src-complaint-match">
+                    {{ r.motivoCoincidencia }}
+                  </span>
+                </div>
+              </ng-container>
+
+              <ng-container *ngIf="!isComplaintResult(r)">
+                <ng-container *ngIf="resolveResultMessageType(r) as resolvedType">
+                  <div class="row-top">
+                    <div class="row-top-left">
+                      <span
+                        class="result-type-badge"
+                        [ngClass]="{
+                          'result-type-badge--individual': r.tipoChat === 'INDIVIDUAL',
+                          'result-type-badge--grupal': r.tipoChat === 'GRUPAL'
+                        }"
+                      >
+                        {{ r.tipoChat === 'GRUPAL' ? 'Grupal' : 'Individual' }}
+                      </span>
+                      <span class="result-chat-name">
+                        {{
+                          r.tipoChat === 'GRUPAL'
+                            ? (r.nombreChatGrupal || 'Chat grupal')
+                            : (r.nombreReceptor || 'Chat individual')
+                        }}
+                      </span>
+                    </div>
+                    <span class="result-relevance">Relevancia: {{ r.relevancia }}%</span>
+                  </div>
+
+                  <div class="row-mid" [ngSwitch]="resolvedType">
+                    <p *ngSwitchCase="'TEXT'" class="row-mid-text">"{{ getResultTextContent(r) }}"</p>
+
+                    <ng-container *ngSwitchCase="'IMAGE'">
+                      <div *ngIf="getResultMediaUrl(r) as imageUrl; else imagePendingOrFallback" class="ai-result-media-wrap">
+                        <img
+                          class="starred-media-image"
+                          [src]="imageUrl"
+                          [alt]="r.descripcionTipoMensaje || 'Imagen'"
+                          loading="lazy"
+                          (error)="onResultMediaError(r, $event)"
+                        />
+                      </div>
+                      <ng-template #imagePendingOrFallback>
+                        <p *ngIf="isHydratingResultMedia(r)" class="row-mid-text">Cargando imagen...</p>
+                        <p *ngIf="!isHydratingResultMedia(r)" class="row-mid-text">{{ getResultImageFallback(r) }}</p>
+                      </ng-template>
+                    </ng-container>
+
+                    <ng-container *ngSwitchCase="'STICKER'">
+                      <div *ngIf="getResultMediaUrl(r) as stickerUrl; else stickerPendingOrFallback" class="ai-result-media-wrap ai-result-media-wrap--sticker">
+                        <img
+                          class="msg-sticker"
+                          [src]="stickerUrl"
+                          [alt]="r.descripcionTipoMensaje || 'Sticker'"
+                          loading="lazy"
+                          (error)="onResultMediaError(r, $event)"
+                        />
+                      </div>
+                      <ng-template #stickerPendingOrFallback>
+                        <p *ngIf="isHydratingResultMedia(r)" class="row-mid-text">Cargando sticker...</p>
+                        <p *ngIf="!isHydratingResultMedia(r)" class="row-mid-text">{{ getResultStickerFallback(r) }}</p>
+                      </ng-template>
+                    </ng-container>
+
+                    <ng-container *ngSwitchCase="'AUDIO'">
+                      <div
+                        *ngIf="getResultAudioSrc(r) as audioSrc; else audioFallback"
+                        class="audio-bubble"
+                        [class.mine]="isResultMine(r)"
+                        (click)="stopResultNavigation($event)"
+                      >
+                        <button
+                          type="button"
+                          class="audio-play"
+                          [attr.aria-label]="(audioStates.get(r.mensajeId)?.playing ? 'Pausar' : 'Reproducir') + ' audio'"
+                          (click)="toggleResultAudio(r, resultAudioRef, $event)"
+                        >
+                          <i
+                            class="fas"
+                            [ngClass]="audioStates.get(r.mensajeId)?.playing ? 'fa-pause' : 'fa-play'"
+                          ></i>
+                        </button>
+                        <div class="audio-wave">
+                          <div class="audio-track">
+                            <div class="audio-progress" [style.width.%]="getResultAudioProgressPercent(r)"></div>
+                          </div>
+                          <div class="audio-time">{{ getResultAudioTimeLabel(r) }}</div>
+                        </div>
+                        <audio
+                          #resultAudioRef
+                          data-ai-search-audio="true"
+                          preload="none"
+                          [src]="audioSrc"
+                          (click)="stopResultNavigation($event)"
+                          (loadedmetadata)="onResultAudioLoadedMetadata(r, resultAudioRef)"
+                          (timeupdate)="onResultAudioTimeUpdate(r, resultAudioRef)"
+                          (ended)="onResultAudioEnded(r)"
+                        ></audio>
+                      </div>
+                      <ng-template #audioFallback>
+                        <p *ngIf="isHydratingResultMedia(r)" class="row-mid-text">Cargando audio...</p>
+                        <p *ngIf="!isHydratingResultMedia(r)" class="row-mid-text">{{ getResultAudioFallback(r) }}</p>
+                      </ng-template>
+                    </ng-container>
+
+                    <ng-container *ngSwitchCase="'FILE'">
+                      <div class="starred-media-file-wrap">
+                        <a
+                          *ngIf="r.mediaUrl; else fileNoLink"
+                          class="starred-media-file"
+                          [href]="r.mediaUrl"
+                          [attr.download]="getResultFileName(r)"
+                          target="_blank"
+                          rel="noopener"
+                          (click)="stopResultNavigation($event)"
+                        >
+                          <i class="bi bi-file-earmark"></i>
+                          <span class="starred-media-file__meta">
+                            <span class="starred-media-file__name">{{ getResultFileName(r) }}</span>
+                          </span>
+                        </a>
+                        <ng-template #fileNoLink>
+                          <p class="row-mid-text">{{ getResultFileFallback(r) }}</p>
+                        </ng-template>
+                      </div>
+                    </ng-container>
+
+                    <p *ngSwitchDefault class="row-mid-text">{{ r.contenidoVisible || r.descripcionTipoMensaje || '[Mensaje]' }}</p>
+                  </div>
+
+                  <div class="row-bottom">
+                    <span class="result-date">Enviado el {{ r.fechaEnvio | date:'dd MMM HH:mm' }}</span>
+                    <span class="result-go-link">{{ r.tipoChat === 'GRUPAL' ? 'Ir al grupo' : 'Ir al chat' }}</span>
+                  </div>
+
+                  <div class="result-reason">{{ r.motivoCoincidencia }}</div>
+                </ng-container>
+              </ng-container>
+            </div>
+          </ng-container>
+        </div>
+
+        <div *ngIf="!error && resultados.length === 0" class="ai-global-search-popup__empty">
+          <ng-container *ngIf="shouldShowAiSummaryCard; else noResultsPlain">
+            <div class="ai-global-search-popup__ai-summary">
+              <div class="ai-global-search-popup__ai-summary-header">
+                <img src="assets/Nexo.svg" alt="Nexo" class="ai-summary-nexo-icon" />
+                <span>Respuesta de Nexo IA</span>
+              </div>
+              <p class="ai-global-search-popup__ai-summary-text">
+                {{ aiSummaryLoading ? 'Generando resumen...' : (resolvedAiSummary || 'No hay resumen disponible.') }}
+              </p>
+            </div>
+          </ng-container>
+          <ng-template #noResultsPlain>Sin resultados.</ng-template>
+        </div>
       </div>
     </div>
 
     <div class="ai-global-search-popup__footer">
-      La IA analiza el contexto semantico de tu consulta para encontrar coincidencias exactas y relacionadas.
+      La IA analiza el contexto semántico de tu consulta para encontrar coincidencias exactas y relacionadas.
     </div>
   </div>
+  <app-file-preview-viewer
+    [open]="showHistoryReportImagePreview"
+    [fileUrl]="historyReportImagePreviewSrc"
+    [fileName]="historyReportImagePreviewName"
+    [fileSize]="historyReportImagePreviewSize"
+    [fileType]="'Imagen'"
+    [fileMime]="historyReportImagePreviewMime"
+    (closed)="closeHistoryReportImagePreview()"
+  ></app-file-preview-viewer>
 </div>

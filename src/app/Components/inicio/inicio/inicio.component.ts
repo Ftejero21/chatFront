@@ -126,6 +126,7 @@ import {
 import { AiQuickRepliesResponseDTO } from '../../../Interface/AiQuickRepliesResponseDTO';
 import {
   AiEncryptedMessageSearchRequest,
+  AiEncryptedMessageSearchResponse,
   AiEncryptedMessageSearchResult,
 } from '../../../Interface/AiEncryptedMessageSearchDTO';
 import { AiService } from '../../../Service/ai/ai.service';
@@ -648,6 +649,8 @@ export class InicioComponent {
   public globalMessageSearchResumenBusqueda: string | null = null;
   public globalMessageSearchResultados: AiEncryptedMessageSearchResult[] = [];
   public globalMessageSearchAiSummary: string | null = null;
+  public globalMessageSearchAiSummaryLoading = false;
+  public globalMessageSearchCodigo: string | null = null;
   public showMuteDurationPicker = false;
   public muteDurationTargetChat: any | null = null;
   public muteRequestInFlight = false;
@@ -19725,13 +19728,21 @@ private async decryptPreviewString(
     this.globalMessageSearchError = null;
     this.globalMessageSearchResumenBusqueda = null;
     this.globalMessageSearchAiSummary = null;
+    this.globalMessageSearchAiSummaryLoading = false;
+    this.globalMessageSearchCodigo = null;
   }
 
   public onGlobalMessageSearchConsultaChange(next: string): void {
     this.globalMessageSearchConsulta = String(next || '');
   }
 
-  public submitGlobalMessageSearch(event: { consulta: string; requestId: string }): void {
+  public submitGlobalMessageSearch(event: {
+    consulta: string;
+    requestId: string;
+    imagenReporteBase64?: string;
+    imagenReporteMimeType?: string;
+    imagenReporteNombre?: string;
+  }): void {
     const normalizedConsulta = String(event?.consulta || '').trim();
     if (!normalizedConsulta || this.globalMessageSearchLoading) return;
 
@@ -19744,6 +19755,9 @@ private async decryptPreviewString(
       fechaFin: null,
       incluirGrupales: true,
       incluirIndividuales: true,
+      imagenReporteBase64: String(event?.imagenReporteBase64 || '').trim() || undefined,
+      imagenReporteMimeType: String(event?.imagenReporteMimeType || '').trim() || undefined,
+      imagenReporteNombre: String(event?.imagenReporteNombre || '').trim() || undefined,
     };
 
     this.globalMessageSearchLoading = true;
@@ -19751,6 +19765,8 @@ private async decryptPreviewString(
     this.globalMessageSearchResumenBusqueda = null;
     this.globalMessageSearchResultados = [];
     this.globalMessageSearchAiSummary = null;
+    this.globalMessageSearchAiSummaryLoading = false;
+    this.globalMessageSearchCodigo = null;
 
     this.aiService
       .buscarMensajesEncrypted(request)
@@ -19763,27 +19779,25 @@ private async decryptPreviewString(
       .subscribe({
         next: (response) => {
           const results = Array.isArray(response?.resultados) ? response.resultados : [];
-          this.globalMessageSearchResumenBusqueda = String(response?.resumenBusqueda || '').trim() || null;
           this.globalMessageSearchResultados = results;
-          if (response?.encryptedPayload) {
-            this.tryDecryptAiEncryptedPayload(response.encryptedPayload)
-              .then((plain) => {
-                let summary = plain;
-                try {
-                  const parsed = JSON.parse(plain);
-                  if (parsed && typeof parsed === 'object') {
-                    summary = String(
-                      parsed.resumenBusqueda || parsed.mensaje || parsed.summary || parsed.text || plain
-                    ).trim();
-                  }
-                } catch {}
-                this.globalMessageSearchAiSummary = summary || null;
-                this.cdr.markForCheck();
-              })
-              .catch(() => {
-                this.globalMessageSearchAiSummary = null;
-              });
-          }
+          this.globalMessageSearchCodigo = String(response?.codigo || '').trim() || null;
+          const encryptedSummaryPresent = !!response?.encryptedPayload;
+          this.globalMessageSearchResumenBusqueda =
+            encryptedSummaryPresent
+              ? null
+              : String(response?.resumenBusqueda || '').trim() || null;
+          this.globalMessageSearchAiSummaryLoading = encryptedSummaryPresent;
+          void this.resolveAiSummary(response)
+            .then((summary) => {
+              this.globalMessageSearchAiSummary = summary;
+              if (!summary && encryptedSummaryPresent) {
+                this.globalMessageSearchAiSummary = 'No se pudo descifrar el resumen.';
+              }
+            })
+            .finally(() => {
+              this.globalMessageSearchAiSummaryLoading = false;
+              this.cdr.markForCheck();
+            });
         },
         error: (error) => {
           const backendMessage = String(
@@ -19921,6 +19935,43 @@ private async decryptPreviewString(
       esUsuarioActual,
       fecha: String(mensaje?.fechaEnvio || '').trim() || undefined,
     };
+  }
+
+  private async resolveAiSummary(
+    response: AiEncryptedMessageSearchResponse | null | undefined
+  ): Promise<string | null> {
+    const encryptedPayload = response?.encryptedPayload;
+    if (encryptedPayload) {
+      const payload = this.parseAiSummaryEncryptedPayload(encryptedPayload);
+      const payloadType = String(payload?.type || '').trim().toUpperCase();
+      console.log('[AI_SUMMARY] encryptedPayloadPresent=true type=%s', payloadType || 'UNKNOWN');
+      try {
+        const plain = await this.tryDecryptAiEncryptedPayload(encryptedPayload);
+        let summary = plain;
+        try {
+          const parsed = JSON.parse(plain);
+          if (parsed && typeof parsed === 'object') {
+            summary = String(
+              parsed.resumenBusqueda || parsed.mensaje || parsed.summary || parsed.text || plain
+            ).trim();
+          }
+        } catch {}
+        const resolved = String(summary || '').trim() || null;
+        console.log('[AI_SUMMARY] decrypted=%s length=%s', !!resolved, resolved?.length ?? 0);
+        console.log('[AI_SUMMARY] usingEncryptedSummary=true');
+        console.log('[AI_SUMMARY] usingPublicSummary=false');
+        return resolved;
+      } catch (error) {
+        console.error('[AI_SUMMARY] decrypt failed', error);
+        return null;
+      }
+    }
+
+    const publicSummary = String(response?.resumenBusqueda || '').trim() || null;
+    console.log('[AI_SUMMARY] encryptedPayloadPresent=false type=NONE');
+    console.log('[AI_SUMMARY] usingEncryptedSummary=false');
+    console.log('[AI_SUMMARY] usingPublicSummary=%s', !!publicSummary);
+    return publicSummary;
   }
 
   private isMessageValidForPollIaContext(

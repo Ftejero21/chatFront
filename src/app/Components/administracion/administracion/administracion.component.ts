@@ -118,6 +118,7 @@ type AdminRealtimeNotification = {
   styleUrls: ['./administracion.component.css']
 })
 export class AdministracionComponent implements OnInit, OnDestroy {
+  private readonly reportImagePreviewUrlByAppealId = new Map<number, string>();
 
   // Variables de control de vista
   isDashboardView: boolean = true;
@@ -213,7 +214,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   appealTotalPages: number = 1;
   appealTotalElements: number = 0;
   appealIsLastPage: boolean = true;
-  appealViewFilter: 'ABIERTOS' | 'APROBADA' | 'RECHAZADA' = 'ABIERTOS';
+  appealViewFilter: 'PENDIENTE' | 'EN_REVISION' | 'APROBADA' | 'RECHAZADA' = 'PENDIENTE';
   reportesBadgeCount: number = 0;
   reportesPendientesCount: number = 0;
   complaintsItems: UserComplaintDTO[] = [];
@@ -242,9 +243,10 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   private readonly REALTIME_NOTIFICATION_DURATION_MS = 8000;
   private adminAuditPublicKeyInitPromise: Promise<void> | null = null;
   readonly appealFilterOptions = [
-    { value: 'ABIERTOS', label: 'Pendientes + En revisión' },
-    { value: 'APROBADA', label: 'Aprobados' },
-    { value: 'RECHAZADA', label: 'Rechazados' },
+    { value: 'PENDIENTE',   label: 'Pendientes' },
+    { value: 'EN_REVISION', label: 'En revisión' },
+    { value: 'APROBADA',    label: 'Resueltos' },
+    { value: 'RECHAZADA',   label: 'Descartados' },
   ];
   readonly groupStatusFilterOptions = [
     { value: 'TODOS', label: 'Todos' },
@@ -307,6 +309,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.revokeAllReportImagePreviewUrls();
     if (this.searchSubscription) {
       this.searchSubscription.unsubscribe();
     }
@@ -400,10 +403,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   cargarSolicitudesDesbaneo(page: number = 0): void {
     this.loadingAppeals = true;
     this.appealPage = Number.isFinite(Number(page)) ? Number(page) : 0;
-    const estadoFilter: UnbanAppealEstado | UnbanAppealEstado[] =
-      this.appealViewFilter === 'ABIERTOS'
-        ? ['PENDIENTE', 'EN_REVISION']
-        : this.appealViewFilter;
+    const estadoFilter: UnbanAppealEstado = this.appealViewFilter;
 
     this.authService
       .listarSolicitudesDesbaneoAdmin(
@@ -450,6 +450,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     const tipoRaw = String(raw?.tipoReporte || raw?.tipo || '').trim().toUpperCase();
     const normalizedTipo = (tipoRaw ? tipoRaw : null) as UnbanAppealTipoReporte | null;
     const chatId = Number(raw?.chatId ?? 0) || null;
+    const imagenReporteSizeRaw = Number(raw?.imagenReporteSize);
     return {
       id: Number(raw?.id ?? 0),
       usuarioId: Number(raw?.usuarioId ?? raw?.userId ?? 0) || null,
@@ -467,6 +468,14 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       chatNombreSnapshot: String(raw?.chatNombreSnapshot || raw?.chatNombre || '').trim() || null,
       chatCerradoMotivoSnapshot:
         String(raw?.chatCerradoMotivoSnapshot || raw?.chatCerradoMotivo || '').trim() || null,
+      tieneImagenReporte: raw?.tieneImagenReporte === true,
+      imagenReporteMimeType: String(raw?.imagenReporteMimeType || '').trim() || null,
+      imagenReporteNombre: String(raw?.imagenReporteNombre || '').trim() || null,
+      imagenReporteSize:
+        Number.isFinite(imagenReporteSizeRaw) && imagenReporteSizeRaw >= 0
+          ? imagenReporteSizeRaw
+          : null,
+      imagenReporteUrl: String(raw?.imagenReporteUrl || '').trim() || null,
     };
   }
 
@@ -494,7 +503,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   private handleAppealWsEvent(event: UnbanAppealEventDTO): void {
     const normalized = this.normalizeAppeal(event);
     if (!normalized?.id) return;
-    if (normalized.estado === 'APROBADA' && this.isUserUnbanAppeal(normalized)) {
+    if (normalized.estado === 'APROBADA' && this.isUnbanReport(normalized)) {
       this.applyUserActiveFromAppeal(normalized, true);
     }
     this.hydrateAppealUserNames([normalized]);
@@ -762,8 +771,8 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     this.selectedChatMensajes = [];
     this.selectedChatMessagesSource = 'admin';
     this.headerSubtitle =
-      'Revisión de reportes (desbaneo de usuario y reapertura de chats) en tiempo real.';
-    this.appealViewFilter = 'ABIERTOS';
+      'Revisión de reportes administrativos: desbaneos, incidencias, quejas, mejoras y reapertura de chats en tiempo real.';
+    this.appealViewFilter = 'PENDIENTE';
     this.cargarSolicitudesDesbaneo(0);
   }
 
@@ -787,7 +796,7 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   }
 
   public setAppealViewFilter(
-    filter: 'ABIERTOS' | 'APROBADA' | 'RECHAZADA'
+    filter: 'PENDIENTE' | 'EN_REVISION' | 'APROBADA' | 'RECHAZADA'
   ): void {
     if (this.appealViewFilter === filter) return;
     this.appealViewFilter = filter;
@@ -796,20 +805,18 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   }
 
   public isAppealFilterActive(
-    filter: 'ABIERTOS' | 'APROBADA' | 'RECHAZADA'
+    filter: 'PENDIENTE' | 'EN_REVISION' | 'APROBADA' | 'RECHAZADA'
   ): boolean {
     return this.appealViewFilter === filter;
   }
 
 
   public get appealEmptyText(): string {
-    if (this.appealViewFilter === 'APROBADA') {
-      return 'No hay reportes aprobados por mostrar.';
-    }
-    if (this.appealViewFilter === 'RECHAZADA') {
-      return 'No hay reportes rechazados por mostrar.';
-    }
-    return 'No hay reportes pendientes o en revisión por mostrar.';
+    if (this.appealViewFilter === 'PENDIENTE')   return 'No hay reportes pendientes por mostrar.';
+    if (this.appealViewFilter === 'EN_REVISION') return 'No hay reportes en revisión por mostrar.';
+    if (this.appealViewFilter === 'APROBADA')    return 'No hay reportes resueltos por mostrar.';
+    if (this.appealViewFilter === 'RECHAZADA')   return 'No hay reportes descartados por mostrar.';
+    return 'No hay reportes por mostrar.';
   }
 
   public get reportesBadgeText(): string {
@@ -876,35 +883,348 @@ export class AdministracionComponent implements OnInit, OnDestroy {
     return Number(this.stats?.porcentajeMensajes || 0);
   }
 
-  private isGroupClosedAppeal(item: UnbanAppealDTO): boolean {
+  private getReportType(item: UnbanAppealDTO): string {
     const tipo = String(item?.tipoReporte || '').trim().toUpperCase();
-    if (tipo === 'CHAT_CERRADO') return true;
-    if (tipo === 'DESBANEO') return false;
+    if (tipo) return tipo;
+    // Fallback compatibilidad con registros antiguos sin tipoReporte
     const chatId = Number(item?.chatId || 0);
-    return Number.isFinite(chatId) && chatId > 0;
+    return Number.isFinite(chatId) && chatId > 0 ? 'CHAT_CERRADO' : 'DESBANEO';
   }
 
-  private isUserUnbanAppeal(item: UnbanAppealDTO): boolean {
-    const tipo = String(item?.tipoReporte || '').trim().toUpperCase();
-    // Backends antiguos no enviaban tipoReporte; asumimos DESBANEO si no viene chatId.
-    if (!tipo) return !this.isGroupClosedAppeal(item);
-    return tipo === 'DESBANEO';
+  private isUnbanReport(item: UnbanAppealDTO): boolean {
+    return this.getReportType(item) === 'DESBANEO';
+  }
+
+  private isChatClosedReport(item: UnbanAppealDTO): boolean {
+    return this.getReportType(item) === 'CHAT_CERRADO';
+  }
+
+  private isGenericAdminReport(item: UnbanAppealDTO): boolean {
+    const t = this.getReportType(item);
+    return t !== 'DESBANEO' && t !== 'CHAT_CERRADO';
+  }
+
+  private getReportActionTexts(item: UnbanAppealDTO): {
+    title: string;
+    labelText: string;
+    helperText: string;
+    inputPlaceholder: string;
+    confirmText: string;
+    cancelText: string;
+    confirmColor: string;
+    approvedText: string;
+    rejectedText: string;
+  } {
+    const tipo = this.getReportType(item);
+    const reporter = this.getAppealReporterLabel(item);
+    const helper = 'Si lo dejas vacío, el backend completará un motivo automático.';
+
+    switch (tipo) {
+      case 'DESBANEO':
+        return {
+          title: 'Aprobar desbaneo',
+          labelText: 'Motivo de desbaneo (opcional)',
+          helperText: helper,
+          inputPlaceholder: 'Ej: Se verificó el caso y procede reactivar la cuenta.',
+          confirmText: 'Desbanear',
+          cancelText: 'No desbanear',
+          confirmColor: '#3b82f6',
+          approvedText: `La solicitud de ${reporter} quedó aprobada. El backend aplicará el desbaneo y enviará el email al usuario.`,
+          rejectedText: `La solicitud de ${reporter} quedó rechazada. El backend notificará al usuario por email.`,
+        };
+      case 'CHAT_CERRADO': {
+        const chatName = String(item?.chatNombreSnapshot || '').trim();
+        const chatId   = Number(item?.chatId || 0);
+        const target   = chatName || (Number.isFinite(chatId) && chatId > 0 ? `chat #${chatId}` : 'chat');
+        return {
+          title: 'Reabrir chat',
+          labelText: 'Motivo de reapertura (opcional)',
+          helperText: helper,
+          inputPlaceholder: 'Ej: Se revisó el caso y procede reabrir el chat.',
+          confirmText: 'Reabrir chat',
+          cancelText: 'No reabrir',
+          confirmColor: '#f97316',
+          approvedText: `El reporte del ${target} quedó aprobado. El backend aplicará la reapertura y enviará un email informativo.`,
+          rejectedText: `El reporte del ${target} quedó descartado.`,
+        };
+      }
+      case 'INCIDENCIA':
+        return {
+          title: 'Revisar incidencia',
+          labelText: 'Nota de resolución (opcional)',
+          helperText: helper,
+          inputPlaceholder: 'Ej: Se revisó la incidencia y se tomaron medidas.',
+          confirmText: 'Marcar como resuelta',
+          cancelText: 'Descartar incidencia',
+          confirmColor: '#10b981',
+          approvedText: `La incidencia de ${reporter} quedó marcada como resuelta.`,
+          rejectedText: `La incidencia de ${reporter} quedó descartada.`,
+        };
+      case 'ERROR_APP':
+        return {
+          title: 'Revisar error de la aplicación',
+          labelText: 'Nota técnica o resolución (opcional)',
+          helperText: helper,
+          inputPlaceholder: 'Ej: Error identificado y corregido en versión X.',
+          confirmText: 'Marcar como resuelto',
+          cancelText: 'Descartar error',
+          confirmColor: '#10b981',
+          approvedText: `El reporte de error de ${reporter} quedó marcado como resuelto.`,
+          rejectedText: `El reporte de error de ${reporter} quedó descartado.`,
+        };
+      case 'QUEJA':
+        return {
+          title: 'Revisar queja',
+          labelText: 'Respuesta o nota de atención (opcional)',
+          helperText: helper,
+          inputPlaceholder: 'Ej: Se atendió la queja y se notificó al usuario.',
+          confirmText: 'Marcar como atendida',
+          cancelText: 'Descartar queja',
+          confirmColor: '#10b981',
+          approvedText: `La queja de ${reporter} quedó marcada como atendida.`,
+          rejectedText: `La queja de ${reporter} quedó descartada.`,
+        };
+      case 'MEJORA':
+        return {
+          title: 'Revisar mejora',
+          labelText: 'Nota de valoración (opcional)',
+          helperText: helper,
+          inputPlaceholder: 'Ej: Mejora valorada positivamente, se añade al backlog.',
+          confirmText: 'Marcar como aprobada',
+          cancelText: 'Descartar mejora',
+          confirmColor: '#6366f1',
+          approvedText: `La mejora sugerida por ${reporter} quedó marcada como revisada.`,
+          rejectedText: `La mejora sugerida por ${reporter} quedó descartada.`,
+        };
+      case 'SUGERENCIA':
+        return {
+          title: 'Revisar sugerencia',
+          labelText: 'Nota de valoración (opcional)',
+          helperText: helper,
+          inputPlaceholder: 'Ej: Sugerencia valorada, se tendrá en cuenta.',
+          confirmText: 'Marcar como revisada',
+          cancelText: 'Descartar sugerencia',
+          confirmColor: '#6366f1',
+          approvedText: `La sugerencia de ${reporter} quedó marcada como revisada.`,
+          rejectedText: `La sugerencia de ${reporter} quedó descartada.`,
+        };
+      default:
+        return {
+          title: 'Revisar reporte',
+          labelText: 'Nota de resolución (opcional)',
+          helperText: helper,
+          inputPlaceholder: 'Ej: Reporte revisado y gestionado.',
+          confirmText: 'Marcar como revisado',
+          cancelText: 'Descartar reporte',
+          confirmColor: '#64748b',
+          approvedText: `El reporte de ${reporter} quedó marcado como revisado.`,
+          rejectedText: `El reporte de ${reporter} quedó descartado.`,
+        };
+    }
+  }
+
+  private getReportPendingTitle(item: UnbanAppealDTO): string {
+    const tipo = this.getReportType(item);
+    switch (tipo) {
+      case 'DESBANEO':     return 'Solicitud de desbaneo';
+      case 'CHAT_CERRADO': return 'Solicitud de reapertura de chat';
+      case 'INCIDENCIA':   return 'Incidencia reportada';
+      case 'ERROR_APP':    return 'Error de la aplicación';
+      case 'QUEJA':        return 'Queja de usuario';
+      case 'MEJORA':       return 'Propuesta de mejora';
+      case 'SUGERENCIA':   return 'Sugerencia de usuario';
+      case 'OTRO':         return 'Reporte general';
+      default: {
+        const t = tipo.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+        return `Reporte: ${t}`;
+      }
+    }
+  }
+
+  private getReportTheme(item: UnbanAppealDTO): { confirmColor: string; icon: string } {
+    const tipo = this.getReportType(item);
+    switch (tipo) {
+      case 'DESBANEO':     return { confirmColor: '#3b82f6', icon: 'bi-person-fill-lock' };
+      case 'CHAT_CERRADO': return { confirmColor: '#8b5cf6', icon: 'bi-chat-square-text-fill' };
+      case 'INCIDENCIA':   return { confirmColor: '#f59e0b', icon: 'bi-exclamation-triangle-fill' };
+      case 'QUEJA':        return { confirmColor: '#ca8a04', icon: 'bi-chat-left-dots-fill' };
+      case 'MEJORA':       return { confirmColor: '#10b981', icon: 'bi-graph-up-arrow' };
+      case 'SUGERENCIA':   return { confirmColor: '#0891b2', icon: 'bi-lightbulb-fill' };
+      case 'ERROR_APP':    return { confirmColor: '#ef4444', icon: 'bi-bug-fill' };
+      default:             return { confirmColor: '#475569', icon: 'bi-flag-fill' };
+    }
+  }
+
+  private buildRpHeader(item: UnbanAppealDTO, subtitle: string): string {
+    const theme = this.getReportTheme(item);
+    const title = this.getReportPendingTitle(item);
+    return `
+      <header class="rp-header" style="background-color:${theme.confirmColor};">
+        <div class="rp-header-icon">
+          <i class="bi ${theme.icon}" style="font-size:1.4rem;color:white;line-height:1;"></i>
+        </div>
+        <div class="rp-header-info">
+          <h1>${title}</h1>
+          <p>${subtitle}</p>
+        </div>
+      </header>
+    `;
+  }
+
+  private buildRpDetails(item: UnbanAppealDTO): string {
+    const reporter   = this.getAppealReporterLabel(item);
+    const email      = String(item?.email || '').trim();
+    const tipo       = this.getAppealTipoLabel(item);
+    const estado     = String(item?.estado || '').trim();
+    const estadoKey  = estado.toLowerCase().replace(/_/g, '-');
+    const motivo     = String(item?.motivo || '').trim() || 'Sin motivo especificado.';
+    const chatName   = String(item?.chatNombreSnapshot || '').trim();
+    const chatId     = Number(item?.chatId || 0);
+    const resolucion = String(item?.resolucionMotivo || '').trim();
+    let createdAt = '';
+    if (item?.createdAt) {
+      try {
+        const d = new Date(item.createdAt);
+        const months = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+        const hh = d.getHours().toString().padStart(2, '0');
+        const mm = d.getMinutes().toString().padStart(2, '0');
+        createdAt = `${d.getDate().toString().padStart(2,'0')} de ${months[d.getMonth()]}, ${d.getFullYear()} — ${hh}:${mm}`;
+      } catch {}
+    }
+    return `
+      <main class="rp-details">
+        <div class="rp-detail-item">
+          <span class="rp-detail-label">Usuario</span>
+          <span class="rp-detail-value">${reporter}</span>
+        </div>
+        ${email ? `<div class="rp-detail-item"><span class="rp-detail-label">Correo electrónico</span><span class="rp-detail-value">${email}</span></div>` : ''}
+        <div class="rp-detail-item">
+          <div class="rp-detail-tipo-row">
+            <div><span class="rp-detail-label">Tipo</span><span class="rp-detail-value">${tipo}</span></div>
+            <div style="text-align:right;"><span class="rp-detail-label">Estado</span><span class="rp-status-pill rp-status-pill--${estadoKey}">${estado}</span></div>
+          </div>
+        </div>
+        ${createdAt ? `<div class="rp-detail-item"><span class="rp-detail-label">Fecha del reporte</span><span class="rp-detail-value">${createdAt}</span></div>` : ''}
+        ${chatName ? `<div class="rp-detail-item"><span class="rp-detail-label">Chat</span><span class="rp-detail-value">${chatName}</span></div>` : ''}
+        ${!chatName && chatId > 0 ? `<div class="rp-detail-item"><span class="rp-detail-label">Chat ID</span><span class="rp-detail-value">#${chatId}</span></div>` : ''}
+        <div class="rp-detail-item">
+          <span class="rp-detail-label">Motivo</span>
+          <span class="rp-detail-value">${motivo}</span>
+        </div>
+        ${resolucion ? `<div class="rp-detail-item"><span class="rp-detail-label">Resolución</span><span class="rp-detail-value">${resolucion}</span></div>` : ''}
+        ${this.hasReportImage(item) ? this.buildReportImageSectionSkeleton(item) : ''}
+      </main>
+    `;
+  }
+
+  private buildReportImageSectionSkeleton(item: UnbanAppealDTO): string {
+    const fileName = this.escapeHtml(
+      String(item?.imagenReporteNombre || 'Imagen adjunta').trim() || 'Imagen adjunta'
+    );
+    const fileSize = this.escapeHtml(this.formatFileSize(item?.imagenReporteSize));
+    return `
+      <section class="rp-detail-item rp-image-section">
+        <span class="rp-detail-label">Imagen adjunta</span>
+        <div class="rp-image-chip">
+          <i class="bi bi-image"></i>
+          <span>${fileName}${fileSize ? ` · ${fileSize}` : ''}</span>
+        </div>
+        <div id="rp-image-container" class="rp-image-container">
+          <div class="rp-image-loading">Cargando imagen...</div>
+        </div>
+      </section>
+    `;
+  }
+
+  private buildReportPendingModalHtml(item: UnbanAppealDTO): string {
+    const theme = this.getReportTheme(item);
+    return `
+      <div class="rp-card">
+        ${this.buildRpHeader(item, 'Reporte enviado por el usuario')}
+        ${this.buildRpDetails(item)}
+        <footer class="rp-footer">
+          <p class="rp-question">¿Deseas pasar este reporte a revisión activa?</p>
+          <div class="rp-btn-group">
+            <button id="rp-btn-confirm" class="rp-btn rp-btn-action" style="background-color:${theme.confirmColor};">Pasar a revisión</button>
+            <button id="rp-btn-cancel" class="rp-btn rp-btn-close">Cancelar</button>
+          </div>
+        </footer>
+      </div>
+    `;
+  }
+
+  private buildReportActionModalHtml(item: UnbanAppealDTO): string {
+    const theme    = this.getReportTheme(item);
+    const texts    = this.getReportActionTexts(item);
+    const reporter = this.getAppealReporterLabel(item);
+    return `
+      <div class="rp-card">
+        ${this.buildRpHeader(item, `Solicitud de ${reporter}`)}
+        ${this.buildRpDetails(item)}
+        <footer class="rp-footer">
+          <p class="rp-question">${texts.labelText}</p>
+          <textarea id="rp-textarea" class="rp-detail-textarea" placeholder="${texts.inputPlaceholder}"></textarea>
+          <div class="rp-btn-group" style="margin-top:12px;">
+            <button id="rp-btn-cancel" class="rp-btn rp-btn-close">Cancelar</button>
+            <button id="rp-btn-deny" class="rp-btn rp-btn-danger">${texts.cancelText}</button>
+            <button id="rp-btn-confirm" class="rp-btn rp-btn-action" style="background-color:${theme.confirmColor};">${texts.confirmText}</button>
+          </div>
+        </footer>
+      </div>
+    `;
+  }
+
+  private buildReportReadonlyModalHtml(item: UnbanAppealDTO): string {
+    const estado   = String(item?.estado || '').trim().toUpperCase();
+    const subtitle = estado === 'APROBADA' ? 'Reporte resuelto' : 'Reporte descartado';
+    return `
+      <div class="rp-card">
+        ${this.buildRpHeader(item, subtitle)}
+        ${this.buildRpDetails(item)}
+        <footer class="rp-footer">
+          <div class="rp-btn-group">
+            <button id="rp-btn-close" class="rp-btn rp-btn-close">Cerrar</button>
+          </div>
+        </footer>
+      </div>
+    `;
   }
 
   public getAppealTipoLabel(item: UnbanAppealDTO): string {
-    if (this.isGroupClosedAppeal(item)) return 'Chat bloqueado';
-    return 'Usuario baneado';
+    switch (this.getReportType(item)) {
+      case 'DESBANEO':     return 'Desbaneo';
+      case 'CHAT_CERRADO': return 'Chat bloqueado';
+      case 'INCIDENCIA':   return 'Incidencia';
+      case 'ERROR_APP':    return 'Error app';
+      case 'QUEJA':        return 'Queja';
+      case 'MEJORA':       return 'Mejora';
+      case 'SUGERENCIA':   return 'Sugerencia';
+      case 'OTRO':         return 'Otro reporte';
+      default: {
+        const t = this.getReportType(item);
+        return t.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      }
+    }
   }
 
   public getAppealTipoClass(item: UnbanAppealDTO): string {
-    return this.isGroupClosedAppeal(item)
-      ? 'appeal-chip appeal-chip--type-group'
-      : 'appeal-chip appeal-chip--type-user';
+    const tipo = this.getReportType(item);
+    if (tipo === 'CHAT_CERRADO') return 'appeal-chip appeal-chip--type-group';
+    if (tipo === 'DESBANEO')     return 'appeal-chip appeal-chip--type-user';
+    return 'appeal-chip appeal-chip--type-other';
   }
 
   public getAppealCtaLabel(item: UnbanAppealDTO): string {
-    if (this.isGroupClosedAppeal(item)) return 'Click para revisar y reabrir chat';
-    return 'Click para revisar y aprobar desbaneo';
+    switch (this.getReportType(item)) {
+      case 'DESBANEO':     return 'Click para revisar y aprobar desbaneo';
+      case 'CHAT_CERRADO': return 'Click para revisar y reabrir chat';
+      case 'INCIDENCIA':
+      case 'ERROR_APP':    return 'Click para revisar incidencia';
+      case 'QUEJA':        return 'Click para revisar queja';
+      case 'MEJORA':
+      case 'SUGERENCIA':   return 'Click para revisar sugerencia';
+      default:             return 'Click para revisar reporte';
+    }
   }
 
   public getAppealReporterLabel(item: UnbanAppealDTO): string {
@@ -931,118 +1251,220 @@ export class AdministracionComponent implements OnInit, OnDestroy {
 
   public trackAppeal = (_: number, item: UnbanAppealDTO) => item.id;
 
+  private hasReportImage(item: UnbanAppealDTO): boolean {
+    return item?.tieneImagenReporte === true && !!String(item?.imagenReporteUrl || '').trim();
+  }
+
+  private async loadReportImagePreview(item: UnbanAppealDTO): Promise<void> {
+    if (!this.hasReportImage(item)) return;
+    const container = document.getElementById('rp-image-container');
+    if (!container) return;
+
+    const appealId = Number(item?.id || 0);
+    if (!Number.isFinite(appealId) || appealId <= 0) return;
+
+    const cachedUrl = this.reportImagePreviewUrlByAppealId.get(appealId);
+    if (cachedUrl) {
+      this.renderReportImagePreview(container, item, cachedUrl);
+      return;
+    }
+
+    container.innerHTML = '<div class="rp-image-loading">Cargando imagen...</div>';
+
+    try {
+      const blob = await firstValueFrom(
+        this.authService.getAdminSolicitudDesbaneoImagenBlob(String(item?.imagenReporteUrl || ''))
+      );
+      if (!blob || !String(blob.type || '').toLowerCase().startsWith('image/')) {
+        throw new Error('REPORT_IMAGE_INVALID_MIME');
+      }
+      const objectUrl = URL.createObjectURL(blob);
+      this.reportImagePreviewUrlByAppealId.set(appealId, objectUrl);
+      this.renderReportImagePreview(container, item, objectUrl);
+    } catch {
+      container.innerHTML = '<div class="rp-image-error">No se pudo cargar la imagen adjunta.</div>';
+    }
+  }
+
+  private renderReportImagePreview(
+    container: HTMLElement,
+    item: UnbanAppealDTO,
+    objectUrl: string
+  ): void {
+    const fileName = this.escapeHtml(
+      String(item?.imagenReporteNombre || 'Imagen adjunta').trim() || 'Imagen adjunta'
+    );
+    container.innerHTML = `
+      <div class="rp-image-preview-wrap">
+        <button type="button" id="rp-image-preview-btn" class="rp-image-preview-btn" aria-label="Abrir imagen adjunta">
+          <img src="${objectUrl}" alt="${fileName}" class="rp-image-preview" />
+        </button>
+        <div class="rp-image-actions">
+          <button type="button" id="rp-open-image-btn" class="rp-inline-btn rp-inline-btn--primary">Abrir imagen</button>
+          <a href="${objectUrl}" download="${fileName}" class="rp-inline-btn rp-inline-btn--ghost">Descargar imagen</a>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('rp-image-preview-btn')?.addEventListener('click', () => {
+      void this.openReportImageViewer(item, objectUrl);
+    });
+    document.getElementById('rp-open-image-btn')?.addEventListener('click', () => {
+      void this.openReportImageViewer(item, objectUrl);
+    });
+  }
+
+  private async openReportImageViewer(item: UnbanAppealDTO, objectUrl: string): Promise<void> {
+    const fileName = this.escapeHtml(
+      String(item?.imagenReporteNombre || 'Imagen adjunta').trim() || 'Imagen adjunta'
+    );
+    await Swal.fire({
+      background: '#0f172a',
+      width: 'min(92vw, 980px)',
+      showConfirmButton: false,
+      showCloseButton: true,
+      closeButtonHtml: '<i class="bi bi-x-lg" aria-hidden="true"></i>',
+      customClass: { popup: 'swal-rp-popup swal-rp-popup--image-viewer', htmlContainer: 'swal-rp-html' },
+      html: `
+        <div class="rp-image-viewer">
+          <div class="rp-image-viewer__header">${fileName}</div>
+          <img src="${objectUrl}" alt="${fileName}" class="rp-image-viewer__img" />
+        </div>
+      `,
+    });
+  }
+
+  private revokeReportImagePreview(item: UnbanAppealDTO): void {
+    const appealId = Number(item?.id || 0);
+    const currentUrl = this.reportImagePreviewUrlByAppealId.get(appealId);
+    if (!currentUrl) return;
+    try {
+      URL.revokeObjectURL(currentUrl);
+    } catch {}
+    this.reportImagePreviewUrlByAppealId.delete(appealId);
+  }
+
+  private revokeAllReportImagePreviewUrls(): void {
+    for (const url of this.reportImagePreviewUrlByAppealId.values()) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {}
+    }
+    this.reportImagePreviewUrlByAppealId.clear();
+  }
+
+  private formatFileSize(value: number | null | undefined): string {
+    const size = Number(value);
+    if (!Number.isFinite(size) || size <= 0) return '';
+    if (size < 1024) return `${Math.round(size)} B`;
+    if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
   public async onAppealCardClick(item: UnbanAppealDTO): Promise<void> {
     const appealId = Number(item?.id);
     if (!Number.isFinite(appealId) || appealId <= 0) return;
     if (this.processingAppealId === appealId) return;
 
     const estadoActual = String(item?.estado || '').trim().toUpperCase() as UnbanAppealEstado;
-    if (estadoActual === 'APROBADA') {
+    const swalBase = {
+      background: 'transparent' as const,
+      customClass: { popup: 'swal-rp-popup', htmlContainer: 'swal-rp-html' },
+      showCloseButton: true,
+      closeButtonHtml: '<i class="bi bi-x-lg" aria-hidden="true"></i>',
+    };
+
+    // ── APROBADA / RECHAZADA → solo lectura ──────────────────────────────────
+    if (estadoActual === 'APROBADA' || estadoActual === 'RECHAZADA') {
       await Swal.fire({
-        icon: 'info',
-        title: 'Solicitud ya aprobada',
-        text: 'Esta solicitud ya fue marcada como APROBADA.',
-        confirmButtonColor: '#2563eb',
-      });
-      return;
-    }
-    if (estadoActual === 'RECHAZADA') {
-      await Swal.fire({
-        icon: 'info',
-        title: 'Solicitud rechazada',
-        text: 'Esta solicitud ya fue cerrada como RECHAZADA.',
-        confirmButtonColor: '#2563eb',
+        ...swalBase,
+        html: this.buildReportReadonlyModalHtml(item),
+        showConfirmButton: true,
+        showCancelButton: false,
+        didOpen: async () => {
+          await this.loadReportImagePreview(item);
+          document.getElementById('rp-btn-close')?.addEventListener('click', () => Swal.close());
+        },
+        willClose: () => this.revokeReportImagePreview(item),
       });
       return;
     }
 
-    const isGroupReport = this.isGroupClosedAppeal(item);
     this.processingAppealId = appealId;
     try {
+      // ── PENDIENTE → detalle + "Pasar a revisión" — NO fall-through ──────────
       if (estadoActual === 'PENDIENTE') {
-        const moved = await this.patchAppealStatus(item, 'EN_REVISION', null);
-        if (!moved) return;
+        const result = await Swal.fire({
+          ...swalBase,
+          html: this.buildReportPendingModalHtml(item),
+          showConfirmButton: true,
+          showCancelButton: true,
+          allowEscapeKey: true,
+          didOpen: async () => {
+            await this.loadReportImagePreview(item);
+            document.getElementById('rp-btn-confirm')?.addEventListener('click', () => Swal.clickConfirm());
+            document.getElementById('rp-btn-cancel')?.addEventListener('click', () => Swal.clickCancel());
+          },
+          willClose: () => this.revokeReportImagePreview(item),
+        });
+        if (!result.isConfirmed || result.isDismissed) return;
+        await this.patchAppealStatus(item, 'EN_REVISION', null);
+        return;
       }
 
-      const reporter = this.getAppealReporterLabel(item);
-      const chatName = String(item?.chatNombreSnapshot || '').trim();
-      const chatId = Number(item?.chatId || 0);
-      const targetStrong = isGroupReport
-        ? chatName || (Number.isFinite(chatId) && chatId > 0 ? `chat #${chatId}` : 'chat')
-        : reporter;
-      const headerTitle = isGroupReport ? 'Reabrir chat' : 'Aprobar desbaneo';
-      const labelText = isGroupReport
-        ? 'Motivo de reapertura (opcional)'
-        : 'Motivo de desbaneo (opcional)';
-      const helperText = 'Si lo dejas vacio, backend completara un motivo automatico.';
-      const inputPlaceholder = isGroupReport
-        ? 'Ej: Se reviso el caso y procede reabrir el chat.'
-        : 'Ej: Se verifico el caso y procede reactivar la cuenta.';
-      const confirmText = isGroupReport ? 'Reabrir chat' : 'Desbanear';
-      const cancelText = isGroupReport ? 'No reabrir' : 'No desbanear';
-      const confirmColor = isGroupReport ? '#f97316' : '#3b82f6';
-      const { value: motivo, isConfirmed, dismiss } = await Swal.fire({
-        html: `
-          <div class="swal-unban-header">
-            <div class="swal-unban-header-icon"><i class="bi bi-person-check-fill"></i></div>
-            <div class="swal-unban-header-text">
-              <h2>${headerTitle}</h2>
-              <p>Revisar solicitud de <strong>${targetStrong}</strong></p>
-            </div>
-          </div>
-          <div class="swal-unban-body">
-            <label class="swal-unban-label">${labelText}</label>
-            <p class="swal-unban-helper">${helperText}</p>
-          </div>
-        `,
-        input: 'textarea',
-        inputPlaceholder,
+      // ── EN_REVISION → modal de acción final ──────────────────────────────────
+      const texts = this.getReportActionTexts(item);
+      const result = await Swal.fire({
+        ...swalBase,
+        html: this.buildReportActionModalHtml(item),
+        showConfirmButton: true,
+        showDenyButton: true,
         showCancelButton: true,
-        confirmButtonText: confirmText,
-        cancelButtonText: cancelText,
-        confirmButtonColor: confirmColor,
-        cancelButtonColor: '#64748b',
-        allowOutsideClick: false,
-        allowEscapeKey: false,
-        customClass: {
-          popup: 'swal-unban-popup',
-          htmlContainer: 'swal-unban-html',
-          input: 'swal-unban-textarea',
-          confirmButton: 'swal-unban-confirm',
-          cancelButton: 'swal-unban-cancel',
-          actions: 'swal-unban-actions',
+        allowEscapeKey: true,
+        preConfirm: () =>
+          (document.getElementById('rp-textarea') as HTMLTextAreaElement)?.value || '',
+        preDeny: () =>
+          (document.getElementById('rp-textarea') as HTMLTextAreaElement)?.value || '',
+        didOpen: async () => {
+          await this.loadReportImagePreview(item);
+          document.getElementById('rp-btn-confirm')?.addEventListener('click', () => Swal.clickConfirm());
+          document.getElementById('rp-btn-cancel')?.addEventListener('click', () => Swal.clickCancel());
+          document.getElementById('rp-btn-deny')?.addEventListener('click', () => Swal.clickDeny());
         },
+        willClose: () => this.revokeReportImagePreview(item),
       });
 
-      if (!isConfirmed) {
-        if (dismiss === Swal.DismissReason.cancel) {
-          const rejected = await this.patchAppealStatus(item, 'RECHAZADA', null);
-          if (rejected) {
-            await Swal.fire({
-              title: 'Solicitud rechazada',
-              text: isGroupReport
-                ? 'El reporte quedó en estado RECHAZADA. El backend notificará por email.'
-                : 'La solicitud quedó en estado RECHAZADA. El backend notificará al usuario por email.',
-              icon: 'success',
-              confirmButtonColor: '#ef4444',
-            });
-          }
+      if (result.isDismissed) return;
+
+      if (result.isDenied) {
+        const rejected = await this.patchAppealStatus(
+          item,
+          'RECHAZADA',
+          String(result.value || '').trim() || null
+        );
+        if (rejected) {
+          await Swal.fire({
+            title: 'Reporte descartado',
+            text: texts.rejectedText,
+            icon: 'success',
+            confirmButtonColor: '#ef4444',
+          });
         }
         return;
       }
 
+      if (!result.isConfirmed) return;
+
       const approved = await this.patchAppealStatus(
         item,
         'APROBADA',
-        String(motivo || '').trim() || null
+        String(result.value || '').trim() || null
       );
       if (!approved) return;
 
       await Swal.fire({
-        title: 'Solicitud aprobada',
-        text: isGroupReport
-          ? 'El reporte quedó en estado APROBADA. El backend aplicará la reapertura (si corresponde) y enviará un email informativo.'
-          : 'La solicitud quedó en estado APROBADA. El backend aplicará el desbaneo y enviará el email al usuario.',
+        title: 'Reporte resuelto',
+        text: texts.approvedText,
         icon: 'success',
         confirmButtonColor: '#10b981',
       });
@@ -1079,14 +1501,11 @@ export class AdministracionComponent implements OnInit, OnDestroy {
       });
       this.upsertAppeal(merged);
       this.appealItems = this.sortAppealsByCreatedDesc(this.appealItems);
-      const shouldKeep =
-        this.appealViewFilter === 'ABIERTOS'
-          ? merged.estado === 'PENDIENTE' || merged.estado === 'EN_REVISION'
-          : merged.estado === this.appealViewFilter;
+      const shouldKeep = merged.estado === this.appealViewFilter;
       if (!shouldKeep) {
         this.removeAppealById(merged.id);
       }
-      if (merged.estado === 'APROBADA' && this.isUserUnbanAppeal(merged)) {
+      if (merged.estado === 'APROBADA' && this.isUnbanReport(merged)) {
         this.applyUserActiveFromAppeal(merged, true);
       }
       this.refreshOpenAppealsBadgeCount();
@@ -6239,6 +6658,3 @@ export class AdministracionComponent implements OnInit, OnDestroy {
   }
 
 }
-
-
-

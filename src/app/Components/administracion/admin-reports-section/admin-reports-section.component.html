@@ -12,7 +12,7 @@
 
     <div>
       <h3 class="text-2xl font-bold text-slate-800">
-        Reportes de <span class="logo-accent">Desbaneo</span>
+        Centro de <span class="logo-accent">Reportes</span>
       </h3>
       <p class="text-sm text-slate-500 mt-1">{{ headerSubtitle }}</p>
     </div>
@@ -25,14 +25,17 @@
     </div>
 
     <div class="reports-filter-tabs" role="tablist" aria-label="Filtrar reportes">
-      <button type="button" class="reports-filter-btn" [class.is-active]="isFilterActive('ABIERTOS')" (click)="filterChanged.emit('ABIERTOS')">
-        Pendientes + En revisión
+      <button type="button" class="reports-filter-btn" [class.is-active]="isFilterActive('PENDIENTE')" (click)="filterChanged.emit('PENDIENTE')">
+        Pendientes
+      </button>
+      <button type="button" class="reports-filter-btn" [class.is-active]="isFilterActive('EN_REVISION')" (click)="filterChanged.emit('EN_REVISION')">
+        En revisión
       </button>
       <button type="button" class="reports-filter-btn" [class.is-active]="isFilterActive('APROBADA')" (click)="filterChanged.emit('APROBADA')">
-        Aprobados
+        Resueltos
       </button>
       <button type="button" class="reports-filter-btn" [class.is-active]="isFilterActive('RECHAZADA')" (click)="filterChanged.emit('RECHAZADA')">
-        Rechazados
+        Descartados
       </button>
     </div>
 
@@ -58,6 +61,12 @@
             <span [class]="getAppealTipoClass(item)">{{ getAppealTipoLabel(item) }}</span>
             <span [class]="getAppealEstadoClass(item)">{{ item.estado }}</span>
           </div>
+        </div>
+        <div *ngIf="hasReportImage(item)" class="report-card-meta-badges">
+          <span class="appeal-chip appeal-chip--image">
+            <i class="bi bi-image"></i>
+            Imagen adjunta
+          </span>
         </div>
         <p class="report-card-motivo">{{ item.motivo || 'Sin motivo especificado por el usuario.' }}</p>
         <p class="report-card-date" *ngIf="item.createdAt">Enviado: {{ item.createdAt | date:'dd/MM/yyyy HH:mm' }}</p>

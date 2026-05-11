@@ -7,7 +7,16 @@ export type UnbanAppealEstado =
 // Backend puede reutilizar la misma tabla/endpoint para 2 tipos de reporte:
 // - DESBANEO: solicita reactivar cuenta de usuario baneado
 // - CHAT_CERRADO: solicita revisar/reabrir un chat grupal cerrado por admin
-export type UnbanAppealTipoReporte = 'DESBANEO' | 'CHAT_CERRADO' | (string & {});
+export type UnbanAppealTipoReporte =
+  | 'DESBANEO'
+  | 'CHAT_CERRADO'
+  | 'INCIDENCIA'
+  | 'ERROR_APP'
+  | 'QUEJA'
+  | 'MEJORA'
+  | 'SUGERENCIA'
+  | 'OTRO'
+  | (string & {});
 
 export interface UnbanAppealDTO {
   id: number;
@@ -26,5 +35,9 @@ export interface UnbanAppealDTO {
   chatId?: number | null;
   chatNombreSnapshot?: string | null;
   chatCerradoMotivoSnapshot?: string | null;
+  tieneImagenReporte?: boolean;
+  imagenReporteMimeType?: string | null;
+  imagenReporteNombre?: string | null;
+  imagenReporteSize?: number | null;
+  imagenReporteUrl?: string | null;
 }
-

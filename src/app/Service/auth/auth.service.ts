@@ -289,6 +289,14 @@ export class AuthService {
     );
   }
 
+  getAdminSolicitudDesbaneoImagenBlob(imagenReporteUrl: string): Observable<Blob> {
+    const relativePath = String(imagenReporteUrl || '').trim();
+    const normalizedUrl = /^https?:\/\//i.test(relativePath)
+      ? relativePath
+      : `${environment.backendBaseUrl}${relativePath.startsWith('/') ? '' : '/'}${relativePath}`;
+    return this.http.get(normalizedUrl, { responseType: 'blob' });
+  }
+
   solicitarCodigoCambioPasswordPerfil(
     currentPassword: string,
     newPassword: string
