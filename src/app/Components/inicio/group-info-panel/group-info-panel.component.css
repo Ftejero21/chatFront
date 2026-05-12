@@ -1041,7 +1041,6 @@
 .member-main {
   min-width: 0;
   flex: 1;
-  border-bottom: 1px solid #f8fafc;
   padding-bottom: 6px;
 }
 
@@ -1191,3 +1190,5 @@
   color: #475569;
   font-weight: 700;
 }
+
+

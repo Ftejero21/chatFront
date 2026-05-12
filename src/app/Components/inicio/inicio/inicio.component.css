@@ -1827,17 +1827,14 @@
 .cuerpo-mensajes {
   flex: 1 1 auto;
   width: 100%;
+  height: 100%;
   min-height: 0;
   padding: 20px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background-color: var(--chat-surface);
-  background-image: url('/assets/fondoChats.png');
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: cover;
+  background-color:white;
   scrollbar-width: thin;
   scrollbar-color: var(--accent-main) var(--bg-panel);
 }
@@ -1856,7 +1853,11 @@
 }
 
 .cuerpo-mensajes--chat-selected {
-  background-color: var(--chat-surface);
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background-color: white;
 }
 
 .mensaje {
@@ -2788,19 +2789,19 @@
 }
 
 .btn-enviar {
-  margin-left: 10px;
-  background-color: #3b82f6;
-  /* azul primario */
-  color: white;
-  border: none;
-  padding: 10px 14px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 16px;
-  transition: background-color 0.2s ease;
-  display: flex;
 
-  justify-content: center;
+    background-color: #3b82f6;
+    color: white;
+    border: none;
+    padding: 10px 14px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.2s ease;
+    display: flex;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
 }
 
 .btn-enviar:disabled,
@@ -3185,6 +3186,10 @@
   color: #1f2937;
   margin-bottom: 6px;
   animation: fadeInText 0.8s ease forwards;
+}
+
+.placeholder-chat__brand-n {
+  color: #10b981;
 }
 
 .placeholder-chat p {
@@ -7178,68 +7183,33 @@
   }
 }
 
-body.dark-mode .imagenPrincipal,
-body.dark-mode .contenedorChat,
-body.dark-mode .topbar,
-body.dark-mode .barraLateral,
-body.dark-mode .listadoChats,
-body.dark-mode .zonaMensajes,
-body.dark-mode .encabezado-chats,
-body.dark-mode .buscador,
-body.dark-mode .chat-filters,
-body.dark-mode .encabezado-chat-mensajes,
-body.dark-mode .composer-stack,
-body.dark-mode .entrada-mensaje {
-  color: var(--text-main);
+@media (max-width: 768px) {
+  .cuerpoChat.modo-chat-movil {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  .cuerpoChat.modo-chat-movil .listadoChats {
+    display: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    flex: 0 0 0 !important;
+    border-right: 0 !important;
+  }
+
+  .cuerpoChat.modo-chat-movil .zonaMensajes {
+    display: flex !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    flex: 1 1 100% !important;
+  }
+
+  .cuerpoChat.modo-chat-movil .cuerpo-mensajes,
+  .cuerpoChat.modo-chat-movil .cuerpo-mensajes--chat-selected {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
 }
 
-body.dark-mode .chat-item,
-body.dark-mode .chat-item.chat-item--group,
-body.dark-mode .chat-item.chat-item--selected,
-body.dark-mode .chat-list-menu,
-body.dark-mode .topbar-profile-menu,
-body.dark-mode .notif-panel,
-body.dark-mode .chat-pinned-banner,
-body.dark-mode .chat-pinned-banner__menu,
-body.dark-mode .attachment-preview,
-body.dark-mode .dropdown-opciones {
-  background: var(--bg-elevated) !important;
-  border-color: var(--border-main) !important;
-  color: var(--text-main) !important;
-}
-
-body.dark-mode .chat-item:hover,
-body.dark-mode .chat-filter-btn:hover,
-body.dark-mode .icono-chat:hover,
-body.dark-mode .topbar-profile-item:hover,
-body.dark-mode .chat-pinned-banner__toggle:hover,
-body.dark-mode .detalle-usuario-chat--clickable:hover {
-  background: var(--interactive-soft) !important;
-  color: var(--text-main) !important;
-}
-
-body.dark-mode .chat-scroll,
-body.dark-mode .cuerpo-mensajes {
-  scrollbar-color: var(--accent-main) var(--bg-panel);
-}
-
-body.dark-mode .chat-filter-btn,
-body.dark-mode .chat-pinned-banner__toggle,
-body.dark-mode .icono-chat,
-body.dark-mode .input-busqueda,
-body.dark-mode .result-row,
-body.dark-mode .notif-card,
-body.dark-mode .attachment-preview__file-card,
-body.dark-mode .attachment-preview__name,
-body.dark-mode .attachment-preview__size,
-body.dark-mode .preview-image-sender,
-body.dark-mode .preview-caption-chip {
-  border-color: var(--border-main);
-  color: var(--text-main);
-}
-
-body.dark-mode .topbar__search-input,
-body.dark-mode .input-busqueda,
-body.dark-mode .input-mensaje {
-  caret-color: var(--text-main);
-}
