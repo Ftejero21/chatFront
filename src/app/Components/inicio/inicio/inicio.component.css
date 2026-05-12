@@ -298,7 +298,7 @@
 
 /* NUEVA COLUMNA IZQUIERDA */
 .barraLateral {
-  width: 80px;
+  width: 90px;
   flex-shrink: 0;
   background-color: var(--bg-panel);
   border-right: 1px solid var(--border-main);
@@ -1222,7 +1222,6 @@
   align-items: center;
   padding: 10px;
   padding-right: 42px;
-  border-bottom: 1px solid #dcdcdc;
   cursor: pointer;
   gap: 15px;
   transition: background-color 0.2s ease;
@@ -1707,21 +1706,8 @@
   justify-content: center;
 }
 
-.detalle-usuario-chat--clickable {
+.encabezado-chat-mensajes--individual {
   cursor: pointer;
-  border-radius: 8px;
-  padding: 2px 6px;
-  transition: background-color 0.16s ease;
-}
-
-.detalle-usuario-chat--clickable:hover {
-  background: #eff6ff;
-}
-
-.detalle-usuario-chat--clickable:focus-visible {
-  outline: 2px solid #93c5fd;
-  outline-offset: 2px;
-  background: #eff6ff;
 }
 
 .nombre-usuario-chat {
@@ -4286,7 +4272,7 @@
   border: none;
   min-height: 38px;
   padding: 0 14px;
-  border-radius: 999px;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   gap: 8px;

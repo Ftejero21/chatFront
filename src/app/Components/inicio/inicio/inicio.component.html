@@ -818,23 +818,18 @@
           [showInputBar]="true"
         ></app-messages-skeleton>
 
-        <div *ngIf="chatSeleccionadoId !== null && !showMessagesSkeleton" class="encabezado-chat-mensajes">
+        <div *ngIf="chatSeleccionadoId !== null && !showMessagesSkeleton"
+          class="encabezado-chat-mensajes"
+          [class.encabezado-chat-mensajes--individual]="chatActual && !chatActual?.esGrupo"
+          (click)="chatActual && !chatActual?.esGrupo && toggleUserInfoPanel($event)">
 
-          <button class="btn-back-mobile" (click)="chatSeleccionadoId = null">
+          <button class="btn-back-mobile" (click)="$event.stopPropagation(); chatSeleccionadoId = null">
             <i class="fas fa-arrow-left"></i>
           </button>
 
           <div class="info-usuario-chat">
             <img [src]="resolveAvatarSrc(chatActual?.foto, 'assets/placeholder-user.png')" alt="Foto" class="foto-perfil-chat" />
-            <div
-              class="detalle-usuario-chat"
-              [class.detalle-usuario-chat--clickable]="chatActual && !chatActual?.esGrupo"
-              [attr.role]="chatActual && !chatActual?.esGrupo ? 'button' : null"
-              [attr.tabindex]="chatActual && !chatActual?.esGrupo ? 0 : null"
-              [attr.aria-label]="chatActual && !chatActual?.esGrupo ? 'Abrir informacion del usuario' : null"
-              [attr.aria-expanded]="chatActual && !chatActual?.esGrupo ? showUserInfoPanel : null"
-              (click)="toggleUserInfoPanel($event)"
-              (keydown)="onDirectChatHeaderKeydown($event)">
+            <div class="detalle-usuario-chat">
               <span class="nombre-usuario-chat">
                 {{ chatActual?.nombre }}
                 <span *ngIf="chatActual && !chatActual?.esGrupo && chatActual?.denunciado" class="pill pill--reported" title="Usuario denunciado">
@@ -886,13 +881,13 @@
             </div>
           </div>
 
-          <div class="header-actions">
+          <div class="header-actions" (click)="$event.stopPropagation()">
             <button
-              *ngIf="chatActual"
+              *ngIf="chatActual?.esGrupo"
               type="button"
               class="btn-summary-ia"
               [disabled]="cargandoResumenIa || showMessagesSkeleton"
-              [attr.title]="showMessagesSkeleton ? 'Cargando mensajes...' : (cargandoResumenIa ? 'Generando resumen...' : 'Resumir ultimos mensajes')"
+              [attr.title]="showMessagesSkeleton ? 'Cargando mensajes...' : (cargandoResumenIa ? 'Generando resumen...' : 'Resumir')"
               aria-label="Resumir ultimos mensajes"
               (click)="abrirResumenConversacion()"
             >
@@ -905,7 +900,7 @@
                 <i class="bi bi-stars" aria-hidden="true"></i>
               </ng-template>
               <span class="btn-summary-ia__label">
-                {{ cargandoResumenIa ? 'Resumiendo...' : 'Resumir ultimos mensajes' }}
+                {{ cargandoResumenIa ? 'Resumiendo...' : 'Resumir' }}
               </span>
             </button>
             <button *ngIf="chatActual?.esGrupo" class="btn-icon header-add-user" type="button"
