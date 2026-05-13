@@ -135,9 +135,9 @@
         <div class="iconos-superiores sidebar-nav__group">
 
           <!-- Inicio -->
-          <button class="sidebar-nav__item" type="button" title="Inicio">
+          <button class="sidebar-nav__item sidebar-nav__item--logo" type="button" title="Inicio">
             <span class="sidebar-nav__active-indicator"></span>
-            <i class="fas fa-home icono-barra"></i>
+            <span class="sidebar-nav__nexo-logo">N</span>
             <span class="sidebar-nav__tooltip">Inicio</span>
           </button>
 
@@ -195,7 +195,7 @@
         <div class="usuario-config sidebar-nav__bottom">
 
           <!-- Avatar / Perfil -->
-          <button class="sidebar-nav__item sidebar-nav__item--avatar" type="button" title="Perfil">
+          <button class="sidebar-nav__item sidebar-nav__item--avatar" type="button" title="Perfil" (click)="openProfileView($event)">
             <span class="sidebar-nav__active-indicator"></span>
             <img *ngIf="usuarioFotoUrl; else sideAvatarFallback" [src]="usuarioFotoUrl" alt="Perfil" class="topbar__avatar sidebar-nav__avatar-img" />
             <ng-template #sideAvatarFallback>
@@ -215,6 +215,7 @@
 
       </div>
 
+      <div class="chat-list-wrapper">
       <div class="listadoChats" *ngIf="!isStarredView">
         <ng-container *ngIf="showChatListSkeleton; else chatListContent">
           <app-chat-list-skeleton [itemCount]="7"></app-chat-list-skeleton>
@@ -223,11 +224,14 @@
         <ng-template #chatListContent>
           <div *ngIf="!isPublicChatsView; else publicChatsContent" class="chat-list-default-view">
           <div class="encabezado-chats">
-            <div class="titulo-chat"><span class="titulo-chat__n">N</span>exo</div>
+            <div class="titulo-chat">Chats</div>
             <div class="acciones-chat">
               <button class="icono-chat" title="Crear grupo" data-bs-toggle="modal" (click)="crearGrupoModal.open()"
                 data-bs-target="#crearGrupoModal">
-                <i class="fas fa-users"></i>
+                <img src="assets/crearGrupo.svg" alt="Crear grupo" class="icono-chat-svg" />
+              </button>
+              <button class="icono-chat" title="Nuevo chat" type="button" (click)="showNuevoChatPanel = true">
+                <img src="assets/pencil.svg" alt="Nuevo chat" class="icono-chat-svg" />
               </button>
               <div class="chat-list-menu-anchor">
                 <button
@@ -337,19 +341,11 @@
                   {{ getChatInitials(chat) }}
                 </span>
               </ng-template>
-              <span *ngIf="chat.esGrupo" class="badge-group" title="Grupo">
-                <i class="bi bi-people-fill"></i>
-              </span>
-              <span *ngIf="chat.receptor" class="estado-icono" [ngClass]="{
+
+              <span *ngIf="chat.receptor && chat.estado !== 'Desconectado'" class="estado-icono" [ngClass]="{
                 'conectado': chat.estado === 'Conectado',
-                'desconectado': chat.estado === 'Desconectado',
                 'ausente': chat.estado === 'Ausente'
               }" title="{{ chat.estado }}">
-                <i class="bi" [ngClass]="{
-                  'bi-check': chat.estado === 'Conectado',
-                  'bi-x-circle-fill': chat.estado === 'Desconectado',
-                  'bi bi-stopwatch ausente-icono': chat.estado === 'Ausente'
-                }"></i>
               </span>
             </div>
 
@@ -785,6 +781,34 @@
 
       </div>
 
+      <!-- Panel Nuevo Chat -->
+      <div class="nuevo-chat-panel" [class.nuevo-chat-panel--open]="showNuevoChatPanel">
+        <div class="nuevo-chat-panel__header">
+          <button class="nuevo-chat-panel__back" type="button" (click)="showNuevoChatPanel = false">
+            <i class="bi bi-arrow-left"></i>
+          </button>
+          <span class="nuevo-chat-panel__title">Nuevo chat</span>
+        </div>
+        <div class="nuevo-chat-panel__body">
+          <!-- contenido futuro -->
+        </div>
+      </div>
+
+      <!-- Panel Perfil -->
+      <div class="nuevo-chat-panel perfil-panel" [class.nuevo-chat-panel--open]="showPerfilPanel">
+        <app-perfil-usuario
+          [usuario]="perfilUsuario"
+          [fotoUrl]="usuarioFotoUrl || ''"
+          [passwordCodeRequested]="profilePasswordCodeRequested"
+          [saving]="profileSaving"
+          [codeTimeLeftSec]="profileCodeTimeLeftSec"
+          (close)="closeProfileView()"
+          (save)="onPerfilSave($event)"
+          (confirmPassword)="onPerfilConfirmPassword($event)">
+        </app-perfil-usuario>
+      </div>
+      </div><!-- /chat-list-wrapper -->
+
       <app-starred-messages-panel
         *ngIf="isStarredView"
         [items]="mensajesDestacadosOrdenados"
@@ -828,7 +852,17 @@
           </button>
 
           <div class="info-usuario-chat">
-            <img [src]="resolveAvatarSrc(chatActual?.foto, 'assets/placeholder-user.png')" alt="Foto" class="foto-perfil-chat" />
+            <ng-container *ngIf="chatActual">
+              <img *ngIf="hasChatAvatar(chatActual); else headerAvatarFallback"
+                [src]="getChatAvatarSrc(chatActual)" alt="Foto" class="foto-perfil-chat" />
+              <ng-template #headerAvatarFallback>
+                <span
+                  class="topbar__avatar-fallback chat-avatar-fallback-spacing foto-perfil-chat"
+                  [style.background]="getChatAvatarColor(chatActual)"
+                  [attr.aria-label]="'Avatar de ' + chatActual.nombre"
+                >{{ getChatInitials(chatActual) }}</span>
+              </ng-template>
+            </ng-container>
             <div class="detalle-usuario-chat">
               <span class="nombre-usuario-chat">
                 {{ chatActual?.nombre }}
@@ -847,19 +881,13 @@
                     </ng-container>
                   </ng-container>
                 </div>
-                <span *ngIf="chatActual?.receptor" class="estado-posicion-encabezado" [ngClass]="{
-                  'estado-icono': true,
-                  'conectado-header': chatActual?.estado === 'Conectado',
-                  'desconectado-header': chatActual?.estado === 'Desconectado',
-                  'ausente-header': chatActual?.estado === 'Ausente'
-                }" title="{{ chatActual?.estado }}">
-                  <i class="bi" [ngClass]="{
-                    'bi-check': chatActual?.estado === 'Conectado',
-                    'bi-x-circle-fill': chatActual?.estado === 'Desconectado',
-                    'bi bi-stopwatch ausente-icono': chatActual?.estado === 'Ausente'
-                  }"></i>
-                </span>
               </span>
+              <div *ngIf="chatActual?.receptor && (chatActual?.estado === 'Conectado' || chatActual?.estado === 'Ausente')" class="estado-en-linea-header">
+                <span class="estado-en-linea-dot" [style.background]="chatActual?.estado === 'Ausente' ? '#f59e0b' : '#22c55e'"></span>
+                <span class="estado-en-linea-texto" [style.color]="chatActual?.estado === 'Ausente' ? '#f59e0b' : '#22c55e'">
+                  {{ chatActual?.estado === 'Ausente' ? 'Ausente' : 'En Línea' }}
+                </span>
+              </div>
               <div *ngIf="!chatActual?.esGrupo && usuarioGrabandoAudio" class="escribiendo audio-estado">
                 <span class="audio-activity-indicator" aria-hidden="true">
                   <i class="fas fa-microphone"></i>
@@ -915,7 +943,9 @@
               (click)="iniciarVideollamada(chatActual?.id)">
               <i class="bi bi-camera-video"></i>
             </button>
-            <i class="fas fa-ellipsis-v icono-opciones-chat" (click)="toggleMenuOpciones()"></i>
+            <button type="button" class="icono-chat icono-opciones-chat-btn" (click)="toggleMenuOpciones()">
+              <i class="fas fa-ellipsis-v icono-opciones-chat"></i>
+            </button>
             <div class="dropdown-opciones" *ngIf="mostrarMenuOpciones" (mouseleave)="cerrarMenuOpciones()">
               <div class="dropdown-actions-box">
                 <button class="dropdown-item dropdown-item--buscar"
@@ -2143,19 +2173,6 @@
         (cancel)="cancelStickerCreation()"
         (guardarStickerEditado)="saveEditedSticker($event)"
       ></app-sticker-editor-panel>
-      <div *ngIf="!isStarredView && activeMainView !== 'chat'" class="zonaMensajes zonaMensajes--perfil">
-        <app-perfil-usuario
-          [usuario]="perfilUsuario"
-          [fotoUrl]="usuarioFotoUrl || ''"
-          [passwordCodeRequested]="profilePasswordCodeRequested"
-          [saving]="profileSaving"
-          [codeTimeLeftSec]="profileCodeTimeLeftSec"
-          (close)="closeProfileView()"
-          (save)="onPerfilSave($event)"
-          (confirmPassword)="onPerfilConfirmPassword($event)">
-        </app-perfil-usuario>
-      </div>
-
       <app-group-info-panel
         *ngIf="!isStarredView && activeMainView === 'chat' && chatActual?.esGrupo && showGroupInfoPanelMounted"
         class="group-info-col"

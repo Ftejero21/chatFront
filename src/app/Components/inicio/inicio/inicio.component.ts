@@ -539,16 +539,12 @@ export type UserWithEstado = UsuarioDTO & { estado?: EstadoUsuario };
 export class InicioComponent {
   private readonly THEME_STORAGE_KEY = 'theme';
   private readonly chatAvatarPalette: readonly string[] = [
-    '#f97316',
-    '#22c55e',
-    '#ca8a04',
-    '#06b6d4',
-    '#ef4444',
-    '#8b5cf6',
-    '#3b82f6',
-    '#ec4899',
-    '#65a30d',
-    '#14b8a6',
+    'linear-gradient(135deg, #3a5b8f, #4d7bb8)', // azul pizarra
+    'linear-gradient(135deg, #5b4a8a, #7a66b0)', // púrpura apagado
+    'linear-gradient(135deg, #8a5b4a, #b07a66)', // terracota
+    'linear-gradient(135deg, #4a8a6e, #66b08e)', // verde apagado
+    'linear-gradient(135deg, #8a7a4a, #b09c66)', // mostaza
+    'linear-gradient(135deg, #4a6e8a, #668ab0)', // azul acero
   ];
   // ==========
   // PUBLIC FIELDS (visibles para el template)
@@ -643,6 +639,7 @@ export class InicioComponent {
   public pollComposerAutogenerarIa = false;
   public showScheduleMessageComposer = false;
   public showChatListHeaderMenu = false;
+  public showNuevoChatPanel = false;
   public showGlobalMessageSearchPopup = false;
   public globalMessageSearchConsulta = '';
   public globalMessageSearchLoading = false;
@@ -738,6 +735,7 @@ export class InicioComponent {
   public perfilUsuario: UsuarioDTO | null = null;
   public showTopbarProfileMenu = false;
   public activeMainView: 'chat' | 'profile' = 'chat';
+  public showPerfilPanel = false;
   public sidebarSection: SidebarSection = 'CHATS';
   public publicChatsSearch = '';
   public publicChats: PublicChatListItem[] = [];
@@ -10071,7 +10069,9 @@ private async decryptPreviewString(
   }
 
   public evaluarRespuestasRapidas(): void {
-    const chatKey = this.getChatKeyActual();
+    // DESACTIVADO — función IA back no disponible
+    return;
+    /* const chatKey = this.getChatKeyActual();
     const ultimoMensaje = this.getUltimoMensajeRecibidoParaRespuestasRapidas();
 
     if (!chatKey || !ultimoMensaje || !this.puedeGenerarRespuestasRapidas(ultimoMensaje)) {
@@ -10111,7 +10111,7 @@ private async decryptPreviewString(
     this.quickRepliesMessageId = messageId;
     this.quickRepliesChatKey = chatKey;
     this.errorQuickReplies = null;
-    this.programarGeneracionRespuestasRapidas(ultimoMensaje);
+    this.programarGeneracionRespuestasRapidas(ultimoMensaje); */
   }
 
   public async enviarRespuestaRapida(replyRaw: string): Promise<void> {
@@ -13164,12 +13164,12 @@ private async decryptPreviewString(
     event?.stopPropagation();
     this.sidebarSection = 'CHATS';
     this.showTopbarProfileMenu = false;
-    this.activeMainView = 'profile';
+    this.showPerfilPanel = true;
   }
 
   public closeProfileView(): void {
     this.showTopbarProfileMenu = false;
-    this.activeMainView = 'chat';
+    this.showPerfilPanel = false;
   }
 
   public get usuarioIniciales(): string {

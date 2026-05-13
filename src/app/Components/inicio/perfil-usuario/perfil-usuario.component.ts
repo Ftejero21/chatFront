@@ -60,6 +60,18 @@ export class PerfilUsuarioComponent implements OnChanges {
   public showNuevaPassword = false;
   public showRepetirPassword = false;
   public additionalInfoOpen = false;
+  public activeSection: string | null = null;
+  public settingsSearch = '';
+
+  @Output() logout = new EventEmitter<void>();
+
+  public navigateTo(section: string): void {
+    this.activeSection = section;
+  }
+
+  public backToMenu(): void {
+    this.activeSection = null;
+  }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['usuario'] || changes['fotoUrl']) {
