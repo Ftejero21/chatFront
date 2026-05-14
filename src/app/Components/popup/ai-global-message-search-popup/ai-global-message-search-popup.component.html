@@ -115,9 +115,62 @@
     <div *ngIf="showResult" class="ai-global-search-popup__results-section" [attr.data-result-key]="resultAnimationKey">
       <div class="ai-global-search-popup__results-shell result-enter">
         <div class="ai-global-search-popup__results-header">
-          <h3>Resultados encontrados</h3>
-          <span class="ai-global-search-popup__count">{{ resultados.length }} coincidencias</span>
+          <h3>{{ isUiCustomizationResponse() ? 'Personalización' : 'Resultados encontrados' }}</h3>
+          <span *ngIf="!isUiCustomizationResponse()" class="ai-global-search-popup__count">{{ resultados.length }} coincidencias</span>
         </div>
+
+        <!-- ── UI Customization Card ── -->
+        <ng-container *ngIf="isUiCustomizationResponse() && uiCustomizationResult">
+          <div class="customization-card">
+            <div class="customization-card__header">
+              <img src="assets/Nexo.svg" alt="Nexo" class="customization-card__nexo-icon" />
+              <span class="customization-card__title">Personalización de Nexo</span>
+            </div>
+            <p class="customization-card__description">{{ getCustomizationLabel() }}</p>
+            <p *ngIf="isUpdateStyleGroup()" class="customization-card__description-secondary">
+              Se aplicarán varios cambios relacionados para mantener el contraste y la legibilidad.
+            </p>
+            <div *ngIf="isUpdateStyleGroup() && getChangesCount() > 0" class="customization-card__changes-badge">
+              <i class="bi bi-layers"></i> {{ getChangesCount() }} cambios incluidos
+            </div>
+            <div *ngIf="shouldShowUiCustomizationNotice()" class="customization-card__notice">
+              <i class="bi bi-exclamation-triangle-fill"></i>
+              No estoy completamente seguro de este cambio. Revísalo antes de aplicar.
+            </div>
+            <div *ngIf="customizationFeedback" class="customization-card__feedback">
+              <i class="bi bi-check-circle-fill"></i>
+              {{ customizationFeedback }}
+            </div>
+            <div class="customization-card__actions">
+              <ng-container *ngIf="isResetThemeAction(); else applyActions">
+                <button type="button" class="customization-card__btn customization-card__btn--primary" (click)="onResetTheme()">
+                  <i class="bi bi-arrow-counterclockwise"></i> Restaurar
+                </button>
+                <button type="button" class="customization-card__btn customization-card__btn--ghost" (click)="onCancelCustomization()">
+                  Cancelar
+                </button>
+              </ng-container>
+              <ng-template #applyActions>
+                <button
+                  *ngIf="canExecuteUiCustomization()"
+                  type="button"
+                  class="customization-card__btn customization-card__btn--ghost"
+                  [class.customization-card__btn--preview-active]="customizationPreviewActive"
+                  (click)="onPreviewCustomization()"
+                >
+                  <i class="bi bi-eye"></i>
+                  {{ customizationPreviewActive ? 'Previsualización activa' : 'Previsualizar' }}
+                </button>
+                <button *ngIf="canExecuteUiCustomization()" type="button" class="customization-card__btn customization-card__btn--primary" (click)="onApplyCustomization()">
+                  <i class="bi bi-check2"></i> Aplicar
+                </button>
+                <button type="button" class="customization-card__btn customization-card__btn--ghost" (click)="onCancelCustomization()">
+                  Cancelar
+                </button>
+              </ng-template>
+            </div>
+          </div>
+        </ng-container>
 
         <div *ngIf="!isEmptyAiResponse() && resultados.length > 0" class="ai-global-search-popup__results">
           <div *ngIf="isApproximateResult" class="ai-approximate-notice">
@@ -519,7 +572,7 @@
           </ng-container>
         </div>
 
-        <div *ngIf="!error && (isEmptyAiResponse() || resultados.length === 0)" class="ai-global-search-popup__empty">
+        <div *ngIf="!error && !isUiCustomizationResponse() && (isEmptyAiResponse() || resultados.length === 0)" class="ai-global-search-popup__empty">
           <ng-container *ngIf="shouldShowAiSummaryCard; else noResultsPlain">
             <div class="ai-global-search-popup__ai-summary">
               <div class="ai-global-search-popup__ai-summary-header">

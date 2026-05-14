@@ -84,12 +84,24 @@ export class AiService {
     );
   }
 
-  public buscarMensajesEncrypted(
+  public postSmartAction(
     request: AiEncryptedMessageSearchRequest
   ): Observable<AiEncryptedMessageSearchResponse> {
+    const consulta = String(request?.consulta || '').trim();
+    const body: Record<string, unknown> = { consulta };
+    const ctx = request?.uiContext ?? null;
+    if (ctx) {
+      body['uiContext'] = ctx;
+      const areaCount = Object.keys((ctx as unknown as Record<string, unknown>)['areaCatalog'] ?? {}).length;
+      console.log(
+        `[UI_CUSTOMIZATION][SMART_ACTION_PAYLOAD] consulta="${consulta.slice(0, 60)}" hasUiContext=true version=${ctx.version} scope=${ctx.scope} areaCount=${areaCount}`
+      );
+    } else {
+      console.warn(`[UI_CUSTOMIZATION][SMART_ACTION_PAYLOAD] consulta="${consulta.slice(0, 60)}" hasUiContext=false — uiContext missing`);
+    }
     return this.http.post<AiEncryptedMessageSearchResponse>(
-      `${this.backendBaseUrl}/api/ai/buscar-mensajes/encrypted`,
-      request
+      `${this.backendBaseUrl}/api/ai/smart-action`,
+      body
     ).pipe(switchMap((response) => from(this.normalizeEncryptedMessageSearchResponse(response))));
   }
 

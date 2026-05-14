@@ -13,10 +13,10 @@
 .ai-ask-popup {
   width: 100%;
   max-width: 560px;
-  border-radius: 32px;
+  border-radius: var(--nexo-ai-ask-radius, 32px);
   overflow: hidden;
-  background: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: var(--nexo-ai-ask-bg, #ffffff);
+  border: 1px solid var(--nexo-ai-ask-border, rgba(255, 255, 255, 0.2));
   box-shadow: 0 28px 72px rgba(15, 23, 42, 0.24);
   animation: aiAskPopupIn 0.22s ease-out;
 }
@@ -117,6 +117,7 @@
   padding: 28px;
   display: grid;
   gap: 20px;
+  color: var(--nexo-ai-ask-text, #1f2937);
 }
 
 .ai-ask-popup__section {

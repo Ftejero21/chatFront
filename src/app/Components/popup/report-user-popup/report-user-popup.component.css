@@ -14,8 +14,8 @@
   width: 100%;
   max-width: 500px;
   overflow: hidden;
-  border-radius: 32px;
-  background: #ffffff;
+  border-radius: var(--nexo-report-user-radius, 32px);
+  background: var(--nexo-report-user-bg, #ffffff);
   box-shadow: 0 28px 60px rgba(15, 23, 42, 0.22);
   animation: reportUserPopupIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -110,7 +110,7 @@
 
 .report-user-popup__intro h3 {
   margin: 0;
-  color: #1f2937;
+  color: var(--nexo-report-user-text, #1f2937);
   font-size: 1.08rem;
   font-weight: 800;
 }
@@ -189,10 +189,10 @@
 .report-user-popup__select,
 .report-user-popup__textarea {
   width: 100%;
-  border: 2px solid #fee2e2;
-  border-radius: 22px;
-  background: #ffffff;
-  color: #374151;
+  border: 2px solid var(--nexo-report-user-border, #fee2e2);
+  border-radius: var(--nexo-report-user-radius, 22px);
+  background: var(--nexo-report-user-input-bg, #ffffff);
+  color: var(--nexo-report-user-text, #374151);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -209,6 +209,10 @@
   padding: 16px 18px;
   resize: none;
   font-size: 0.95rem;
+}
+
+.report-user-popup__textarea::placeholder {
+  color: var(--nexo-report-user-placeholder, #94a3b8);
 }
 
 .report-user-popup__select:focus,

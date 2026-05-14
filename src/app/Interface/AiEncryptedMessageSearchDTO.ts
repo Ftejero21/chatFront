@@ -1,3 +1,5 @@
+import { UiCustomizationContext } from './UiCustomizationIntentDTO';
+
 export interface AiEncryptedMessageSearchRequest {
   consulta: string;
   requestId?: string;
@@ -10,12 +12,22 @@ export interface AiEncryptedMessageSearchRequest {
   imagenReporteBase64?: string;
   imagenReporteMimeType?: string;
   imagenReporteNombre?: string;
+  uiContext?: UiCustomizationContext;
 }
 
 export interface AiEncryptedMessageSearchResponse {
   success: boolean;
   codigo: string;
   mensaje: string;
+  target?: string | null;
+  action?: string | null;
+  area?: string | null;
+  property?: string | null;
+  value?: string | null;
+  label?: string | null;
+  cssVariable?: string | null;
+  confidence?: number | null;
+  changes?: Array<{ area: string; property: string; value?: string | null; valuePreset?: string | null }> | null;
   resumenBusqueda?: string | null;
   encryptedPayload?: string | Record<string, unknown> | null;
   resultados: AiEncryptedMessageSearchResult[];

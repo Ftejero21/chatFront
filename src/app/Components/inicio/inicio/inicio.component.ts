@@ -92,6 +92,7 @@ import { PollDraftPayload } from '../poll-composer/poll-composer.component';
 import { ScheduleMessageDraftPayload } from '../schedule-message-composer/schedule-message-composer.component';
 import { AiPollDraftContextMessageDTO } from '../../../Interface/AiPollDraftRequestDTO';
 import { SessionService } from '../../../Service/session/session.service';
+import { UiCustomizationService } from '../../../shared/ui-customization/ui-customization.service';
 import { ComplaintService } from '../../../Service/complaint/complaint.service';
 import { ChatListItemDTO } from '../../../Interface/ChatListItemDTO';
 import { MensajeReaccionDTO } from '../../../Interface/MensajeReaccionDTO';
@@ -649,6 +650,7 @@ export class InicioComponent {
   public globalMessageSearchAiSummary: string | null = null;
   public globalMessageSearchAiSummaryLoading = false;
   public globalMessageSearchCodigo: string | null = null;
+  public globalMessageSearchUiCustomizationResult: AiEncryptedMessageSearchResponse | null = null;
   public showMuteDurationPicker = false;
   public muteDurationTargetChat: any | null = null;
   public muteRequestInFlight = false;
@@ -1215,7 +1217,8 @@ export class InicioComponent {
     private stickerService: StickerService,
     private route: ActivatedRoute,
     private router: Router,
-    private sessionService: SessionService
+    private sessionService: SessionService,
+    private uiCustomizationService: UiCustomizationService
   ) {
     window.addEventListener('beforeunload', () => {
       this.persistActiveChatDraft();
@@ -1233,6 +1236,7 @@ export class InicioComponent {
    */
   public ngOnInit(): void {
     this.applyStoredTheme();
+    this.uiCustomizationService.loadSavedTheme();
     const id = localStorage.getItem('usuarioId');
     const openProfileAfterRegister =
       sessionStorage.getItem(this.OPEN_PROFILE_AFTER_REGISTER_KEY) === 'true';
@@ -2770,6 +2774,7 @@ export class InicioComponent {
     document.body.classList.toggle('dark-mode');
     localStorage.setItem(this.THEME_STORAGE_KEY, nextDarkMode ? 'dark' : 'light');
     this.isDarkMode = nextDarkMode;
+    this.uiCustomizationService.loadSavedTheme(nextDarkMode ? 'dark' : 'light');
   }
 
   private applyStoredTheme(): void {
@@ -19736,6 +19741,7 @@ private async decryptPreviewString(
     this.globalMessageSearchError = null;
     this.globalMessageSearchResumenBusqueda = null;
     this.globalMessageSearchResultados = [];
+    this.globalMessageSearchUiCustomizationResult = null;
     this.cdr.detectChanges();
   }
 
@@ -19747,6 +19753,7 @@ private async decryptPreviewString(
     this.globalMessageSearchAiSummary = null;
     this.globalMessageSearchAiSummaryLoading = false;
     this.globalMessageSearchCodigo = null;
+    this.globalMessageSearchUiCustomizationResult = null;
   }
 
   public onGlobalMessageSearchConsultaChange(next: string): void {
@@ -19775,7 +19782,15 @@ private async decryptPreviewString(
       imagenReporteBase64: String(event?.imagenReporteBase64 || '').trim() || undefined,
       imagenReporteMimeType: String(event?.imagenReporteMimeType || '').trim() || undefined,
       imagenReporteNombre: String(event?.imagenReporteNombre || '').trim() || undefined,
+      uiContext: this.uiCustomizationService.buildUiContext('CHAT_LIST'),
     };
+
+    if (this.detectsVisualIntent(normalizedConsulta)) {
+      const ctx = request.uiContext;
+      console.log(
+        `[UI_CUSTOMIZATION][SMART_ACTION_PAYLOAD] hasUiContext=${!!ctx} scope=${ctx?.scope ?? 'unknown'} version=${ctx?.version ?? 'unknown'}`
+      );
+    }
 
     this.globalMessageSearchLoading = true;
     this.globalMessageSearchError = null;
@@ -19784,9 +19799,14 @@ private async decryptPreviewString(
     this.globalMessageSearchAiSummary = null;
     this.globalMessageSearchAiSummaryLoading = false;
     this.globalMessageSearchCodigo = null;
+    this.globalMessageSearchUiCustomizationResult = null;
 
+    this.doGlobalMessageSearch(request);
+  }
+
+  private doGlobalMessageSearch(request: AiEncryptedMessageSearchRequest): void {
     this.aiService
-      .buscarMensajesEncrypted(request)
+      .postSmartAction(request)
       .pipe(
         finalize(() => {
           this.globalMessageSearchLoading = false;
@@ -19795,9 +19815,28 @@ private async decryptPreviewString(
       )
       .subscribe({
         next: (response) => {
+          this.globalMessageSearchCodigo = String(response?.codigo || '').trim() || null;
+
+          if (this.isGlobalMessageSearchUiCustomizationResponse(response)) {
+            this.globalMessageSearchUiCustomizationResult = response;
+            this.globalMessageSearchResultados = [];
+            this.globalMessageSearchResumenBusqueda = null;
+            this.globalMessageSearchAiSummary = null;
+            this.globalMessageSearchAiSummaryLoading = false;
+            return;
+          }
+
+          if (this.shouldShowGlobalMessageSearchControlledError(response)) {
+            this.globalMessageSearchResultados = [];
+            this.globalMessageSearchResumenBusqueda = null;
+            this.globalMessageSearchAiSummary = null;
+            this.globalMessageSearchAiSummaryLoading = false;
+            this.globalMessageSearchError = this.getGlobalMessageSearchControlledErrorMessage(response);
+            return;
+          }
+
           const results = Array.isArray(response?.resultados) ? response.resultados : [];
           this.globalMessageSearchResultados = results;
-          this.globalMessageSearchCodigo = String(response?.codigo || '').trim() || null;
           const encryptedSummaryPresent = !!response?.encryptedPayload;
           this.globalMessageSearchResumenBusqueda =
             encryptedSummaryPresent
@@ -19825,6 +19864,62 @@ private async decryptPreviewString(
             backendMessage || 'No se pudo completar la busqueda global.';
         },
       });
+  }
+
+  private isGlobalMessageSearchUiCustomizationResponse(
+    response: AiEncryptedMessageSearchResponse | null | undefined
+  ): boolean {
+    const target = String(response?.target || '').trim().toUpperCase();
+    const codigo = String(response?.codigo || '').trim().toUpperCase();
+    return (
+      target === 'UI_CUSTOMIZATION' ||
+      codigo === 'UI_CUSTOMIZATION_OK' ||
+      codigo === 'RESET_THEME'
+    );
+  }
+
+  private detectsVisualIntent(consulta: string): boolean {
+    if (!consulta) return false;
+    const lower = consulta.toLowerCase();
+    const keywords = [
+      'estilo', 'color', 'fondo', 'texto', 'borde', 'sombra',
+      'tema', 'elegante', 'claro', 'oscuro',
+      'blanco', 'negro', 'rojo', 'azul', 'verde', 'morado', 'violeta',
+      'listado de chats', 'filtros', 'botón activo', 'boton activo',
+      'chat no leído', 'chat no leido', 'preview', 'desplegable',
+    ];
+    return keywords.some(k => lower.includes(k));
+  }
+
+  private shouldShowGlobalMessageSearchControlledError(
+    response: AiEncryptedMessageSearchResponse | null | undefined
+  ): boolean {
+    if (!response) return true;
+    const codigo = String(response?.codigo || '').trim().toUpperCase();
+    if (!codigo) return response?.success === false;
+    if (codigo.includes('LOW_CONFIDENCE')) {
+      return !this.isGlobalMessageSearchUiCustomizationResponse(response);
+    }
+    if (
+      codigo === 'ERROR' ||
+      codigo.endsWith('_ERROR') ||
+      codigo.includes('FAILED') ||
+      codigo.includes('INVALID') ||
+      codigo.includes('NOT_ALLOWED')
+    ) {
+      return true;
+    }
+    return response?.success === false && !this.isGlobalMessageSearchUiCustomizationResponse(response);
+  }
+
+  private getGlobalMessageSearchControlledErrorMessage(
+    response: AiEncryptedMessageSearchResponse | null | undefined
+  ): string {
+    const codigo = String(response?.codigo || '').trim().toUpperCase();
+    if (codigo.includes('LOW_CONFIDENCE')) {
+      return 'No se pudo determinar una accion clara para tu consulta. Reformulala con mas detalle.';
+    }
+    return 'No se pudo procesar la consulta en este momento.';
   }
 
   public async onGlobalMessageSearchResultSelected(

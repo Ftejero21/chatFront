@@ -2,9 +2,9 @@
   position: relative;
   width: min(520px, 96vw);
   max-height: min(650px, 88vh);
-  background: #ffffff;
-  border: 1px solid #dbeafe;
-  border-radius: 18px;
+  background: var(--nexo-poll-bg, #ffffff);
+  border: 1px solid var(--nexo-poll-border, #dbeafe);
+  border-radius: var(--nexo-poll-radius, 18px);
   box-shadow: 0 28px 48px rgba(15, 23, 42, 0.25);
   overflow: visible;
   display: flex;
@@ -17,13 +17,13 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
-  border-bottom: 1px solid #e2e8f0;
-  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 72%);
+  border-bottom: 1px solid var(--nexo-poll-border, #e2e8f0);
+  background: var(--nexo-poll-bg, linear-gradient(135deg, #eff6ff 0%, #ffffff 72%));
 }
 
 .poll-composer__header h3 {
   margin: 0;
-  color: #0f172a;
+  color: var(--nexo-poll-text, #0f172a);
   font-size: 20px;
   font-weight: 700;
 }
@@ -159,7 +159,7 @@
   border: none;
   border-bottom: 2px solid #dbeafe;
   background: transparent;
-  color: #0f172a;
+  color: var(--nexo-poll-text, #0f172a);
   font-size: 15px;
   padding: 8px 36px 8px 2px;
   transition: border-color 0.2s ease;

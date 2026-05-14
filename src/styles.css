@@ -25,6 +25,225 @@ body {
   --bubble-own-text: #1f2937;
   --bubble-other-bg: #ffffff;
   --bubble-other-text: #1f2937;
+  /* ── Nexo UI customization vars (light defaults) ── */
+  --nexo-chat-bg: transparent;
+  --nexo-chat-bg-image: url('/assets/fondoChats.png');
+  --nexo-own-message-bg: var(--bubble-own-bg);
+  --nexo-own-message-color: var(--bubble-own-text);
+  --nexo-other-message-bg: var(--bubble-other-bg);
+  --nexo-other-message-color: var(--bubble-other-text);
+  --nexo-message-radius: 10px;
+  /* chat list panel */
+  --nexo-chat-list-bg: var(--bg-panel);
+  --nexo-chat-list-panel-bg: var(--nexo-chat-list-bg);
+  --nexo-chat-list-text: var(--text-main);
+  --nexo-chat-list-border: var(--border-main);
+  /* chat list header */
+  --nexo-chat-list-header-bg: #ffffff;
+  --nexo-chat-list-icon-color: #555555;
+  --nexo-chat-list-title-color: var(--text-main);
+  --nexo-chat-list-header-border: #e7eef0;
+  /* chat list actions menu */
+  --nexo-chat-list-menu-bg: #ffffff;
+  --nexo-chat-list-menu-text: var(--text-main);
+  --nexo-chat-list-menu-border: #e2e8f0;
+  --nexo-chat-list-menu-radius: 12px;
+  --nexo-chat-list-menu-hover-bg: var(--interactive-soft);
+  --nexo-chat-list-menu-item-bg: transparent;
+  --nexo-chat-list-menu-item-text: var(--nexo-chat-list-menu-text, var(--text-main));
+  --nexo-chat-list-menu-item-icon: currentColor;
+  --nexo-chat-list-menu-item-hover-bg: var(--nexo-chat-list-menu-hover-bg, var(--interactive-soft));
+  --nexo-chat-list-menu-item-radius: 8px;
+  --nexo-chat-list-title-font-size: 18px;
+  --nexo-chat-list-title-icon: currentColor;
+  --nexo-chat-list-header-action-icon: var(--nexo-chat-list-icon-color, #555);
+  --nexo-chat-list-header-action-bg: transparent;
+  --nexo-chat-list-header-action-hover-bg: transparent;
+  --nexo-chat-list-header-action-radius: 6px;
+  --nexo-chat-list-scroll-bg: transparent;
+  --nexo-chat-avatar-border: transparent;
+  --nexo-chat-avatar-radius: 50%;
+  --nexo-chat-avatar-border-width: 0px;
+  --nexo-chat-item-content-bg: transparent;
+  --nexo-chat-item-content-text: inherit;
+  --nexo-chat-item-name-font-size: 14px;
+  --nexo-chat-item-active-icon: currentColor;
+  --nexo-chat-item-active-radius: var(--nexo-chat-item-radius, 12px);
+  --nexo-chat-preview-image-text: var(--nexo-chat-preview-color, gray);
+  --nexo-chat-preview-image-bg: transparent;
+  --nexo-chat-preview-image-border: #bfdbfe;
+  --nexo-chat-preview-image-radius: 8px;
+  --nexo-chat-preview-image-icon: #1d4ed8;
+  --nexo-chat-preview-file-text: var(--nexo-chat-preview-color, gray);
+  --nexo-chat-preview-file-bg: #eff6ff;
+  --nexo-chat-preview-file-border: #bfdbfe;
+  --nexo-chat-preview-file-radius: 8px;
+  --nexo-chat-preview-file-icon: #1d4ed8;
+  /* chat list search */
+  --nexo-chat-list-search-bg: var(--bg-panel);
+  --nexo-chat-list-search-text: var(--text-main);
+  --nexo-chat-list-search-placeholder: var(--text-muted);
+  --nexo-chat-list-search-border: var(--border-main);
+  --nexo-chat-list-search-border-width: 1px;
+  --nexo-chat-list-search-icon-color: var(--text-muted);
+  --nexo-chat-list-search-radius: 8px;
+  --nexo-chat-list-search-font-size: 14px;
+  --nexo-chat-list-search-hover-bg: var(--bg-panel);
+  --nexo-chat-list-search-focus-border: #3b82f6;
+  --nexo-chat-list-search-shadow: none;
+  /* chat list filters */
+  --nexo-chat-filters-bg: #ffffff;
+  --nexo-chat-filters-text: #334155;
+  --nexo-chat-filters-border: #cbd5e1;
+  --nexo-chat-filters-active-bg: #2563eb;
+  --nexo-chat-filters-hover-bg: #eff6ff;
+  --nexo-chat-filters-radius: 999px;
+  --nexo-chat-filters-font-size: 12px;
+  --nexo-chat-filters-icon-color: currentColor;
+  --nexo-chat-filters-shadow: none;
+  --nexo-chat-filters-active-text: #ffffff;
+  /* chat list filter buttons */
+  --nexo-chat-filter-btn-bg: #ffffff;
+  --nexo-chat-filter-btn-text: #334155;
+  --nexo-chat-filter-btn-border: #cbd5e1;
+  --nexo-chat-filter-btn-border-width: 1px;
+  --nexo-chat-filter-btn-radius: 999px;
+  --nexo-chat-filter-btn-hover-bg: #eff6ff;
+  --nexo-chat-filter-btn-active-bg: #2563eb;
+  --nexo-chat-filter-btn-active-text: #ffffff;
+  --nexo-chat-filter-btn-active-border: #2563eb;
+  --nexo-chat-filter-btn-active-border-width: 1px;
+  --nexo-chat-filter-btn-active-radius: 999px;
+  --nexo-chat-filter-btn-active-font-size: 12px;
+  --nexo-chat-filter-btn-active-icon: currentColor;
+  --nexo-chat-filter-btn-active-shadow: 0 6px 14px -10px rgba(37, 99, 235, 0.9);
+  --nexo-chat-filter-btn-icon: currentColor;
+  --nexo-chat-filter-btn-font-size: 12px;
+  --nexo-chat-filter-btn-shadow: none;
+  /* chat list scrollbar */
+  --nexo-chat-list-scrollbar-thumb: #3b82f6;
+  --nexo-chat-list-scrollbar-track: #ffffff;
+  /* chat list items */
+  --nexo-chat-item-bg: transparent;
+  --nexo-chat-list-item-bg: var(--nexo-chat-item-bg);
+  --nexo-chat-item-text: var(--text-main);
+  --nexo-chat-item-border: var(--border-main);
+  --nexo-chat-item-radius: 0px;
+  --nexo-chat-item-hover-bg: #eff6ff;
+  --nexo-chat-list-item-hover-bg: var(--nexo-chat-item-hover-bg);
+  /* chat item active/selected */
+  --nexo-chat-item-active-bg: #dbeafe;
+  --nexo-chat-item-active-text: var(--text-main);
+  --nexo-chat-item-active-border: #2563eb;
+  /* chat item unread */
+  --nexo-chat-item-unread-bg: #f0f7ff;
+  --nexo-chat-item-unread-name-color: #0f172a;
+  --nexo-chat-item-unread-hover-bg: #e6f0ff;
+  --nexo-chat-item-unread-border: #2563eb;
+  /* chat item group */
+  --nexo-chat-item-group-bg: rgba(37, 99, 235, 0.06);
+  --nexo-chat-list-item-group-bg: var(--nexo-chat-item-group-bg);
+  --nexo-chat-item-group-hover-bg: rgba(37, 99, 235, 0.12);
+  --nexo-chat-item-group-text: var(--text-main);
+  --nexo-chat-item-group-border: transparent;
+  --nexo-chat-item-group-radius: var(--nexo-chat-item-radius, 10px);
+  /* chat group pill extras */
+  --nexo-chat-group-pill-radius: 999px;
+  --nexo-chat-group-pill-font-size: 11px;
+  --nexo-chat-group-pill-icon: currentColor;
+  /* status pill extras */
+  --nexo-chat-status-pill-radius: 4px;
+  --nexo-chat-status-pill-border: #e08a8a;
+  --nexo-chat-status-pill-border-width: 1px;
+  --nexo-chat-status-pill-font-size: 10px;
+  --nexo-chat-status-pill-icon: currentColor;
+  /* chat children / sub-elements */
+  --nexo-chat-item-children-text: inherit;
+  --nexo-chat-item-children-icon: inherit;
+  --nexo-chat-item-children-badge-bg: transparent;
+  --nexo-chat-item-children-border: transparent;
+  /* chat group pill */
+  --nexo-chat-group-pill-bg: #eff6ff;
+  --nexo-chat-group-pill-text: #1e40af;
+  --nexo-chat-group-pill-border: #dbeafe;
+  /* status pills */
+  --nexo-chat-reported-pill-bg: #b54a4a;
+  --nexo-chat-reported-pill-text: #fde8e8;
+  --nexo-chat-blocked-pill-bg: #b54a4a;
+  --nexo-chat-blocked-pill-text: #fde8e8;
+  /* draft preview */
+  --nexo-chat-preview-draft-text: #15803d;
+  --nexo-chat-preview-draft-label: #d9a96a;
+  --nexo-chat-preview-draft-bg: transparent;
+  /* audio preview */
+  --nexo-chat-preview-audio-bg: transparent;
+  --nexo-chat-preview-audio-text: #0f172a;
+  --nexo-chat-preview-audio-icon: #1d4ed8;
+  --nexo-chat-preview-audio-border: transparent;
+  --nexo-chat-preview-audio-label: #0f172a;
+  --nexo-chat-preview-audio-separator: #0f172a;
+  --nexo-chat-preview-audio-time: #0f172a;
+  /* item actions */
+  --nexo-chat-item-action-icon: #64748b;
+  --nexo-chat-item-action-hover-bg: #f8fafc;
+  --nexo-chat-item-action-active-bg: transparent;
+  /* chat pin toggle */
+  --nexo-chat-pin-toggle-bg: #ffffff;
+  --nexo-chat-pin-toggle-text: #64748b;
+  --nexo-chat-pin-toggle-icon: #64748b;
+  --nexo-chat-pin-toggle-border: #dbe2ea;
+  --nexo-chat-pin-toggle-radius: 7px;
+  --nexo-chat-pin-toggle-hover-bg: #f8fafc;
+  --nexo-chat-pin-toggle-active-bg: #eff6ff;
+  --nexo-chat-pin-toggle-active-icon: #2563eb;
+  /* chat pin menu */
+  --nexo-chat-pin-menu-bg: #ffffff;
+  --nexo-chat-pin-menu-text: #1f2937;
+  --nexo-chat-pin-menu-border: #e2e8f0;
+  --nexo-chat-pin-menu-radius: 10px;
+  --nexo-chat-pin-menu-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  --nexo-chat-pin-menu-font-size: 12px;
+  --nexo-chat-pin-menu-item-bg: transparent;
+  --nexo-chat-pin-menu-item-text: #1f2937;
+  --nexo-chat-pin-menu-item-icon: currentColor;
+  --nexo-chat-pin-menu-item-hover-bg: #eff6ff;
+  --nexo-chat-pin-menu-item-radius: 8px;
+  --nexo-chat-pin-menu-item-font-size: 12px;
+  --nexo-chat-pin-menu-danger-bg: transparent;
+  --nexo-chat-pin-menu-danger-text: #b91c1c;
+  --nexo-chat-pin-menu-danger-icon: currentColor;
+  --nexo-chat-pin-menu-danger-hover-bg: #fee2e2;
+  --nexo-chat-pin-menu-danger-border: transparent;
+  --nexo-chat-pin-menu-report-bg: transparent;
+  --nexo-chat-pin-menu-report-text: #b45309;
+  --nexo-chat-pin-menu-report-icon: currentColor;
+  --nexo-chat-pin-menu-report-hover-bg: #fef3c7;
+  --nexo-chat-pin-menu-report-border: transparent;
+  /* chat item preview */
+  --nexo-chat-preview-color: #6b7280;
+  --nexo-chat-preview-font-size: 12px;
+  --nexo-chat-preview-sender-color: #334155;
+  --nexo-chat-item-name-color: var(--text-main);
+  /* chat item badge */
+  --nexo-chat-unread-badge-bg: #2563eb;
+  --nexo-chat-item-badge-text: #ffffff;
+  --nexo-chat-unread-badge-text: #ffffff;
+  --nexo-chat-unread-badge-border: transparent;
+  --nexo-chat-unread-badge-radius: 9999px;
+  --nexo-chat-unread-badge-font-size: 12px;
+  --nexo-chat-unread-badge-shadow: none;
+  /* chat item shadow */
+  --nexo-chat-item-shadow: none;
+  /* chat empty state */
+  --nexo-chat-empty-bg: transparent;
+  --nexo-chat-empty-text: var(--text-muted);
+  --nexo-chat-empty-pulse-bg: #eff6ff;
+  /* chat side panel (nuevo-chat, perfil, etc.) */
+  --nexo-chat-side-panel-bg: var(--bg-panel);
+  --nexo-chat-side-panel-border: var(--border-main);
+  --nexo-chat-side-panel-text: var(--text-main);
+  --nexo-chat-font-size: 14px;
+  --nexo-primary-color: #6b8afd;
   background: var(--bg-main);
   color: var(--text-main);
   transition: background-color 0.2s ease, color 0.2s ease;
@@ -47,6 +266,208 @@ body.dark-mode {
   --bubble-own-text: #eff6ff;
   --bubble-other-bg: #1f2937;
   --bubble-other-text: #e5e7eb;
+  /* ── Nexo UI customization vars (dark defaults) ── */
+  --nexo-chat-bg: transparent;
+  --nexo-chat-bg-image: url('/assets/fondoChatsOscuro.png');
+  --nexo-own-message-bg: #6b8afd;
+  --nexo-own-message-color: #ffffff;
+  --nexo-other-message-bg: #161a21;
+  --nexo-other-message-color: #e7ebf0;
+  --nexo-message-radius: 10px;
+  /* chat list panel */
+  --nexo-chat-list-bg: #11141a;
+  --nexo-chat-list-panel-bg: var(--nexo-chat-list-bg);
+  --nexo-chat-list-text: #e5eefc;
+  --nexo-chat-list-border: #232934;
+  /* chat list header */
+  --nexo-chat-list-header-bg: #11141a;
+  --nexo-chat-list-icon-color: #9ca3af;
+  --nexo-chat-list-title-color: #e5eefc;
+  --nexo-chat-list-header-border: #232934;
+  /* chat list actions menu */
+  --nexo-chat-list-menu-bg: #1c212a;
+  --nexo-chat-list-menu-text: #e7ebf0;
+  --nexo-chat-list-menu-border: #232934;
+  --nexo-chat-list-menu-radius: 12px;
+  --nexo-chat-list-menu-hover-bg: #232934;
+  --nexo-chat-list-menu-item-bg: transparent;
+  --nexo-chat-list-menu-item-text: #e7ebf0;
+  --nexo-chat-list-menu-item-icon: #e7ebf0;
+  --nexo-chat-list-menu-item-hover-bg: #232934;
+  --nexo-chat-list-menu-item-radius: 8px;
+  --nexo-chat-list-header-action-icon: #a8b3c4;
+  --nexo-chat-list-header-action-bg: transparent;
+  --nexo-chat-list-header-action-hover-bg: transparent;
+  --nexo-chat-preview-file-bg: #1e293b;
+  --nexo-chat-preview-file-border: #334155;
+  --nexo-chat-preview-file-icon: #60a5fa;
+  --nexo-chat-preview-image-border: #334155;
+  --nexo-chat-preview-image-icon: #60a5fa;
+  /* chat list search */
+  --nexo-chat-list-search-bg: #11141a;
+  --nexo-chat-list-search-text: #e5eefc;
+  --nexo-chat-list-search-placeholder: #6b7280;
+  --nexo-chat-list-search-border: #232934;
+  --nexo-chat-list-search-border-width: 1px;
+  --nexo-chat-list-search-icon-color: #6b7280;
+  --nexo-chat-list-search-radius: 8px;
+  --nexo-chat-list-search-font-size: 14px;
+  --nexo-chat-list-search-hover-bg: #1a1f29;
+  --nexo-chat-list-search-focus-border: #6b8afd;
+  --nexo-chat-list-search-shadow: none;
+  /* chat list filters */
+  --nexo-chat-filters-bg: #11141a;
+  --nexo-chat-filters-text: #9ca3af;
+  --nexo-chat-filters-border: #334155;
+  --nexo-chat-filters-active-bg: #6b8afd;
+  --nexo-chat-filters-hover-bg: rgba(107, 138, 253, 0.12);
+  --nexo-chat-filters-radius: 999px;
+  --nexo-chat-filters-font-size: 12px;
+  --nexo-chat-filters-icon-color: currentColor;
+  --nexo-chat-filters-shadow: none;
+  --nexo-chat-filters-active-text: #ffffff;
+  /* chat list filter buttons */
+  --nexo-chat-filter-btn-bg: #11141a;
+  --nexo-chat-filter-btn-text: #9ca3af;
+  --nexo-chat-filter-btn-border: #334155;
+  --nexo-chat-filter-btn-border-width: 1px;
+  --nexo-chat-filter-btn-radius: 999px;
+  --nexo-chat-filter-btn-hover-bg: rgba(107, 138, 253, 0.12);
+  --nexo-chat-filter-btn-active-bg: #6b8afd;
+  --nexo-chat-filter-btn-active-text: #ffffff;
+  --nexo-chat-filter-btn-active-border: #6b8afd;
+  --nexo-chat-filter-btn-active-border-width: 1px;
+  --nexo-chat-filter-btn-active-radius: 999px;
+  --nexo-chat-filter-btn-active-font-size: 12px;
+  --nexo-chat-filter-btn-active-icon: currentColor;
+  --nexo-chat-filter-btn-active-shadow: 0 6px 14px -10px rgba(107, 138, 253, 0.5);
+  --nexo-chat-filter-btn-icon: currentColor;
+  --nexo-chat-filter-btn-font-size: 12px;
+  --nexo-chat-filter-btn-shadow: none;
+  /* chat list scrollbar */
+  --nexo-chat-list-scrollbar-thumb: #6b8afd;
+  --nexo-chat-list-scrollbar-track: #11141a;
+  /* chat list items */
+  --nexo-chat-item-bg: #11141a;
+  --nexo-chat-list-item-bg: var(--nexo-chat-item-bg);
+  --nexo-chat-item-text: #e5eefc;
+  --nexo-chat-item-border: #232934;
+  --nexo-chat-item-radius: 0px;
+  --nexo-chat-item-hover-bg: rgba(96, 165, 250, 0.16);
+  --nexo-chat-list-item-hover-bg: var(--nexo-chat-item-hover-bg);
+  /* chat item active/selected */
+  --nexo-chat-item-active-bg: #1c212a;
+  --nexo-chat-item-active-text: #e5eefc;
+  --nexo-chat-item-active-border: #6b8afd;
+  /* chat item unread */
+  --nexo-chat-item-unread-bg: rgba(96, 165, 250, 0.1);
+  --nexo-chat-item-unread-name-color: #e5eefc;
+  --nexo-chat-item-unread-hover-bg: rgba(96, 165, 250, 0.16);
+  --nexo-chat-item-unread-border: #6b8afd;
+  /* chat item group */
+  --nexo-chat-item-group-bg: rgba(107, 138, 253, 0.08);
+  --nexo-chat-list-item-group-bg: var(--nexo-chat-item-group-bg);
+  --nexo-chat-item-group-hover-bg: rgba(107, 138, 253, 0.16);
+  --nexo-chat-item-group-text: #e5eefc;
+  --nexo-chat-item-group-border: transparent;
+  --nexo-chat-item-group-radius: var(--nexo-chat-item-radius, 10px);
+  /* chat group pill extras */
+  --nexo-chat-group-pill-radius: 999px;
+  --nexo-chat-group-pill-font-size: 11px;
+  --nexo-chat-group-pill-icon: currentColor;
+  /* status pill extras */
+  --nexo-chat-status-pill-radius: 4px;
+  --nexo-chat-status-pill-border: #9f6060;
+  --nexo-chat-status-pill-border-width: 1px;
+  --nexo-chat-status-pill-font-size: 10px;
+  --nexo-chat-status-pill-icon: currentColor;
+  /* chat children / sub-elements */
+  --nexo-chat-item-children-text: inherit;
+  --nexo-chat-item-children-icon: inherit;
+  --nexo-chat-item-children-badge-bg: transparent;
+  --nexo-chat-item-children-border: transparent;
+  /* chat group pill */
+  --nexo-chat-group-pill-bg: rgba(107, 138, 253, 0.15);
+  --nexo-chat-group-pill-text: #a5b4fc;
+  --nexo-chat-group-pill-border: rgba(107, 138, 253, 0.3);
+  /* status pills */
+  --nexo-chat-reported-pill-bg: #7f1d1d;
+  --nexo-chat-reported-pill-text: #fecaca;
+  --nexo-chat-blocked-pill-bg: #7f1d1d;
+  --nexo-chat-blocked-pill-text: #fecaca;
+  /* draft preview */
+  --nexo-chat-preview-draft-text: #4ade80;
+  --nexo-chat-preview-draft-label: #fcd34d;
+  --nexo-chat-preview-draft-bg: transparent;
+  /* audio preview */
+  --nexo-chat-preview-audio-bg: transparent;
+  --nexo-chat-preview-audio-text: #e5eefc;
+  --nexo-chat-preview-audio-icon: #818cf8;
+  --nexo-chat-preview-audio-border: transparent;
+  --nexo-chat-preview-audio-label: #e5eefc;
+  --nexo-chat-preview-audio-separator: #94a3b8;
+  --nexo-chat-preview-audio-time: #e5eefc;
+  /* item actions */
+  --nexo-chat-item-action-icon: #94a3b8;
+  --nexo-chat-item-action-hover-bg: #1e2433;
+  --nexo-chat-item-action-active-bg: transparent;
+  /* chat pin toggle */
+  --nexo-chat-pin-toggle-bg: #1e2433;
+  --nexo-chat-pin-toggle-text: #94a3b8;
+  --nexo-chat-pin-toggle-icon: #94a3b8;
+  --nexo-chat-pin-toggle-border: #2d3748;
+  --nexo-chat-pin-toggle-radius: 7px;
+  --nexo-chat-pin-toggle-hover-bg: #252d3d;
+  --nexo-chat-pin-toggle-active-bg: rgba(107, 138, 253, 0.15);
+  --nexo-chat-pin-toggle-active-icon: #818cf8;
+  /* chat pin menu */
+  --nexo-chat-pin-menu-bg: #1a1f2b;
+  --nexo-chat-pin-menu-text: #e5eefc;
+  --nexo-chat-pin-menu-border: #2d3748;
+  --nexo-chat-pin-menu-radius: 10px;
+  --nexo-chat-pin-menu-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+  --nexo-chat-pin-menu-font-size: 12px;
+  --nexo-chat-pin-menu-item-bg: transparent;
+  --nexo-chat-pin-menu-item-text: #e5eefc;
+  --nexo-chat-pin-menu-item-icon: currentColor;
+  --nexo-chat-pin-menu-item-hover-bg: rgba(107, 138, 253, 0.12);
+  --nexo-chat-pin-menu-item-radius: 8px;
+  --nexo-chat-pin-menu-item-font-size: 12px;
+  --nexo-chat-pin-menu-danger-bg: transparent;
+  --nexo-chat-pin-menu-danger-text: #f87171;
+  --nexo-chat-pin-menu-danger-icon: currentColor;
+  --nexo-chat-pin-menu-danger-hover-bg: rgba(239, 68, 68, 0.12);
+  --nexo-chat-pin-menu-danger-border: transparent;
+  --nexo-chat-pin-menu-report-bg: transparent;
+  --nexo-chat-pin-menu-report-text: #fbbf24;
+  --nexo-chat-pin-menu-report-icon: currentColor;
+  --nexo-chat-pin-menu-report-hover-bg: rgba(251, 191, 36, 0.1);
+  --nexo-chat-pin-menu-report-border: transparent;
+  /* chat item preview */
+  --nexo-chat-preview-color: #6b7280;
+  --nexo-chat-preview-font-size: 12px;
+  --nexo-chat-preview-sender-color: #94a3b8;
+  --nexo-chat-item-name-color: #e5eefc;
+  /* chat item badge */
+  --nexo-chat-unread-badge-bg: #6b8afd;
+  --nexo-chat-item-badge-text: #ffffff;
+  --nexo-chat-unread-badge-text: #ffffff;
+  --nexo-chat-unread-badge-border: transparent;
+  --nexo-chat-unread-badge-radius: 9999px;
+  --nexo-chat-unread-badge-font-size: 12px;
+  --nexo-chat-unread-badge-shadow: none;
+  /* chat item shadow */
+  --nexo-chat-item-shadow: none;
+  /* chat empty state */
+  --nexo-chat-empty-bg: transparent;
+  --nexo-chat-empty-text: #6b7280;
+  --nexo-chat-empty-pulse-bg: rgba(107, 138, 253, 0.12);
+  /* chat side panel */
+  --nexo-chat-side-panel-bg: #11141a;
+  --nexo-chat-side-panel-border: #232934;
+  --nexo-chat-side-panel-text: #e5eefc;
+  --nexo-chat-font-size: 14px;
+  --nexo-primary-color: #6b8afd;
   background: var(--bg-main);
   color: var(--text-main);
 }
@@ -1468,6 +1889,48 @@ body.dark-mode .perfil-avatar-btn {
    to global scope so ViewEncapsulation never blocks them)
    ===================================================== */
 
+/* ── LIGHT MODE: chat list surface nexo vars ── */
+.chat-list-wrapper,
+.listadoChats {
+  background-color: var(--nexo-chat-list-panel-bg, var(--nexo-chat-list-bg, var(--bg-panel))) !important;
+  color: var(--nexo-chat-list-text, var(--text-main)) !important;
+  border-right-color: var(--nexo-chat-list-border, var(--border-main)) !important;
+}
+
+.chat-item:not(.chat-item--selected) {
+  background-color: var(--nexo-chat-list-item-bg, var(--nexo-chat-item-bg, transparent)) !important;
+  color: var(--nexo-chat-item-text, var(--text-main)) !important;
+}
+
+.chat-item:not(.chat-item--selected):not(.chat-item--group):hover {
+  background-color: var(--nexo-chat-list-item-hover-bg, var(--nexo-chat-item-hover-bg, #eff6ff)) !important;
+}
+
+.chat-item--unread:not(.chat-item--selected) {
+  background: var(--nexo-chat-item-unread-bg, #f0f7ff) !important;
+}
+
+.chat-item--unread:not(.chat-item--selected):not(.chat-item--group):hover {
+  background: var(--nexo-chat-item-unread-hover-bg, var(--nexo-chat-list-item-hover-bg, var(--nexo-chat-item-hover-bg, #eff6ff))) !important;
+}
+
+.chat-item--unread .nombre {
+  color: var(--nexo-chat-item-unread-name-color, #0f172a) !important;
+}
+
+.badge-inline {
+  background: var(--nexo-chat-unread-badge-bg, #2563eb) !important;
+  color: var(--nexo-chat-unread-badge-text, var(--nexo-chat-item-badge-text, #ffffff)) !important;
+  border-color: var(--nexo-chat-unread-badge-border, transparent) !important;
+  border-radius: var(--nexo-chat-unread-badge-radius, 9999px) !important;
+  font-size: var(--nexo-chat-unread-badge-font-size, 12px) !important;
+  box-shadow: var(--nexo-chat-unread-badge-shadow, none) !important;
+}
+
+.chat-scroll {
+  scrollbar-color: var(--nexo-chat-list-scrollbar-thumb, #3b82f6) var(--nexo-chat-list-scrollbar-track, white) !important;
+}
+
 /* ── layout / text ── */
 body.dark-mode .imagenPrincipal,
 body.dark-mode .contenedorChat,
@@ -1486,22 +1949,27 @@ body.dark-mode .entrada-mensaje {
 
 /* ── chat list surface ── */
 body.dark-mode .chat-item,
-body.dark-mode .chat-list-menu,
 body.dark-mode .topbar-profile-menu,
 body.dark-mode .notif-panel,
 body.dark-mode .chat-pinned-banner,
 body.dark-mode .chat-pinned-banner__menu,
 body.dark-mode .attachment-preview {
-  background: var(--bg-elevated) !important;
-  border-color: var(--border-main) !important;
-  color: var(--text-main) !important;
+  background: var(--nexo-chat-list-item-bg, var(--nexo-chat-item-bg, var(--bg-elevated))) !important;
+  border-color: var(--nexo-chat-item-border, var(--border-main)) !important;
+  color: var(--nexo-chat-item-text, var(--text-main)) !important;
 }
 
-/* ── selected chat item — morado oscuro ── */
+body.dark-mode .chat-list-menu {
+  background: var(--nexo-chat-list-menu-bg, #1c212a) !important;
+  border-color: var(--nexo-chat-list-menu-border, #232934) !important;
+  color: var(--nexo-chat-list-menu-text, var(--text-main)) !important;
+}
+
+/* ── selected chat item ── */
 body.dark-mode .chat-item.chat-item--selected {
   border-left: none !important;
-  background: #1c212a !important;
-  color: var(--text-main) !important;
+  background: var(--nexo-chat-item-active-bg, #1c212a) !important;
+  color: var(--nexo-chat-item-active-text, var(--text-main)) !important;
   position: relative !important;
 }
 
@@ -1513,57 +1981,57 @@ body.dark-mode .chat-item.chat-item--selected::before {
   transform: translateY(-50%) !important;
   width: 3px !important;
   height: 60% !important;
-  background: #6b8afd !important;
+  background: var(--nexo-chat-item-active-border, #6b8afd) !important;
   border-radius: 0 2px 2px 0 !important;
 }
 
 /* ── group chat items (override hardcoded blue gradient) ── */
 body.dark-mode .chat-item.chat-item--group,
 body.dark-mode .chat-item.chat-item--group.chat-item--selected {
-  background: var(--bg-elevated) !important;
-  color: var(--text-main) !important;
+  background: var(--nexo-chat-list-item-group-bg, var(--nexo-chat-list-item-bg, var(--bg-elevated))) !important;
+  color: var(--nexo-chat-item-group-text, var(--text-main)) !important;
 }
 
 body.dark-mode .chat-item.chat-item--group.chat-item--selected {
   border-left: none !important;
-  background: #1c212a !important;
+  background: var(--nexo-chat-item-active-bg, #1c212a) !important;
 }
 
 body.dark-mode .chat-item.chat-item--group:hover {
-  background: var(--interactive-soft) !important;
-  color: var(--text-main) !important;
+  background: var(--nexo-chat-item-group-hover-bg, var(--interactive-soft)) !important;
+  color: var(--nexo-chat-item-group-text, var(--text-main)) !important;
 }
 
 /* ── unread items ── */
 body.dark-mode .chat-item--unread {
-  background: rgba(96, 165, 250, 0.1) !important;
+  background: var(--nexo-chat-item-unread-bg, rgba(96, 165, 250, 0.1)) !important;
 }
 
 body.dark-mode .chat-item--unread:hover {
-  background: var(--interactive-soft) !important;
+  background: var(--nexo-chat-item-unread-hover-bg, var(--interactive-soft)) !important;
 }
 
 body.dark-mode .chat-item--unread .nombre {
-  color: var(--text-main) !important;
+  color: var(--nexo-chat-item-unread-name-color, var(--text-main)) !important;
 }
 
 body.dark-mode .chat-item.chat-item--group.chat-item--unread {
-  background: rgba(96, 165, 250, 0.1) !important;
+  background: var(--nexo-chat-item-unread-bg, rgba(96, 165, 250, 0.1)) !important;
 }
 
 body.dark-mode .chat-item.chat-item--group.chat-item--unread:hover {
-  background: var(--interactive-soft) !important;
+  background: var(--nexo-chat-item-group-hover-bg, var(--nexo-chat-list-item-group-bg, var(--interactive-soft))) !important;
 }
 
 /* ── hover states ── */
-body.dark-mode .chat-item:hover,
+body.dark-mode .chat-item:not(.chat-item--group):not(.chat-item--selected):not(.chat-item--unread):hover,
 body.dark-mode .chat-filter-btn:hover,
 body.dark-mode .icono-chat:hover,
 body.dark-mode .topbar-profile-item:hover,
 body.dark-mode .chat-pinned-banner__toggle:hover,
 body.dark-mode .detalle-usuario-chat--clickable:hover {
-  background: var(--interactive-soft) !important;
-  color: var(--text-main) !important;
+  background: var(--nexo-chat-list-item-hover-bg, var(--nexo-chat-item-hover-bg, var(--interactive-soft))) !important;
+  color: var(--nexo-chat-item-text, var(--text-main)) !important;
 }
 
 /* ── misc inputs / scroll ── */
@@ -1584,7 +2052,7 @@ body.dark-mode .attachment-preview__size,
 body.dark-mode .preview-image-sender,
 body.dark-mode .preview-caption-chip {
   border-color: var(--border-main);
-  color: var(--text-main);
+  color: var(--nexo-chat-preview-sender-color, #94a3b8);
 }
 
 body.dark-mode .topbar__search-input,
@@ -1597,8 +2065,8 @@ body.dark-mode .input-mensaje {
 body.dark-mode .cuerpo-mensajes,
 body.dark-mode .cuerpo-mensajes--chat-selected,
 body.dark-mode .cuerpoMensajes {
-  background-color: transparent !important;
-  background-image: url('/assets/fondoChatsOscuro.png') !important;
+  background-color: var(--nexo-chat-bg, transparent) !important;
+  background-image: var(--nexo-chat-bg-image, url('/assets/fondoChatsOscuro.png')) !important;
   background-size: cover !important;
   background-position: center !important;
   background-repeat: no-repeat !important;
@@ -1859,8 +2327,8 @@ body.dark-mode .compose-ai-pop__error {
 
 /* ── 1. Burbujas propias (verde oscuro) ── */
 body.dark-mode .mensaje-propio {
-  background-color: #6b8afd !important;
-  color: white !important;
+  background-color: var(--nexo-own-message-bg, #6b8afd) !important;
+  color: var(--nexo-own-message-color, #ffffff) !important;
   border-color: rgba(34, 197, 94, 0.2) !important;
 }
 
@@ -1896,9 +2364,9 @@ body.dark-mode .double-check.leido {
 
 /* ── 4. Burbujas recibidas (individual) ── */
 body.dark-mode .mensaje-otro {
-  background-color: #1f2937 !important;
-  border-color: #334155 !important;
-  color: #e5e7eb !important;
+  background-color: var(--nexo-other-message-bg, #161a21) !important;
+  border-color: var(--nexo-chat-item-border, #232934) !important;
+  color: var(--nexo-other-message-color, #e7ebf0) !important;
 }
 
 body.dark-mode .mensaje-otro::before {
@@ -1990,21 +2458,25 @@ body.dark-mode .ai-ask-popup__section {
 
 /* ── 7. Filtros de chat ── */
 body.dark-mode .chat-filter-btn {
-  background: #1a1f27 !important;
-  border: 1px solid #232934 !important;
-  color: #6b7280 !important;
+  background: var(--nexo-chat-filter-btn-bg, var(--nexo-chat-filters-bg, #1a1f27)) !important;
+  border: 1px solid var(--nexo-chat-filter-btn-border, var(--nexo-chat-filters-border, #232934)) !important;
+  border-width: var(--nexo-chat-filter-btn-border-width, 1px) !important;
+  color: var(--nexo-chat-filter-btn-text, var(--nexo-chat-filters-text, #6b7280)) !important;
 }
 
 body.dark-mode .chat-filter-btn:hover {
-  background: #1e2430 !important;
-  color: #9ca3af !important;
+  background: var(--nexo-chat-filter-btn-hover-bg, var(--nexo-chat-item-hover-bg, #1e2430)) !important;
+  color: var(--nexo-chat-filter-btn-text, var(--nexo-chat-list-icon-color, #9ca3af)) !important;
 }
 
 body.dark-mode .chat-filter-btn.is-active {
-  background: #e7ebf0 !important;
-  border: 1px solid #0a0c10 !important;
-  color: #4a525e !important;
-  box-shadow: none !important;
+  background: var(--nexo-chat-filter-btn-active-bg, var(--nexo-chat-filters-active-bg, #6b8afd)) !important;
+  color: var(--nexo-chat-filter-btn-active-text, var(--nexo-chat-filters-active-text, #ffffff)) !important;
+  border-color: var(--nexo-chat-filter-btn-active-border, var(--nexo-chat-filter-btn-active-bg, #6b8afd)) !important;
+  border-width: var(--nexo-chat-filter-btn-active-border-width, 1px) !important;
+  border-radius: var(--nexo-chat-filter-btn-active-radius, 999px) !important;
+  font-size: var(--nexo-chat-filter-btn-active-font-size, 12px) !important;
+  box-shadow: var(--nexo-chat-filter-btn-active-shadow, none) !important;
 }
 
 /* =====================================================
@@ -3570,24 +4042,30 @@ body.dark-mode .chat-pin-menu-btn--report:hover {
   color: #fde68a !important;
 }
 
-/* encabezado-chats: blanco light, charcoal #0f172a dark */
+/* encabezado-chats: blanco light, charcoal dark */
 .encabezado-chats {
-  background: #ffffff !important;
+  background: var(--nexo-chat-list-header-bg, #ffffff) !important;
+  border-bottom-color: var(--nexo-chat-list-header-border, #e7eef0) !important;
 }
 
 body.dark-mode .encabezado-chats {
-  background: #11141a !important;
+  background: var(--nexo-chat-list-header-bg, #11141a) !important;
+  border-bottom-color: var(--nexo-chat-list-header-border, #232934) !important;
 }
 
-/* buscador + chat-filters: blanco light, oscuro dark */
-.buscador,
+/* buscador + chat-filters */
+.buscador {
+  background: var(--nexo-chat-list-search-bg, var(--nexo-chat-list-header-bg, #ffffff)) !important;
+}
 .chat-filters {
-  background: #ffffff !important;
+  background: var(--nexo-chat-filters-bg, var(--nexo-chat-list-header-bg, #ffffff)) !important;
 }
 
-body.dark-mode .buscador,
+body.dark-mode .buscador {
+  background: var(--nexo-chat-list-search-bg, var(--nexo-chat-list-header-bg, #11141a)) !important;
+}
 body.dark-mode .chat-filters {
-  background: #11141a !important;
+  background: var(--nexo-chat-filters-bg, var(--nexo-chat-list-header-bg, #11141a)) !important;
 }
 
 body.dark-mode .estado-icono.conectado {
@@ -3606,7 +4084,7 @@ body.dark-mode .sidebar-nav {
 }
 
 body.dark-mode .chat-item:not(.chat-item--selected) {
-  background-color: #11141a !important;
+  background-color: var(--nexo-chat-list-item-bg, var(--nexo-chat-item-bg, #11141a)) !important;
 }
 
 body.dark-mode .message-day-separator {
@@ -3625,9 +4103,6 @@ body.dark-mode .btn-emoji .bi-emoji-smile {
   color: #ffffff !important;
 }
 
-.encabezado-chats {
-  border-bottom-color: #e7eef0 !important;
-}
 
 body.dark-mode .btn-temp-message,
 body.dark-mode .btn-compose-actions,
@@ -3703,7 +4178,7 @@ body.dark-mode .mensaje.mensaje-propio .bi-check2-all.leido {
 
 body.dark-mode .icono-chat {
   background-color: transparent !important;
-  color: #9ca3af !important;
+  color: var(--nexo-chat-list-icon-color, #9ca3af) !important;
   border-radius: 6px !important;
   width: 32px !important;
   height: 32px !important;
@@ -3714,24 +4189,24 @@ body.dark-mode .icono-chat {
 }
 
 body.dark-mode .icono-chat i {
-  color: #9ca3af !important;
+  color: var(--nexo-chat-list-icon-color, #9ca3af) !important;
 }
 
 body.dark-mode .icono-chat:hover {
-  background-color: #1a1f27 !important;
+  background-color: var(--nexo-chat-list-menu-hover-bg, #1a1f27) !important;
 }
 
 body.dark-mode .icono-chat:hover i {
-  color: #e7ebf0 !important;
+  color: var(--nexo-chat-list-title-color, #e7ebf0) !important;
 }
 
 body.dark-mode .chat-item--selected {
-  background-color: #1c212a !important;
+  background-color: var(--nexo-chat-item-active-bg, #1c212a) !important;
 }
 
 body.dark-mode .chat-list-menu {
-  background: #1c212a !important;
-  border-color: #232934 !important;
+  background: var(--nexo-chat-list-menu-bg, #1c212a) !important;
+  border-color: var(--nexo-chat-list-menu-border, #232934) !important;
 }
 
 body.dark-mode .category-title {
@@ -3797,33 +4272,34 @@ body.dark-mode .preview-audio.compact .fa-microphone {
 }
 
 body.dark-mode .input-busqueda {
-  background-color: #161a21 !important;
-  border: 1px solid #566dc2 !important;
+  background-color: var(--nexo-chat-list-search-bg, #161a21) !important;
+  color: var(--nexo-chat-list-search-text, #e5eefc) !important;
+  border-color: var(--nexo-chat-list-search-border, #232934) !important;
 }
 
 body.dark-mode .chat-empty-filter-state {
-  background: #161a21 !important;
-  border-color: #232934 !important;
+  background: var(--nexo-chat-empty-bg, #161a21) !important;
+  border-color: var(--nexo-chat-list-border, #232934) !important;
 }
 
 body.dark-mode .chat-empty-filter-state__title {
-  color: #e7ebf0 !important;
+  color: var(--nexo-chat-list-title-color, #e7ebf0) !important;
 }
 
 body.dark-mode .chat-empty-filter-state__description {
-  color: #6b7280 !important;
+  color: var(--nexo-chat-empty-text, #6b7280) !important;
 }
 
 body.dark-mode .chat-empty-filter-state__icon {
-  background: #1c212a !important;
-  border-color: #232934 !important;
-  color: #6b8afd !important;
+  background: var(--nexo-chat-list-menu-bg, #1c212a) !important;
+  border-color: var(--nexo-chat-list-border, #232934) !important;
+  color: var(--nexo-primary-color, #6b8afd) !important;
 }
 
 body.dark-mode .chat-empty-filter-state__cta {
-  background: #1c212a !important;
-  border-color: #232934 !important;
-  color: #6b8afd !important;
+  background: var(--nexo-chat-list-menu-bg, #1c212a) !important;
+  border-color: var(--nexo-chat-list-border, #232934) !important;
+  color: var(--nexo-primary-color, #6b8afd) !important;
 }
 
 body.dark-mode .sidebar-nav__item:not(.sidebar-nav__item--logo):not(.sidebar-nav__item--active):hover {
@@ -3980,4 +4456,50 @@ body.dark-mode .perfil-code-timer {
 
 body.dark-mode .perfil-placeholder {
   color: #6b7280 !important;
+}
+
+/* ── UI Customization Card — dark mode ── */
+body.dark-mode .customization-card {
+  background: #1f2937 !important;
+  border-color: #334155 !important;
+}
+
+body.dark-mode .customization-card__title {
+  color: #f9fafb !important;
+}
+
+body.dark-mode .customization-card__description {
+  color: #cbd5e1 !important;
+}
+
+body.dark-mode .customization-card__notice {
+  background: #1c1a00 !important;
+  border-color: #854d0e !important;
+  color: #fde68a !important;
+}
+
+body.dark-mode .customization-card__feedback {
+  background: #052e16 !important;
+  border-color: #166534 !important;
+  color: #86efac !important;
+}
+
+body.dark-mode .customization-card__btn--ghost {
+  background: #1f2937 !important;
+  border-color: #334155 !important;
+  color: #f9fafb !important;
+}
+
+body.dark-mode .customization-card__btn--ghost:hover {
+  background: #111827 !important;
+}
+
+body.dark-mode .customization-card__btn--preview-active {
+  background: #111827 !important;
+  border-color: #334155 !important;
+  color: #f9fafb !important;
+}
+
+body.dark-mode .customization-card__btn--primary {
+  color: #f9fafb !important;
 }

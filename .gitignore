@@ -37,6 +37,12 @@ yarn-error.log
 testem.log
 /typings
 
+# Claude local config
+src/.claude/
+
+# ZIP files
+*.zip
+
 # System files
 .DS_Store
 Thumbs.db

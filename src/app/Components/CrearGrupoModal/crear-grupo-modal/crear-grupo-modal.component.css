@@ -1,10 +1,10 @@
 /* ===== Card / Glassy ===== */
 .modal-glass {
-  border-radius: 16px;
-  border: 1px solid #e5e7eb;
+  border-radius: var(--nexo-create-group-radius, 16px);
+  border: 1px solid var(--nexo-create-group-border, #e5e7eb);
   box-shadow: 0 24px 64px rgba(2, 6, 23, 0.18);
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,.92));
+  background: var(--nexo-create-group-bg, linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,.92)));
 }
 
 /* ===== Header de marca ===== */
@@ -108,11 +108,11 @@
 /* ===== Campos ===== */
 .group-fields { width: 100%; margin-top: 16px; }
 .form-control-xl {
-  border-radius: 12px;
+  border-radius: var(--nexo-create-group-radius, 12px);
   padding: 12px 14px;
   font-size: 15px;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
+  background: var(--nexo-create-group-input-bg, #f8fafc);
+  border: 1px solid var(--nexo-create-group-border, #e5e7eb);
 }
 .form-control-xl:focus { background: #fff; border-color: #cbd5e1; }
 .field-hint {
@@ -265,4 +265,3 @@
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
-

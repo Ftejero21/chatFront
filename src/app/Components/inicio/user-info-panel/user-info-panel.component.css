@@ -2,23 +2,23 @@
   display: block;
   height: 100%;
   width: 100%;
-  background-color: #f8fafc;
+  background-color: var(--nexo-user-panel-bg, #f8fafc);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  color: #1e293b;
+  color: var(--nexo-user-panel-text, #1e293b);
 }
 
 .user-panel-container {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: linear-gradient(135deg, #f0f9ff 0%, #ffffff 100%);
+  background: var(--nexo-user-panel-bg, linear-gradient(135deg, #f0f9ff 0%, #ffffff 100%));
 }
 
 .panel-header {
   padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--nexo-user-panel-bg, rgba(255, 255, 255, 0.85));
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--nexo-user-panel-border, #e2e8f0);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -51,7 +51,7 @@
 .header-title {
   font-size: 16px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--nexo-user-panel-text, #0f172a);
   margin: 0;
 }
 
@@ -86,9 +86,9 @@
 .profile-hero {
   text-align: center;
   padding: 32px 24px;
-  background: #ffffff;
-  border-radius: 28px;
-  border: 1px solid #e2e8f0;
+  background: var(--nexo-user-panel-bg, #ffffff);
+  border-radius: var(--nexo-user-panel-radius, 28px);
+  border: 1px solid var(--nexo-user-panel-border, #e2e8f0);
   box-shadow: 0 4px 25px -5px rgba(0, 0, 0, 0.03);
   position: relative;
 }
@@ -187,9 +187,9 @@
 }
 
 .collapsible-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 18px;
+  background: var(--nexo-user-panel-bg, #ffffff);
+  border: 1px solid var(--nexo-user-panel-border, #e2e8f0);
+  border-radius: var(--nexo-user-panel-radius, 18px);
   overflow: hidden;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }

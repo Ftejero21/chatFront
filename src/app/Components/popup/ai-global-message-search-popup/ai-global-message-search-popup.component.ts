@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { ChangeDetectorRef, Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, Output, SimpleChanges } from '@angular/core';
 import {
+  AiEncryptedMessageSearchResponse,
   AiEncryptedMessageSearchComplaintHistoryItem,
   AiEncryptedMessageSearchReportHistoryItem,
   AiEncryptedMessageSearchResult,
@@ -8,6 +9,9 @@ import {
 import { MensajeriaService } from '../../../Service/mensajeria/mensajeria.service';
 import { CryptoService } from '../../../Service/crypto/crypto.service';
 import { WebSocketService } from '../../../Service/WebSocket/web-socket.service';
+import { UiCustomizationService } from '../../../shared/ui-customization/ui-customization.service';
+import { NexoAreaId, NexoCssProperty } from '../../../shared/ui-customization/nexo-customizable-areas';
+import { UiCustomizationChange } from '../../../Interface/UiCustomizationIntentDTO';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments';
 import { clampPercent, formatDuration, parseAudioDurationMs, resolveMediaUrl } from '../../../utils/chat-utils';
@@ -20,6 +24,11 @@ type AiSearchProgressStep =
   | 'MESSAGE_NOT_FOUND'
   | 'APP_REPORT'
   | 'APP_REPORT_STATUS'
+  | 'COMPLAINTS_SEARCH'
+  | 'UI_CUSTOMIZATION_ANALYZING'
+  | 'UI_CUSTOMIZATION_VALIDATING'
+  | 'UI_CUSTOMIZATION_READY'
+  | 'UI_CUSTOMIZATION_FAILED'
   | 'ERROR'
   | string;
 interface AiSearchProgressWS {
@@ -184,6 +193,7 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   @Input() aiSummary: string | null = null;
   @Input() aiSummaryLoading = false;
   @Input() searchCodigo: string | null = null;
+  @Input() uiCustomizationResult: AiEncryptedMessageSearchResponse | null = null;
 
   @Output() closed = new EventEmitter<void>();
   @Output() consultaChange = new EventEmitter<string>();
@@ -206,11 +216,14 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     private readonly cryptoService: CryptoService,
     private readonly webSocketService: WebSocketService,
     private readonly http: HttpClient,
-    private readonly cdr: ChangeDetectorRef
+    private readonly cdr: ChangeDetectorRef,
+    private readonly uiCustomizationService: UiCustomizationService
   ) {}
 
   public animationActive = false;
   public showResult = false;
+  public customizationPreviewActive = false;
+  public customizationFeedback: string | null = null;
   public isApproximateResult = false;
   public showHistoryReportImagePreview = false;
   public historyReportImagePreviewSrc = '';
@@ -237,6 +250,8 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   private finalResultDelayScheduled = false;
   private readonly handledProgressKeys = new Set<string>();
   private readonly finalResultDelayMs = 750;
+  /** Minimum time a STARTED event stays visible before being replaced by COMPLETED. */
+  private readonly STEP_MIN_MS = 400;
 
   public ngOnChanges(changes: SimpleChanges): void {
     if (changes['open'] && changes['open'].currentValue === false) {
@@ -244,6 +259,20 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       this.closeHistoryReportImagePreview();
       this.clearHistoryReportImageCache();
       this.closeSearchResultMediaPreview();
+      if (this.customizationPreviewActive) {
+        this.uiCustomizationService.cancelPreview();
+        this.customizationPreviewActive = false;
+      }
+      this.customizationFeedback = null;
+    }
+    if (changes['uiCustomizationResult'] && this.uiCustomizationResult) {
+      // Signal WS steps complete so animation can resolve
+      if (this.animationActive) {
+        this.wsStepsComplete = true;
+        if (this.httpResponseReady) this.scheduleFinalResultDisplay();
+      }
+      this.customizationPreviewActive = false;
+      this.customizationFeedback = null;
     }
     if (changes['resultados']) {
       console.debug('[AI_SEARCH_RENDER] codigo=%s resultados=%o', this.searchCodigo, this.resultados);
@@ -273,7 +302,7 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
             queueLength: this.progressQueue.length,
             searchCodigo: this.searchCodigo,
           });
-          if (this.wsStepsComplete) {
+          if (this.wsStepsComplete || this.shouldResolveWithoutWsProgress()) {
             this.scheduleFinalResultDisplay();
           }
         }
@@ -846,7 +875,9 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       delayMs: this.finalResultDelayMs,
     });
     this.loadingTimers.push(setTimeout(() => {
-      if (!this.animationActive || !this.httpResponseReady || !this.wsStepsComplete) {
+      const canResolve =
+        this.wsStepsComplete || this.shouldResolveWithoutWsProgress();
+      if (!this.animationActive || !this.httpResponseReady || !canResolve) {
         this.finalResultDelayScheduled = false;
         return;
       }
@@ -907,13 +938,13 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     const rawPhase = String(event?.phase || '').trim().toUpperCase();
     const rawTarget = String(event?.target || '').trim().toUpperCase();
     const step = this.resolveProgressStep(rawStep, rawPhase, rawTarget);
-    const dedupeKey = `${requestId}:${step}:${rawStatus}`;
+    const backendMessage = this.sanitizeVisibleText(String(event?.message || '').trim());
+    const dedupeKey = `${requestId}:${step}:${rawStatus}:${rawTarget}:${rawPhase}:${backendMessage}`;
     if (this.handledProgressKeys.has(dedupeKey)) {
       console.log('[AI_SEARCH][WS] drop: duplicate', { dedupeKey, event });
       return null;
     }
     this.handledProgressKeys.add(dedupeKey);
-    const backendMessage = this.sanitizeVisibleText(String(event?.message || '').trim());
     const hasApproximateResult = event?.hasApproximateResult === true;
 
     console.log('[AI_SEARCH][WS] normalized fields', {
@@ -973,6 +1004,12 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
           remainingQueue: this.progressQueue.length,
         });
         this.applyVisibleProgressEvent(nextEvent);
+        // Yield after STARTED so Angular CD fires and user sees spinner
+        // before the COMPLETED event (which may already be in queue) replaces it
+        if (nextEvent.status === 'STARTED') {
+          await new Promise<void>((resolve) => setTimeout(resolve, this.STEP_MIN_MS));
+          if (!this.animationActive) break;
+        }
         if (nextEvent.status === 'FAILED') {
           this.wsStepsComplete = true;
           console.log('[AI_SEARCH][WS] failed event visible', nextEvent);
@@ -1015,23 +1052,30 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     this.cdr.markForCheck();
   }
   private isTerminalProgressEvent(event: VisibleAiProgressEvent): boolean {
+    if (event.status === 'FAILED') return true;
     if (event.status !== 'COMPLETED') return false;
     return (
       event.step === 'MESSAGE_FOUND' ||
       event.step === 'MESSAGE_NOT_FOUND' ||
       event.step === 'APP_REPORT' ||
       event.step === 'APP_REPORT_STATUS' ||
+      event.step === 'UI_CUSTOMIZATION_READY' ||
+      event.step === 'UI_CUSTOMIZATION_FAILED' ||
       event.step === 'ERROR'
     );
   }
   private resolveProgressStep(rawStep: string, rawPhase: string, rawTarget: string): string {
-    if (rawTarget === 'APP_REPORT_STATUS' || rawPhase === 'APP_REPORT_STATUS') {
-      return 'APP_REPORT_STATUS';
+    // Only infer from target/phase when rawStep is absent
+    if (!rawStep) {
+      if (rawTarget === 'APP_REPORT_STATUS' || rawPhase === 'APP_REPORT_STATUS') {
+        return 'APP_REPORT_STATUS';
+      }
+      if (rawTarget === 'APP_REPORT' || rawPhase === 'APP_REPORT') {
+        return 'APP_REPORT';
+      }
+      return rawPhase || rawTarget || 'UNKNOWN';
     }
-    if (rawTarget === 'APP_REPORT' || rawPhase === 'APP_REPORT') {
-      return 'APP_REPORT';
-    }
-    return rawStep || rawPhase || rawTarget || 'UNKNOWN';
+    return rawStep;
   }
 
   private sanitizeVisibleText(value: string): string {
@@ -1055,6 +1099,10 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     backendMessage: string,
     hasApproximateResult: boolean
   ): string {
+    // Backend is source of truth — always show backend message when present
+    if (backendMessage) return backendMessage;
+
+    // Fallbacks when backend sends no message
     if (step === 'ANALYZING_CONTEXT') {
       if (status === 'STARTED') return 'Analizando contexto...';
       if (status === 'COMPLETED') return 'Contexto analizado';
@@ -1076,19 +1124,20 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       }
     }
     if (step === 'APP_REPORT') {
-      if (status === 'STARTED') return backendMessage || 'Generando reporte...';
-      if (status === 'COMPLETED') return backendMessage || 'Reporte generado';
-      if (status === 'FAILED') return backendMessage || 'No se pudo generar el reporte';
+      if (status === 'STARTED') return 'Generando reporte...';
+      if (status === 'COMPLETED') return 'Reporte generado';
+      if (status === 'FAILED') return 'No se pudo generar el reporte';
     }
     if (step === 'APP_REPORT_STATUS') {
-      if (status === 'STARTED') return backendMessage || 'Buscando tus reportes...';
-      if (status === 'COMPLETED') return backendMessage || 'Busqueda de reportes finalizada';
-      if (status === 'FAILED') return backendMessage || 'No se pudo consultar el estado del reporte';
+      if (status === 'STARTED') return 'Buscando tus reportes...';
+      if (status === 'COMPLETED') return 'Busqueda de reportes finalizada';
+      if (status === 'FAILED') return 'No se pudo consultar el estado del reporte';
     }
-    if (step === 'ERROR') return backendMessage || 'Error al procesar la busqueda';
-    if (status === 'STARTED') return backendMessage || 'Procesando...';
-    if (status === 'COMPLETED') return backendMessage || 'Completado';
-    return backendMessage || 'No se pudo completar la operacion';
+    if (step === 'ERROR') return 'Error al procesar la busqueda';
+    if (status === 'STARTED') return 'Procesando...';
+    if (status === 'COMPLETED') return 'Completado';
+    if (status === 'FAILED') return 'No se pudo completar la operacion';
+    return 'Procesando...';
   }
   private resolveProgressEventState(
     step: string,
@@ -1112,6 +1161,200 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     if (step === 'MESSAGE_NOT_FOUND') return hasApproximateResult ? 'bi-exclamation-triangle-fill' : 'bi-exclamation-triangle';
     return 'bi-check-circle-fill';
   }
+
+  // ─── UI Customization ───────────────────────────────────────────────────────
+
+  public isUiCustomizationResponse(): boolean {
+    const target = String(this.uiCustomizationResult?.target || '').trim().toUpperCase();
+    const c = String(this.searchCodigo || '').trim().toUpperCase();
+    return (
+      target === 'UI_CUSTOMIZATION' ||
+      c === 'UI_CUSTOMIZATION_OK' ||
+      c === 'UI_CUSTOMIZATION_LOW_CONFIDENCE' ||
+      c === 'UI_CUSTOMIZATION_NOT_ALLOWED' ||
+      c === 'UI_CUSTOMIZATION_NEEDS_CLARIFICATION' ||
+      c === 'RESET_THEME'
+    );
+  }
+
+  public isUiCustomizationLowConfidence(): boolean {
+    return (
+      this.isUiCustomizationResponse() &&
+      String(this.searchCodigo || '').trim().toUpperCase().includes('LOW_CONFIDENCE')
+    );
+  }
+
+  public isUiCustomizationBlocked(): boolean {
+    const codigo = String(this.searchCodigo || '').trim().toUpperCase();
+    return (
+      this.isUiCustomizationResponse() &&
+      (codigo === 'UI_CUSTOMIZATION_NOT_ALLOWED' || codigo === 'UI_CUSTOMIZATION_NEEDS_CLARIFICATION')
+    );
+  }
+
+  public shouldShowUiCustomizationNotice(): boolean {
+    return this.isUiCustomizationLowConfidence() || this.isUiCustomizationBlocked();
+  }
+
+  public getUiCustomizationNoticeText(): string {
+    const codigo = String(this.searchCodigo || '').trim().toUpperCase();
+    if (codigo === 'UI_CUSTOMIZATION_NOT_ALLOWED') {
+      return 'Ese cambio no esta permitido en el frontend.';
+    }
+    if (codigo === 'UI_CUSTOMIZATION_NEEDS_CLARIFICATION') {
+      return 'La solicitud necesita mas detalle antes de aplicarse.';
+    }
+    return 'No estoy completamente seguro de este cambio. Revisalo antes de aplicar.';
+  }
+
+  public canExecuteUiCustomization(): boolean {
+    if (this.isResetThemeAction()) return true;
+    if (this.isUiCustomizationBlocked()) return false;
+    if (this.isUpdateStyleGroup()) {
+      return this.getGroupChanges().length > 0;
+    }
+    const result = this.uiCustomizationResult;
+    if (!result) return false;
+    // Show buttons if area+property present (value validated on click), or direct cssVariable
+    return (!!result.area && !!result.property) || !!String(result.cssVariable || '').trim();
+  }
+
+  public isResetThemeAction(): boolean {
+    const action = String(this.uiCustomizationResult?.action || '').trim().toUpperCase();
+    const codigo = String(this.searchCodigo || '').trim().toUpperCase();
+    return action === 'RESET_THEME' || codigo === 'RESET_THEME';
+  }
+
+  public isUpdateStyleGroup(): boolean {
+    const action = String(this.uiCustomizationResult?.action || '').trim().toUpperCase();
+    return action === 'UPDATE_STYLE_GROUP' || action === 'UPDATE_STYLE_MULTI';
+  }
+
+  public getChangesCount(): number {
+    return (this.uiCustomizationResult as any)?.changes?.length ?? 0;
+  }
+
+  public getGroupChanges(): UiCustomizationChange[] {
+    return ((this.uiCustomizationResult as any)?.changes ?? []) as UiCustomizationChange[];
+  }
+
+  public getCustomizationLabel(): string {
+    return String(
+      this.uiCustomizationResult?.label ||
+      this.uiCustomizationResult?.mensaje ||
+      'Personalización solicitada'
+    ).trim();
+  }
+
+  public onPreviewCustomization(): void {
+    if (!this.canExecuteUiCustomization()) return;
+
+    if (this.isUpdateStyleGroup()) {
+      const ok = this.uiCustomizationService.previewCustomizationGroup(this.getGroupChanges());
+      if (ok) {
+        this.customizationPreviewActive = true;
+        this.customizationFeedback = null;
+      } else {
+        this.customizationFeedback = 'No se pudo aplicar esta personalización.';
+      }
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const result = this.uiCustomizationResult;
+    if (!result) return;
+    const value = String((result as any)?.value || '').trim();
+    if (!value) {
+      this.customizationFeedback = 'No se pudo aplicar esta personalización.';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    let ok = false;
+    if (result.area && result.property) {
+      ok = this.uiCustomizationService.previewCustomization(
+        result.area as NexoAreaId,
+        result.property as NexoCssProperty,
+        value
+      );
+    } else if (result.cssVariable) {
+      ok = this.uiCustomizationService.previewByCssVariable(result.cssVariable, value);
+    }
+
+    if (ok) {
+      this.customizationPreviewActive = true;
+      this.customizationFeedback = null;
+    } else {
+      this.customizationFeedback = 'No se pudo aplicar esta personalización.';
+    }
+    this.cdr.markForCheck();
+  }
+
+  public onApplyCustomization(): void {
+    if (!this.canExecuteUiCustomization()) return;
+
+    if (this.isUpdateStyleGroup()) {
+      let ok: boolean;
+      if (this.customizationPreviewActive) {
+        this.uiCustomizationService.confirmPreview();
+        ok = true;
+      } else {
+        ok = this.uiCustomizationService.applyCustomizationGroup(this.getGroupChanges());
+      }
+      this.customizationPreviewActive = false;
+      this.customizationFeedback = ok ? 'Cambios aplicados ✓' : 'No se pudo aplicar esta personalización.';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const result = this.uiCustomizationResult;
+    if (!result) return;
+    const value = String((result as any)?.value || '').trim();
+    if (!value) {
+      this.customizationFeedback = 'No se pudo aplicar esta personalización.';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    let ok = false;
+    if (this.customizationPreviewActive) {
+      this.uiCustomizationService.confirmPreview();
+      ok = true;
+    } else if (result.area && result.property) {
+      ok = this.uiCustomizationService.applyCustomization(
+        result.area as NexoAreaId,
+        result.property as NexoCssProperty,
+        value
+      );
+    } else if (result.cssVariable) {
+      ok = this.uiCustomizationService.applyByCssVariable(result.cssVariable, value);
+    }
+
+    this.customizationPreviewActive = false;
+    this.customizationFeedback = ok ? 'Cambio aplicado ✓' : 'No se pudo aplicar esta personalización.';
+    this.cdr.markForCheck();
+  }
+
+  public onCancelCustomization(): void {
+    const wasPreviewActive = this.customizationPreviewActive;
+    if (wasPreviewActive) {
+      this.uiCustomizationService.cancelPreview();
+      this.customizationPreviewActive = false;
+      this.customizationFeedback = 'Personalización cancelada';
+    } else {
+      this.customizationFeedback = null;
+    }
+    this.cdr.markForCheck();
+  }
+
+  public onResetTheme(): void {
+    this.uiCustomizationService.resetTheme();
+    this.customizationPreviewActive = false;
+    this.customizationFeedback = 'Tema restaurado ✓';
+    this.cdr.markForCheck();
+  }
+
+  // ─── End UI Customization ───────────────────────────────────────────────────
 
   public isAppReportStatusResponse(): boolean {
     return String(this.searchCodigo || '').trim().toUpperCase() === 'APP_REPORT_STATUS_OK';
@@ -2190,11 +2433,17 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     return Number.isFinite(reportId) && reportId > 0 ? reportId : null;
   }
 
+  private shouldResolveWithoutWsProgress(): boolean {
+    return (
+      this.visibleProgressEvents.length === 0 &&
+      this.progressQueue.length === 0 &&
+      this.handledProgressKeys.size === 0
+    );
+  }
+
   private activateResultAnimation(): void {
     if (!this.currentRequestId || this.renderedResultRequestId === this.currentRequestId) return;
     this.renderedResultRequestId = this.currentRequestId;
     this.resultAnimationKey = this.currentRequestId;
   }
 }
-
-
