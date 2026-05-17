@@ -10,7 +10,7 @@ import { MensajeriaService } from '../../../Service/mensajeria/mensajeria.servic
 import { CryptoService } from '../../../Service/crypto/crypto.service';
 import { WebSocketService } from '../../../Service/WebSocket/web-socket.service';
 import { UiCustomizationService } from '../../../shared/ui-customization/ui-customization.service';
-import { NexoAreaId, NexoCssProperty } from '../../../shared/ui-customization/nexo-customizable-areas';
+import { NEXO_CUSTOMIZABLE_AREAS, NexoAreaId, NexoCssProperty } from '../../../shared/ui-customization/nexo-customizable-areas';
 import { UiCustomizationChange } from '../../../Interface/UiCustomizationIntentDTO';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments';
@@ -51,6 +51,11 @@ interface VisibleAiProgressEvent {
   state: 'active' | 'done' | 'warning' | 'error';
   hasApproximateResult: boolean;
   dedupeKey: string;
+}
+interface EditableUiCustomizationChange extends UiCustomizationChange {
+  selected: boolean;
+  value: string;
+  colorError: string | null;
 }
 
 type SearchResultMessageType = 'TEXT' | 'AUDIO' | 'IMAGE' | 'STICKER' | 'FILE' | 'UNKNOWN';
@@ -194,6 +199,11 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   @Input() aiSummaryLoading = false;
   @Input() searchCodigo: string | null = null;
   @Input() uiCustomizationResult: AiEncryptedMessageSearchResponse | null = null;
+  @Input() awaitingClarification = false;
+  @Input() clarificationMessage: string | null = null;
+  @Input() clarificationReason: string | null = null;
+  @Input() clarificationTarget: string | null = null;
+  @Input() smartActionThinkingVisible = false;
 
   @Output() closed = new EventEmitter<void>();
   @Output() consultaChange = new EventEmitter<string>();
@@ -224,6 +234,9 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   public showResult = false;
   public customizationPreviewActive = false;
   public customizationFeedback: string | null = null;
+  public changesDropdownOpen = false;
+  public editableChanges: EditableUiCustomizationChange[] = [];
+  public activeColorEditorKey: string | null = null;
   public isApproximateResult = false;
   public showHistoryReportImagePreview = false;
   public historyReportImagePreviewSrc = '';
@@ -252,6 +265,7 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   private readonly finalResultDelayMs = 750;
   /** Minimum time a STARTED event stays visible before being replaced by COMPLETED. */
   private readonly STEP_MIN_MS = 400;
+  private smartActionFirstWsReceived = false;
 
   public ngOnChanges(changes: SimpleChanges): void {
     if (changes['open'] && changes['open'].currentValue === false) {
@@ -264,8 +278,15 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
         this.customizationPreviewActive = false;
       }
       this.customizationFeedback = null;
+      this.activeColorEditorKey = null;
+      this.changesDropdownOpen = false;
     }
     if (changes['uiCustomizationResult'] && this.uiCustomizationResult) {
+      console.log('[UI_CUSTOMIZATION][DROPDOWN] ngOnChanges uiCustomizationResult', {
+        action: this.uiCustomizationResult?.action,
+        changesCount: ((this.uiCustomizationResult as any)?.changes ?? []).length,
+        dropdownOpenBefore: this.changesDropdownOpen,
+      });
       // Signal WS steps complete so animation can resolve
       if (this.animationActive) {
         this.wsStepsComplete = true;
@@ -273,6 +294,11 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       }
       this.customizationPreviewActive = false;
       this.customizationFeedback = null;
+      this.resetEditableCustomizationChanges();
+      console.log('[UI_CUSTOMIZATION][DROPDOWN] ngOnChanges uiCustomizationResult done', {
+        dropdownOpenAfter: this.changesDropdownOpen,
+        editableChangesCount: this.editableChanges.length,
+      });
     }
     if (changes['resultados']) {
       console.debug('[AI_SEARCH_RENDER] codigo=%s resultados=%o', this.searchCodigo, this.resultados);
@@ -288,6 +314,7 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
     if (changes['loading']) {
       if (this.loading) {
         this.showResult = false;
+        this.smartActionFirstWsReceived = false;
       } else if (this.animationActive) {
         if (this.error) {
           this.showResult = true;
@@ -322,16 +349,31 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
 
   public onBackdropClick(): void {
     if (this.loading) return;
+    this.consultaChange.emit('');
     this.closed.emit();
   }
 
   public onClose(): void {
     if (this.loading) return;
+    this.consultaChange.emit('');
     this.closed.emit();
   }
 
   public onConsultaChange(next: string): void {
     this.consultaChange.emit(String(next || ''));
+  }
+
+  public readonly suggestionChips: string[] = [
+    'Resume los mensajes no leídos de hoy',
+    'Buscar audios de Marcos esta semana',
+    'Cambiar tema a claro',
+    'Generar informe del grupo Diseño',
+  ];
+
+  public applySuggestion(text: string): void {
+    if (this.loading || this.animationActive) return;
+    this.consulta = text;
+    this.consultaChange.emit(text);
   }
 
   public onSubmit(): void {
@@ -893,6 +935,11 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       console.log('[AI_SEARCH][WS] ignored: animation inactive', event);
       return;
     }
+    if (this.smartActionThinkingVisible && !this.smartActionFirstWsReceived) {
+      this.smartActionFirstWsReceived = true;
+      console.log('[AI][SMART_ACTION_FIRST_WS] hideThinking=true');
+      this.cdr.markForCheck();
+    }
     console.log('[AI_SEARCH][WS] received raw', {
       currentRequestId: this.currentRequestId,
       event,
@@ -1210,8 +1257,8 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   public canExecuteUiCustomization(): boolean {
     if (this.isResetThemeAction()) return true;
     if (this.isUiCustomizationBlocked()) return false;
-    if (this.isUpdateStyleGroup()) {
-      return this.getGroupChanges().length > 0;
+    if (this.getChangesCount() > 0) {
+      return this.selectedChangesCount() > 0;
     }
     const result = this.uiCustomizationResult;
     if (!result) return false;
@@ -1231,11 +1278,464 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   }
 
   public getChangesCount(): number {
-    return (this.uiCustomizationResult as any)?.changes?.length ?? 0;
+    return this.getDisplayChanges().length;
   }
 
   public getGroupChanges(): UiCustomizationChange[] {
-    return ((this.uiCustomizationResult as any)?.changes ?? []) as UiCustomizationChange[];
+    if (this.editableChanges.length > 0) {
+      return this.editableChanges.map((change) => ({
+        area: change.area,
+        property: change.property,
+        value: change.value,
+        valuePreset: change.valuePreset,
+      }));
+    }
+    return this.getDisplayChanges(this.uiCustomizationResult);
+  }
+
+  public getDisplayChanges(response?: AiEncryptedMessageSearchResponse | null): UiCustomizationChange[] {
+    const source = response ?? this.uiCustomizationResult;
+    const groupChanges = ((source as any)?.changes ?? []) as UiCustomizationChange[];
+    if (groupChanges.length > 0) {
+      return groupChanges.map((change) => ({
+        ...change,
+        value: String(change.appliedValue ?? change.value ?? '').trim() || change.value || null,
+      }));
+    }
+    const rawSource = source as any;
+    const value = String(rawSource?.appliedValue ?? rawSource?.value ?? '').trim();
+    const valuePreset = String(rawSource?.valuePreset ?? '').trim();
+    if (rawSource?.area && rawSource?.property && (value || valuePreset)) {
+      return [{
+        area: rawSource.area,
+        property: rawSource.property,
+        value: value || null,
+        valuePreset: valuePreset || null,
+        requestedValue: rawSource.requestedValue ?? null,
+        appliedValue: rawSource.appliedValue ?? null,
+        minAllowedValue: rawSource.minAllowedValue ?? null,
+        maxAllowedValue: rawSource.maxAllowedValue ?? null,
+        normalized: rawSource.normalized ?? null,
+        normalizationReason: rawSource.normalizationReason ?? null,
+      }];
+    }
+    return [];
+  }
+
+  public toggleChangesDropdown(event?: Event): void {
+    event?.stopPropagation();
+    console.log('[UI_CUSTOMIZATION][DROPDOWN] toggle click', {
+      dropdownOpenBefore: this.changesDropdownOpen,
+      editableChangesCount: this.editableChanges.length,
+    });
+    if (this.changesDropdownOpen) return;
+    this.changesDropdownOpen = true;
+    console.log('[UI_CUSTOMIZATION][DROPDOWN] opened', {
+      dropdownOpenAfter: this.changesDropdownOpen,
+    });
+  }
+
+  public getSelectedChanges(): UiCustomizationChange[] {
+    if (this.editableChanges.length === 0) {
+      return this.getDisplayChanges();
+    }
+    return this.editableChanges
+      .filter((change) => change.selected)
+      .map((change) => ({
+        area: change.area,
+        property: change.property,
+        value: change.value,
+        valuePreset: change.valuePreset,
+      }));
+  }
+
+  public selectedChangesCount(): number {
+    return this.getSelectedChanges().length;
+  }
+
+  public hasInvalidSelectedChanges(): boolean {
+    return this.editableChanges.some((change) => change.selected && !!change.colorError);
+  }
+
+  public toggleChangeSelected(change: EditableUiCustomizationChange, event?: Event): void {
+    event?.stopPropagation();
+    change.selected = !change.selected;
+    if (this.customizationPreviewActive) this.reapplyGroupPreview();
+  }
+
+  public applySingleChange(change: EditableUiCustomizationChange, event?: Event): void {
+    event?.stopPropagation();
+    if (!change.selected || !!change.colorError) return;
+    const singleChange: UiCustomizationChange = {
+      area: change.area,
+      property: change.property,
+      value: change.value,
+      valuePreset: change.valuePreset,
+    };
+    if (this.customizationPreviewActive) {
+      this.uiCustomizationService.cancelPreview();
+      this.customizationPreviewActive = false;
+    }
+    const ok = this.uiCustomizationService.applyCustomizationGroup([singleChange]);
+    if (ok && this.getSelectedChanges().length > 0) {
+      this.customizationPreviewActive = this.uiCustomizationService.previewCustomizationGroup(this.getSelectedChanges());
+    }
+    this.customizationFeedback = ok ? 'Cambio aplicado ✓' : 'No se pudo aplicar esta personalizacion.';
+    this.cdr.markForCheck();
+  }
+
+  public onEditableValueInput(change: EditableUiCustomizationChange, newValue: string): void {
+    console.log('[UI_CUSTOMIZATION][DROPDOWN] value input', {
+      area: change.area,
+      property: change.property,
+      prevValue: change.value,
+      newValue,
+      dropdownOpen: this.changesDropdownOpen,
+    });
+    change.value = String(newValue || '').trim();
+    this.applyEditableChange(change);
+  }
+
+  public onEditableNumericValueInput(change: EditableUiCustomizationChange, newValue: string): void {
+    console.log('[UI_CUSTOMIZATION][DROPDOWN] numeric value input', {
+      area: change.area,
+      property: change.property,
+      prevValue: change.value,
+      newValue,
+      dropdownOpen: this.changesDropdownOpen,
+    });
+    const normalized = String(newValue || '').trim();
+    change.value = normalized ? `${normalized}px` : '';
+    this.applyEditableChange(change);
+  }
+
+  public openValueEditor(change: EditableUiCustomizationChange, event?: Event): void {
+    event?.stopPropagation();
+    if (!this.isEditableProperty(change.property) || !change.selected) return;
+    const key = this.getEditableChangeKey(change);
+    this.activeColorEditorKey = this.activeColorEditorKey === key ? null : key;
+  }
+
+  public closeColorEditor(event?: Event): void {
+    event?.stopPropagation();
+    this.activeColorEditorKey = null;
+  }
+
+  public isColorEditorOpen(change: EditableUiCustomizationChange): boolean {
+    return this.activeColorEditorKey === this.getEditableChangeKey(change);
+  }
+
+  public stopEvent(event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+  }
+
+  public stopPropagationOnly(event?: Event): void {
+    event?.stopPropagation();
+  }
+
+  private getEditableChangeKey(change: UiCustomizationChange): string {
+    return `${change.area || 'AREA'}:${change.property || 'PROPERTY'}`;
+  }
+
+  public applyEditableChange(change: EditableUiCustomizationChange): void {
+    const normalized = String(change.value || '').trim();
+    if (!this.isValidEditableValue(change.property, normalized, change)) {
+      change.colorError = this.getInvalidChangeMessage(change, normalized);
+      this.cdr.markForCheck();
+      return;
+    }
+    change.colorError = null;
+    change.value = normalized;
+    if (this.customizationPreviewActive) {
+      this.reapplyGroupPreview();
+    } else {
+      this.cdr.markForCheck();
+    }
+  }
+
+  public getChangeIconClass(area?: string): string {
+    const normalized = String(area || '').trim().toUpperCase();
+    if (normalized.includes('SIDEBAR')) return 'bi-layout-sidebar-inset';
+    if (normalized.includes('FILTER')) return 'bi-funnel';
+    if (normalized.includes('SEARCH')) return 'bi-search';
+    if (normalized.includes('ICON')) return 'bi-stars';
+    if (normalized.includes('HEADER')) return 'bi-type-h3';
+    if (normalized.includes('BADGE')) return 'bi-circle-fill';
+    return 'bi-palette';
+  }
+
+  public trackByCustomizationChange(index: number, change: UiCustomizationChange): string {
+    return `${change.area || 'AREA'}:${change.property || 'PROPERTY'}:${index}`;
+  }
+
+  public getReadableAreaLabel(area: string): string {
+    const staticLabels: Record<string, string> = {
+      CHAT_LIST_PANEL: 'Listado de chats',
+      CHAT_LIST_HEADER: 'Encabezado de chats',
+      CHAT_LIST_TITLE: 'Titulo del encabezado de chats',
+      CHAT_LIST_HEADER_ACTIONS: 'Iconos del encabezado de chats',
+      CHAT_LIST_SEARCH: 'Buscador del listado',
+      CHAT_LIST_FILTERS: 'Filtros del listado',
+      CHAT_LIST_FILTER_BUTTONS: 'Botones de filtro',
+      CHAT_LIST_FILTER_BUTTONS_ACTIVE: 'Filtro activo',
+      CHAT_LIST_ITEM: 'Chat individual',
+      CHAT_LIST_ITEM_GROUP: 'Chat grupal',
+      CHAT_LIST_ITEM_ACTIVE: 'Chat seleccionado',
+      CHAT_LIST_ITEM_GROUP_ACTIVE: 'Chat grupal seleccionado',
+      CHAT_LIST_ITEM_UNREAD: 'Chat no leido',
+      CHAT_LIST_PREVIEW: 'Ultimo mensaje',
+      CHAT_LIST_ITEM_PREVIEW: 'Ultimo mensaje de chat individual',
+      CHAT_LIST_ITEM_GROUP_PREVIEW: 'Ultimo mensaje de chat grupal',
+      CHAT_LIST_BADGES: 'Contadores del listado',
+      CHAT_LIST_ITEM_GROUP_BADGES: 'Contador de grupo',
+      CHAT_LIST_PIN_MENU: 'Desplegable de opciones del chat',
+      CHAT_LIST_PIN_MENU_ITEM: 'Opciones del desplegable del chat',
+      CHAT_LIST_PIN_MENU_REPORT: 'Opcion denunciar del desplegable',
+      CHAT_LIST_PIN_MENU_DANGER: 'Opcion peligrosa del desplegable',
+      CHAT_LIST_ACTIONS_MENU: 'Menu superior del listado',
+      CHAT_LIST_ACTIONS_MENU_ITEM: 'Opcion del menu superior',
+      CHAT_LIST_PIN_TOGGLE: 'Icono para abrir opciones del chat',
+      SIDEBAR_NAV_PANEL: 'Barra lateral',
+      SIDEBAR_NAV_GROUP: 'Zona superior de la barra lateral',
+      SIDEBAR_NAV_BOTTOM: 'Zona inferior de la barra lateral',
+      SIDEBAR_NAV_ITEM: 'Boton del menu lateral',
+      SIDEBAR_NAV_ITEM_ACTIVE: 'Boton activo del menu lateral',
+      SIDEBAR_NAV_ACTIVE_INDICATOR: 'Indicador activo del menu lateral',
+      SIDEBAR_NAV_LOGO: 'Logo N del menu lateral',
+      SIDEBAR_NAV_ICON: 'Iconos del menu lateral',
+      SIDEBAR_NAV_ICON_ACTIVE: 'Iconos activos del menu lateral',
+      SIDEBAR_NAV_AI_ICON: 'Icono de Nexo IA',
+      SIDEBAR_NAV_TOOLTIP: 'Tooltip del menu lateral',
+      SIDEBAR_NAV_AVATAR: 'Avatar del menu lateral',
+      SIDEBAR_NAV_SETTINGS: 'Ajustes del menu lateral',
+    };
+    const normalized = String(area || '').trim().toUpperCase();
+    if (staticLabels[normalized]) return staticLabels[normalized];
+    const catalogLabel = (NEXO_CUSTOMIZABLE_AREAS as Record<string, { label?: string }>)[normalized]?.label;
+    if (catalogLabel) return catalogLabel;
+    return this.humanizeTechnicalName(normalized);
+  }
+
+  public getReadablePropertyLabel(property: string): string {
+    const labels: Record<string, string> = {
+      BACKGROUND_COLOR: 'Fondo',
+      TEXT_COLOR: 'Texto',
+      ICON_COLOR: 'Icono',
+      BORDER_COLOR: 'Color del borde',
+      BORDER_WIDTH: 'Grosor del borde',
+      BORDER_RADIUS: 'Redondeado',
+      HOVER_BACKGROUND_COLOR: 'Fondo al pasar el raton',
+      HOVER_TEXT_COLOR: 'Texto al pasar el raton',
+      HOVER_ICON_COLOR: 'Icono al pasar el raton',
+      PLACEHOLDER_COLOR: 'Placeholder',
+      PREVIEW_SENDER_TEXT_COLOR: 'Nombre del remitente',
+      LABEL_COLOR: 'Etiqueta',
+      SEPARATOR_COLOR: 'Separador',
+      TIME_COLOR: 'Hora',
+      SHADOW: 'Sombra',
+      OPACITY: 'Opacidad',
+      FONT_SIZE: 'Tamano de texto',
+      FONT_WEIGHT: 'Grosor de texto',
+    };
+    const normalized = String(property || '').trim().toUpperCase();
+    return labels[normalized] || this.humanizeTechnicalName(normalized);
+  }
+
+  public humanizeTechnicalName(value?: string): string {
+    if (!value) return 'Cambio';
+    return value
+      .toLowerCase()
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  public isColorValue(value?: string | null): boolean {
+    return !!value && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
+  }
+
+  public isColorProperty(property: string): boolean {
+    return [
+      'BACKGROUND_COLOR',
+      'TEXT_COLOR',
+      'ICON_COLOR',
+      'BORDER_COLOR',
+      'HOVER_BACKGROUND_COLOR',
+      'HOVER_TEXT_COLOR',
+      'HOVER_ICON_COLOR',
+      'PLACEHOLDER_COLOR',
+      'PREVIEW_SENDER_TEXT_COLOR',
+      'LABEL_COLOR',
+      'SEPARATOR_COLOR',
+      'TIME_COLOR',
+    ].includes(String(property || '').trim().toUpperCase());
+  }
+
+  public isSizeProperty(property: string): boolean {
+    return [
+      'FONT_SIZE',
+      'BORDER_WIDTH',
+      'BORDER_RADIUS',
+      'WIDTH',
+      'HEIGHT',
+    ].includes(String(property || '').trim().toUpperCase());
+  }
+
+  public isEditableProperty(property: string): boolean {
+    return this.isColorProperty(property) || this.isSizeProperty(property);
+  }
+
+  public isSafeSizeValue(value?: string | null): boolean {
+    return !!value && /^(0|[0-9]{1,3}(\.[0-9]{1,2})?)(px|rem|em|%)$/.test(value);
+  }
+
+  public isPxValue(value?: string | null): boolean {
+    return !!value && /^(0|[0-9]{1,3}(\.[0-9]{1,2})?)px$/.test(value);
+  }
+
+  public getChangeDisplayValue(change: UiCustomizationChange): string {
+    return String(change.value ?? change.valuePreset ?? '').trim();
+  }
+
+  public isValidEditableValue(property: string, value?: string | null, change?: UiCustomizationChange): boolean {
+    if (this.isColorProperty(property)) return this.isColorValue(value);
+    if (this.isSizeProperty(property)) {
+      if (!this.isSafeSizeValue(value)) return false;
+      return this.isWithinAllowedRange(change, value);
+    }
+    return !!String(value || '').trim();
+  }
+
+  public hasAllowedRange(change: UiCustomizationChange): boolean {
+    return this.parseNumericAllowedValue(change.minAllowedValue) != null || this.parseNumericAllowedValue(change.maxAllowedValue) != null;
+  }
+
+  public getAllowedRangeLabel(change: UiCustomizationChange): string | null {
+    const min = this.getNormalizedAllowedValueLabel(change.minAllowedValue);
+    const max = this.getNormalizedAllowedValueLabel(change.maxAllowedValue);
+    if (!min && !max) return null;
+    if (min && max) return `Permitido: ${min} - ${max}`;
+    if (min) return `Minimo permitido: ${min}`;
+    return `Maximo permitido: ${max}`;
+  }
+
+  public shouldShowNormalizedNotice(change: UiCustomizationChange): boolean {
+    return !!change.normalized && (!!change.requestedValue || !!change.appliedValue || !!change.normalizationReason || this.hasAllowedRange(change));
+  }
+
+  public getNormalizedNotice(change: UiCustomizationChange): string {
+    const requested = this.getNormalizedAllowedValueLabel(change.requestedValue);
+    const applied = this.getNormalizedAllowedValueLabel(change.appliedValue || change.value);
+    const rangeLabel = this.getAllowedRangeLabel(change);
+    if (requested && applied && requested !== applied) {
+      return rangeLabel
+        ? `Se ajusto de ${requested} a ${applied}. ${rangeLabel}.`
+        : `Se ajusto de ${requested} a ${applied}.`;
+    }
+    if (change.normalizationReason) {
+      return rangeLabel ? `${change.normalizationReason}. ${rangeLabel}.` : `${change.normalizationReason}.`;
+    }
+    return rangeLabel || 'Se ajusto el valor segun las restricciones permitidas.';
+  }
+
+  public shouldUseNumericPxEditor(change: UiCustomizationChange): boolean {
+    return this.isSizeProperty(change.property) && (this.hasAllowedRange(change) || this.isPxValue(change.value) || this.isPxValue(change.appliedValue));
+  }
+
+  public getNumericEditorValue(change: UiCustomizationChange): number | null {
+    return this.parseNumericAllowedValue(change.value);
+  }
+
+  public getNumericEditorMin(change: UiCustomizationChange): number | null {
+    return this.parseNumericAllowedValue(change.minAllowedValue);
+  }
+
+  public getNumericEditorMax(change: UiCustomizationChange): number | null {
+    return this.parseNumericAllowedValue(change.maxAllowedValue);
+  }
+
+  public getValueEditorPlaceholder(property: string): string {
+    if (String(property || '').trim().toUpperCase() === 'FONT_SIZE') {
+      return '13px o 1rem';
+    }
+    if (String(property || '').trim().toUpperCase() === 'BORDER_WIDTH') {
+      return '0px a 4px';
+    }
+    if (String(property || '').trim().toUpperCase() === 'BORDER_RADIUS') {
+      return '12px';
+    }
+    return 'Valor';
+  }
+
+  private getInvalidChangeMessage(change: UiCustomizationChange, value: string): string {
+    if (this.isColorProperty(change.property)) {
+      return 'Color HEX invalido';
+    }
+    if (this.isSizeProperty(change.property)) {
+      if (!this.isSafeSizeValue(value)) {
+        return 'Usa un valor seguro, por ejemplo 13px o 1rem';
+      }
+      const min = this.getNormalizedAllowedValueLabel(change.minAllowedValue);
+      const max = this.getNormalizedAllowedValueLabel(change.maxAllowedValue);
+      if (min && max) return `Valor fuera de rango. Permitido: ${min} - ${max}`;
+      if (min) return `Valor menor del minimo permitido: ${min}`;
+      if (max) return `Valor mayor del maximo permitido: ${max}`;
+    }
+    return 'Valor no permitido';
+  }
+
+  private isWithinAllowedRange(change: UiCustomizationChange | undefined, value?: string | null): boolean {
+    if (!change) return true;
+    const numericValue = this.parseNumericAllowedValue(value);
+    const min = this.parseNumericAllowedValue(change.minAllowedValue);
+    const max = this.parseNumericAllowedValue(change.maxAllowedValue);
+    if (numericValue == null) return min == null && max == null;
+    if (min != null && numericValue < min) return false;
+    if (max != null && numericValue > max) return false;
+    return true;
+  }
+
+  private parseNumericAllowedValue(value?: string | null): number | null {
+    const normalized = String(value || '').trim();
+    const match = normalized.match(/^([0-9]{1,3}(?:\.[0-9]{1,2})?)(px|rem|em|%)$/);
+    if (!match) return null;
+    return Number(match[1]);
+  }
+
+  private getNormalizedAllowedValueLabel(value?: string | null): string | null {
+    const normalized = String(value || '').trim();
+    return normalized || null;
+  }
+
+  private resetEditableCustomizationChanges(): void {
+    const changes = this.getDisplayChanges(this.uiCustomizationResult);
+    this.activeColorEditorKey = null;
+    this.editableChanges = changes.map((change) => ({
+      ...change,
+      value: String(change.appliedValue || change.value || change.valuePreset || '').trim(),
+      selected: true,
+      colorError: null,
+    }));
+    for (const change of this.editableChanges) {
+      this.applyEditableChange(change);
+    }
+    console.log('[UI_CUSTOMIZATION][DROPDOWN] reset editable changes', {
+      mappedCount: this.editableChanges.length,
+      dropdownOpen: this.changesDropdownOpen,
+    });
+  }
+
+  private reapplyGroupPreview(): void {
+    if (!this.customizationPreviewActive) return;
+    this.uiCustomizationService.cancelPreview();
+    const selectedChanges = this.getSelectedChanges();
+    if (selectedChanges.length === 0) {
+      this.customizationPreviewActive = false;
+      this.cdr.markForCheck();
+      return;
+    }
+    this.customizationPreviewActive = this.uiCustomizationService.previewCustomizationGroup(selectedChanges);
+    this.cdr.markForCheck();
   }
 
   public getCustomizationLabel(): string {
@@ -1248,9 +1748,26 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
 
   public onPreviewCustomization(): void {
     if (!this.canExecuteUiCustomization()) return;
+    if (this.hasInvalidSelectedChanges()) {
+      this.customizationFeedback = 'Corrige los valores invalidos antes de previsualizar.';
+      this.cdr.markForCheck();
+      return;
+    }
 
-    if (this.isUpdateStyleGroup()) {
-      const ok = this.uiCustomizationService.previewCustomizationGroup(this.getGroupChanges());
+    const _action = String(this.uiCustomizationResult?.action || '').toUpperCase();
+
+    if (this.getChangesCount() > 0) {
+      const changes = this.getSelectedChanges();
+      console.log(
+        `[UI_CUSTOMIZATION][POPUP_PREVIEW] action=${_action} changesCount=${changes.length}` +
+        ` area=${changes[0]?.area ?? '-'} property=${changes[0]?.property ?? '-'}`
+      );
+      if (changes.length === 0) {
+        this.customizationFeedback = 'Selecciona al menos un cambio.';
+        this.cdr.markForCheck();
+        return;
+      }
+      const ok = this.uiCustomizationService.previewCustomizationGroup(changes);
       if (ok) {
         this.customizationPreviewActive = true;
         this.customizationFeedback = null;
@@ -1270,6 +1787,10 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       return;
     }
 
+    console.log(
+      `[UI_CUSTOMIZATION][POPUP_PREVIEW] action=${_action} changesCount=1` +
+      ` area=${result.area ?? '-'} property=${result.property ?? '-'}`
+    );
     let ok = false;
     if (result.area && result.property) {
       ok = this.uiCustomizationService.previewCustomization(
@@ -1292,14 +1813,32 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
 
   public onApplyCustomization(): void {
     if (!this.canExecuteUiCustomization()) return;
+    if (this.hasInvalidSelectedChanges()) {
+      this.customizationFeedback = 'Corrige los valores invalidos antes de aplicar.';
+      this.cdr.markForCheck();
+      return;
+    }
 
-    if (this.isUpdateStyleGroup()) {
+    const _action = String(this.uiCustomizationResult?.action || '').toUpperCase();
+
+    if (this.getChangesCount() > 0) {
+      const changes = this.getSelectedChanges();
+      console.log(
+        `[UI_CUSTOMIZATION][POPUP_APPLY] action=${_action} changesCount=${changes.length}` +
+        ` area=${changes[0]?.area ?? '-'} property=${changes[0]?.property ?? '-'}` +
+        ` previewActive=${this.customizationPreviewActive}`
+      );
+      if (changes.length === 0) {
+        this.customizationFeedback = 'Selecciona al menos un cambio.';
+        this.cdr.markForCheck();
+        return;
+      }
       let ok: boolean;
       if (this.customizationPreviewActive) {
         this.uiCustomizationService.confirmPreview();
         ok = true;
       } else {
-        ok = this.uiCustomizationService.applyCustomizationGroup(this.getGroupChanges());
+        ok = this.uiCustomizationService.applyCustomizationGroup(changes);
       }
       this.customizationPreviewActive = false;
       this.customizationFeedback = ok ? 'Cambios aplicados ✓' : 'No se pudo aplicar esta personalización.';
@@ -1316,6 +1855,11 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
       return;
     }
 
+    console.log(
+      `[UI_CUSTOMIZATION][POPUP_APPLY] action=${_action} changesCount=1` +
+      ` area=${result.area ?? '-'} property=${result.property ?? '-'}` +
+      ` previewActive=${this.customizationPreviewActive}`
+    );
     let ok = false;
     if (this.customizationPreviewActive) {
       this.uiCustomizationService.confirmPreview();
@@ -1365,6 +1909,7 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
   }
 
   public isEmptyAiResponse(): boolean {
+    if (this.awaitingClarification) return false;
     const codigo = String(this.searchCodigo || '').trim().toUpperCase();
     return codigo.endsWith('_EMPTY');
   }
@@ -1419,6 +1964,10 @@ export class AiGlobalMessageSearchPopupComponent implements OnChanges, OnDestroy
 
   public getVisibleProgressEventIconClass(event: VisibleAiProgressEvent): string {
     return event.iconClass;
+  }
+
+  public shouldShowSmartActionThinking(): boolean {
+    return this.smartActionThinkingVisible && this.loading && !this.smartActionFirstWsReceived && this.visibleProgressEvents.length === 0;
   }
 
   public getSortedReportResults(resultados: AiEncryptedMessageSearchResult[]): ReportCard[] {

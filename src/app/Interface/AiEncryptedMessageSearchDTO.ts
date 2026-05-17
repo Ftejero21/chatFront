@@ -21,6 +21,9 @@ export interface AiEncryptedMessageSearchResponse {
   mensaje: string;
   target?: string | null;
   action?: string | null;
+  needsClarification?: boolean | null;
+  clarificationReason?: string | null;
+  clarificationQuestion?: string | null;
   area?: string | null;
   property?: string | null;
   value?: string | null;

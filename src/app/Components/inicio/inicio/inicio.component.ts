@@ -134,6 +134,7 @@ import { AiService } from '../../../Service/ai/ai.service';
 import { StickerService } from '../../../Service/sticker/sticker.service';
 import { StickerDTO } from '../../../Interface/StickerDTO';
 import { StickerEditorSaveEvent } from '../sticker-editor-panel/sticker-editor-panel.component';
+import { UsuarioDisponibleChat } from '../../../Interface/UsuarioDisponibleChatDTO';
 
 // Bootstrap (modales)
 declare const bootstrap: any;
@@ -651,6 +652,11 @@ export class InicioComponent {
   public globalMessageSearchAiSummaryLoading = false;
   public globalMessageSearchCodigo: string | null = null;
   public globalMessageSearchUiCustomizationResult: AiEncryptedMessageSearchResponse | null = null;
+  public globalMessageSearchClarificationMessage: string | null = null;
+  public globalMessageSearchAwaitingClarification = false;
+  public globalMessageSearchLastClarificationReason: string | null = null;
+  public globalMessageSearchLastClarificationTarget: string | null = null;
+  public globalMessageSearchSmartActionThinkingVisible = false;
   public showMuteDurationPicker = false;
   public muteDurationTargetChat: any | null = null;
   public muteRequestInFlight = false;
@@ -1181,6 +1187,9 @@ export class InicioComponent {
     string,
     Promise<SecureAttachmentLoadResult>
   >();
+  private lazyMediaLoadingByMessageId = new Map<string, Promise<void>>();
+  private lazyMediaObserver: IntersectionObserver | null = null;
+  private lazyObservationScheduled = false;
 
   public busquedaChat: string = '';
   public chatListFilter: ChatListFilter = 'TODOS';
@@ -1733,7 +1742,7 @@ export class InicioComponent {
                     this.usuarioActualId
                   );
                   chat.ultimaMensaje = preview;
-                  chat.ultimaFecha = fecha;
+                  this.applyChatLastDate(chat, fecha, 'ws-individual-open-chat');
                   chat.lastPreviewId = lastId;
                   this.stampChatLastMessageFieldsFromMessage(chat, mensaje);
                   void this.syncChatItemLastPreviewMedia(
@@ -1759,7 +1768,7 @@ export class InicioComponent {
                         this.usuarioActualId
                       );
                       item.ultimaMensaje = preview;
-                      item.ultimaFecha = fecha;
+                      this.applyChatLastDate(item, fecha, 'ws-individual-list-existing');
                       item.lastPreviewId = lastId;
                       this.stampChatLastMessageFieldsFromMessage(item, mensaje);
                       void this.syncChatItemLastPreviewMedia(
@@ -1885,7 +1894,7 @@ export class InicioComponent {
                           this.usuarioActualId
                         );
                         item.ultimaMensaje = preview;
-                        item.ultimaFecha = fecha;
+                        this.applyChatLastDate(item, fecha, 'ws-individual-list-created');
                         item.lastPreviewId = lastId;
                         this.stampChatLastMessageFieldsFromMessage(item, mensaje);
                         void this.syncChatItemLastPreviewMedia(
@@ -1911,7 +1920,7 @@ export class InicioComponent {
                       this.usuarioActualId
                     );
                     item.ultimaMensaje = preview;
-                    item.ultimaFecha = fecha;
+                    this.applyChatLastDate(item, fecha, 'ws-individual-own-outgoing');
                     item.lastPreviewId = lastId;
                     this.stampChatLastMessageFieldsFromMessage(item, mensaje);
                     void this.syncChatItemLastPreviewMedia(
@@ -3448,6 +3457,9 @@ export class InicioComponent {
       this.restoreDraftForChat(chat);
     }
 
+    // Forzar CD inmediato para que el selected se refleje antes del HTTP call
+    this.cdr.detectChanges();
+
     // Helper: carga inicial paginada (page=0,size=50)
     const loadMessages = () => {
       this.debugAdminWarningFlow('open-chat-load-history', {
@@ -3472,11 +3484,13 @@ export class InicioComponent {
               // Si el back confirma que sigues siendo miembro, limpia estado local
               this.clearCurrentUserOutOfGroup(Number(chat.id));
             }
+            this.cdr.detectChanges();
             loadMessages(); // Carga mensajes (si quieres bloquear lectura cuando no eres miembro, quita esto)
           },
           error: (err) => {
             console.error('? esMiembroDeGrupo:', err);
             // En errores críticos, mantenemos el fallback local y aún así intentamos cargar
+            this.cdr.detectChanges();
             loadMessages();
           },
         });
@@ -4189,6 +4203,159 @@ private async decryptPreviewString(
     this.decryptingAudioByCacheKey.set(cacheKey, decryptPromise);
     return decryptPromise;
   }
+
+  // ─── LAZY MEDIA ────────────────────────────────────────────────────────────
+
+  private setupLazyMediaObserver(): void {
+    if (this.lazyMediaObserver) return;
+    const root = this.contenedorMensajes?.nativeElement ?? null;
+    this.lazyMediaObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          this.lazyMediaObserver?.unobserve(entry.target);
+          const msgId = entry.target.getAttribute('data-lazy-msg-id');
+          if (!msgId) return;
+          const mensaje = (this.mensajesSeleccionados || []).find(
+            (m: any) => String(m?.id) === msgId
+          ) as MensajeDTO | undefined;
+          if (!mensaje) return;
+          if ((mensaje as any).__mediaLoaded || (mensaje as any).__mediaLoading) return;
+          this.ensureMessageMediaLoaded(mensaje, 'viewport');
+        });
+      },
+      { root, rootMargin: '150px 0px', threshold: 0 }
+    );
+  }
+
+  private observeAllLazyMessages(): void {
+    const container = this.contenedorMensajes?.nativeElement as HTMLElement | undefined;
+    if (!container) return;
+    this.setupLazyMediaObserver();
+    const elements = container.querySelectorAll<HTMLElement>('[data-lazy-msg-id]');
+    elements.forEach((el) => this.lazyMediaObserver!.observe(el));
+  }
+
+  public scheduleLazyMediaObservation(): void {
+    if (this.lazyObservationScheduled) return;
+    this.lazyObservationScheduled = true;
+    setTimeout(() => {
+      this.lazyObservationScheduled = false;
+      this.observeAllLazyMessages();
+    }, 80);
+  }
+
+  private disconnectLazyMediaObserver(): void {
+    this.lazyMediaObserver?.disconnect();
+    this.lazyMediaObserver = null;
+  }
+
+  /**
+   * Parsea metadata del payload E2E sin descargar el binario.
+   * Marca el mensaje como lazy para que la UI muestre un placeholder.
+   */
+  private prepareIncomingMediaPlaceholder(
+    mensaje: MensajeDTO,
+    chatId: number,
+    source: string
+  ): void {
+    const tipo = String(mensaje?.tipo || 'TEXT').toUpperCase();
+    if (tipo !== 'AUDIO' && tipo !== 'IMAGE' && tipo !== 'STICKER' && tipo !== 'FILE') return;
+
+    const msgId = Number(mensaje?.id || 0);
+
+    if (tipo === 'AUDIO') {
+      const payload = this.parseAudioE2EPayload(mensaje?.contenido);
+      if (payload) {
+        if (payload.audioMime && !mensaje.audioMime) mensaje.audioMime = payload.audioMime;
+        if (Number.isFinite(Number(payload.audioDuracionMs)) && !Number.isFinite(Number(mensaje.audioDuracionMs))) {
+          mensaje.audioDuracionMs = Number(payload.audioDuracionMs);
+        }
+        if (payload.audioUrl) mensaje.audioUrl = payload.audioUrl;
+        (mensaje as any).__audioE2EEncrypted = true;
+      }
+    } else if (tipo === 'IMAGE' || tipo === 'STICKER') {
+      const payload = this.parseImageE2EPayload(mensaje?.contenido);
+      if (payload) {
+        if (payload.imageMime && !mensaje.imageMime) mensaje.imageMime = payload.imageMime;
+        if (payload.imageNombre && !mensaje.imageNombre) mensaje.imageNombre = payload.imageNombre;
+        if (payload.imageUrl) mensaje.imageUrl = payload.imageUrl;
+        (mensaje as any).__imageE2EEncrypted = true;
+      }
+    } else if (tipo === 'FILE') {
+      const payload = this.parseFileE2EPayload(mensaje?.contenido);
+      if (payload) {
+        if (payload.fileMime && !mensaje.fileMime) mensaje.fileMime = payload.fileMime;
+        if (payload.fileNombre && !mensaje.fileNombre) mensaje.fileNombre = payload.fileNombre;
+        if (Number.isFinite(Number(payload.fileSizeBytes)) && !Number.isFinite(Number(mensaje.fileSizeBytes))) {
+          mensaje.fileSizeBytes = Number(payload.fileSizeBytes);
+        }
+        if (payload.fileUrl) mensaje.fileUrl = payload.fileUrl;
+        (mensaje as any).__fileE2EEncrypted = true;
+      }
+    }
+
+    (mensaje as any).__mediaLazy    = true;
+    (mensaje as any).__mediaLoading = false;
+    (mensaje as any).__mediaLoaded  = false;
+    (mensaje as any).__mediaChatId  = chatId;
+    (mensaje as any).__attachmentLoadError = '';
+
+    console.log(`[MEDIA][LAZY_PREPARE] messageId=${msgId} tipo=${tipo} chatId=${chatId} source=${source}`);
+  }
+
+  /**
+   * Descarga y descifra el media de un mensaje lazy.
+   * Deduplicado por clave chatId:msgId:tipo.
+   */
+  public async ensureMessageMediaLoaded(mensaje: MensajeDTO, reason: string): Promise<void> {
+    if ((mensaje as any).__mediaLoaded) return;
+    if (!(mensaje as any).__mediaLazy) return;
+
+    const msgId   = Number(mensaje?.id || 0);
+    const chatId  = Number((mensaje as any).__mediaChatId || this.chatSeleccionadoId || this.chatActual?.id || 0);
+    const tipo    = String(mensaje?.tipo || 'TEXT').toUpperCase();
+    const key     = `${chatId}:${msgId}:${tipo}`;
+
+    const inFlight = this.lazyMediaLoadingByMessageId.get(key);
+    if (inFlight) {
+      console.log(`[MEDIA][LAZY_LOAD_REUSE_IN_FLIGHT] messageId=${msgId}`);
+      return inFlight;
+    }
+
+    console.log(`[MEDIA][LAZY_LOAD_START] reason=${reason} messageId=${msgId} tipo=${tipo} chatId=${chatId}`);
+    (mensaje as any).__mediaLoading = true;
+    this.cdr.markForCheck();
+
+    const promise = (async () => {
+      try {
+        const debugCtx: E2EDebugContext = { chatId, mensajeId: msgId, source: `lazy-${reason}` };
+        if (tipo === 'AUDIO') {
+          await this.hydrateIncomingAudioMessage(mensaje, debugCtx);
+        } else if (tipo === 'IMAGE' || tipo === 'STICKER') {
+          await this.hydrateIncomingImageMessage(mensaje, debugCtx);
+        } else if (tipo === 'FILE') {
+          await this.hydrateIncomingFileMessage(mensaje, debugCtx);
+        }
+        (mensaje as any).__mediaLoaded  = true;
+        (mensaje as any).__mediaLazy    = false;
+        (mensaje as any).__mediaLoading = false;
+        console.log(`[MEDIA][LAZY_LOAD_DONE] messageId=${msgId} tipo=${tipo}`);
+      } catch (err: any) {
+        (mensaje as any).__mediaLoading = false;
+        (mensaje as any).__attachmentLoadError = String(err?.message || err || 'Error desconocido');
+        console.error(`[MEDIA][LAZY_LOAD_ERROR] messageId=${msgId} tipo=${tipo} status=${(err as any)?.status ?? 0}`);
+      } finally {
+        this.lazyMediaLoadingByMessageId.delete(key);
+        this.cdr.markForCheck();
+      }
+    })();
+
+    this.lazyMediaLoadingByMessageId.set(key, promise);
+    return promise;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
 
   private async hydrateIncomingAudioMessage(
     mensaje: MensajeDTO,
@@ -5499,7 +5666,13 @@ private async decryptPreviewString(
 
     const preview = String(payload?.ultimoMensaje ?? '').trim() || 'Sin mensajes aún';
     item.ultimaMensaje = this.normalizeOwnPreviewPrefix(preview, item);
-    item.ultimaFecha = String(payload?.ultimaFecha ?? '').trim() || item.ultimaFecha || null;
+    {
+      const rawFechaPayload = String(payload?.ultimaFecha ?? '').trim();
+      const formatted = rawFechaPayload ? this.formatChatListLastDate(rawFechaPayload) : null;
+      // Si el backend ya devuelve pre-formateado (no parseable como ISO), lo usamos tal cual
+      item.ultimaFecha = (formatted ?? rawFechaPayload) || item.ultimaFecha || null;
+      if (formatted !== null && rawFechaPayload) item.__ultimaFechaRaw = rawFechaPayload;
+    }
 
     const lastVisibleMessageId = Number(payload?.lastVisibleMessageId ?? payload?.ultimoMensajeId);
     if (Number.isFinite(lastVisibleMessageId) && lastVisibleMessageId > 0) {
@@ -5827,7 +6000,7 @@ private async decryptPreviewString(
           this.usuarioActualId
         );
         chat.ultimaMensaje = preview;
-        chat.ultimaFecha = fecha;
+        this.applyChatLastDate(chat, fecha, 'ws-individual-merged');
         chat.lastPreviewId = lastId;
         this.stampChatLastMessageFieldsFromMessage(chat, mergedPayload);
         void this.syncChatItemLastPreviewMedia(
@@ -8051,7 +8224,7 @@ private async decryptPreviewString(
         esSistema: true,
         systemEvent: String(systemMessage?.systemEvent || '').trim() || 'GROUP_MEMBER_EXPELLED',
       };
-      chatItem.ultimaFecha = patchedMessage.fechaEnvio || chatItem.ultimaFecha || nowIso;
+      this.applyChatLastDate(chatItem, patchedMessage.fechaEnvio || nowIso, 'group-expulsion-system');
       this.stampChatLastMessageFieldsFromMessage(chatItem, patchedMessage);
     }
 
@@ -8287,7 +8460,8 @@ private async decryptPreviewString(
     mensajes: any[],
     chatId: number,
     esGrupo: boolean,
-    source: string
+    source: string,
+    opts?: { mediaHydration?: 'eager' | 'lazy' }
   ): Promise<MensajeDTO[]> {
     const lista = Array.isArray(mensajes) ? [...mensajes] : [];
     this.debugAdminWarningFlow('history-decrypt-start', {
@@ -8392,21 +8566,25 @@ private async decryptPreviewString(
           source,
         }
       );
-      await this.hydrateIncomingAudioMessage(m as MensajeDTO, {
-        chatId,
-        mensajeId: Number(m?.id),
-        source: `${source}-audio`,
-      });
-      await this.hydrateIncomingImageMessage(m as MensajeDTO, {
-        chatId,
-        mensajeId: Number(m?.id),
-        source: `${source}-image`,
-      });
-      await this.hydrateIncomingFileMessage(m as MensajeDTO, {
-        chatId,
-        mensajeId: Number(m?.id),
-        source: `${source}-file`,
-      });
+      if ((opts?.mediaHydration ?? 'eager') === 'lazy') {
+        this.prepareIncomingMediaPlaceholder(m as MensajeDTO, chatId, source);
+      } else {
+        await this.hydrateIncomingAudioMessage(m as MensajeDTO, {
+          chatId,
+          mensajeId: Number(m?.id),
+          source: `${source}-audio`,
+        });
+        await this.hydrateIncomingImageMessage(m as MensajeDTO, {
+          chatId,
+          mensajeId: Number(m?.id),
+          source: `${source}-image`,
+        });
+        await this.hydrateIncomingFileMessage(m as MensajeDTO, {
+          chatId,
+          mensajeId: Number(m?.id),
+          source: `${source}-file`,
+        });
+      }
       if (isAdminLike) {
         this.debugAdminWarningFlow('history-row-after-decrypt', {
           source,
@@ -8516,7 +8694,8 @@ private async decryptPreviewString(
           mensajes || [],
           chatId,
           esGrupo,
-          esGrupo ? 'history-group' : 'history-individual'
+          esGrupo ? 'history-group' : 'history-individual',
+          { mediaHydration: 'lazy' }
         );
 
         if (
@@ -8557,6 +8736,7 @@ private async decryptPreviewString(
         this.mensajesSeleccionados = merged;
         this.seedIncomingReactionsFromMessages(merged);
         this.evaluarRespuestasRapidas();
+        this.scheduleLazyMediaObservation();
         state.messages = [...merged];
         if (
           !esGrupo &&
@@ -8680,6 +8860,7 @@ private async decryptPreviewString(
       this.messagesInitialLoadingConversationKey = null;
       return;
     }
+    this.disconnectLazyMediaObserver();
     this.messagesInitialLoadingConversationKey = buildConversationHistoryKey(
       chatId,
       esGrupo
@@ -8738,7 +8919,8 @@ private async decryptPreviewString(
           esGrupo,
           esGrupo
             ? `history-group-page-${nextPage}`
-            : `history-individual-page-${nextPage}`
+            : `history-individual-page-${nextPage}`,
+          { mediaHydration: 'lazy' }
         );
 
         if (
@@ -8764,6 +8946,7 @@ private async decryptPreviewString(
         );
         this.mensajesSeleccionados = merged;
         this.seedIncomingReactionsFromMessages(merged);
+        this.scheduleLazyMediaObservation();
         state.messages = [...merged];
         state.page = nextPage;
         state.hasMore = fetchedCount === this.HISTORY_PAGE_SIZE;
@@ -8807,6 +8990,7 @@ private async decryptPreviewString(
   public onMessagesScroll(): void {
     const el = this.contenedorMensajes?.nativeElement;
     if (!el || !this.chatActual) return;
+    this.scheduleLazyMediaObservation();
     if (el.scrollTop >= this.HISTORY_SCROLL_TOP_THRESHOLD) return;
     this.loadOlderMessagesPageForActiveChat();
   }
@@ -10934,6 +11118,83 @@ private async decryptPreviewString(
   }
 
   /**
+   * Abre o crea un chat desde el panel "Nuevo chat" (app-nuevo-chat).
+   * Si el usuario ya tiene conversación y está en la lista de chats, la abre.
+   * Si no, crea una vista temporal idéntica a onTopbarResultClick.
+   */
+  public onNuevoChatContactoSeleccionado(usuario: UsuarioDisponibleChat): void {
+    this.showNuevoChatPanel = false;
+
+    // 1. Buscar chat existente por chatId o por receptor
+    if (usuario.tieneConversacion && usuario.chatId) {
+      const porId = (this.chats || []).find(
+        (c: any) => Number(c.id) === Number(usuario.chatId)
+      );
+      if (porId) {
+        this.mostrarMensajes(porId);
+        return;
+      }
+    }
+    const porReceptor = (this.chats || []).find(
+      (c: any) => !c.esGrupo && Number(c.receptor?.id) === Number(usuario.id)
+    );
+    if (porReceptor) {
+      this.mostrarMensajes(porReceptor);
+      return;
+    }
+
+    // 2. No encontrado: crear chat temporal (igual que onTopbarResultClick)
+    this.persistActiveChatDraft();
+    this.resetEdicion();
+
+    const nombre = usuario.nombre ?? '';
+    const apellido = usuario.apellido ?? '';
+    this.chatActual = {
+      id: undefined,
+      esGrupo: false,
+      nombre: usuario.nombreCompleto || `${nombre} ${apellido}`.trim(),
+      foto: usuario.fotoPerfil || 'assets/usuario.png',
+      receptor: {
+        id: usuario.id,
+        nombre,
+        apellido,
+        foto: usuario.fotoPerfil,
+      },
+      estado: 'Desconectado',
+      ultimaMensaje: 'Sin mensajes aún',
+      ultimaFecha: null,
+      lastPreviewId: null,
+      unreadCount: 0,
+    };
+
+    this.chatSeleccionadoId = 0;
+    this.mensajesSeleccionados = [];
+    this.usuarioEscribiendo = false;
+    this.usuarioGrabandoAudio = false;
+    this.escribiendoHeader = '';
+    this.audioGrabandoHeader = '';
+    this.typingSetHeader?.clear?.();
+    this.audioSetHeader?.clear?.();
+    this.composeCursorStart = 0;
+    this.composeCursorEnd = 0;
+    this.activeMainView = 'chat';
+
+    const myId = this.getMyUserId();
+    if (usuario.id && usuario.id !== myId && !this.suscritosEstado.has(usuario.id)) {
+      this.suscritosEstado.add(usuario.id);
+      this.wsService.suscribirseAEstado(usuario.id, (estadoStr: string) => {
+        const estado = this.toEstado(estadoStr);
+        if (this.chatActual?.receptor?.id === usuario.id) {
+          this.chatActual.estado = estado;
+          this.cdr.markForCheck();
+        }
+        const c = (this.chats || []).find((x: any) => x.receptor?.id === usuario.id);
+        if (c) c.estado = estado;
+      });
+    }
+  }
+
+  /**
    * Notifica por WebSockets que el usuario actual está "Escribiendo...".
    */
   public notificarEscribiendo(): void {
@@ -11210,7 +11471,7 @@ private async decryptPreviewString(
         this.usuarioActualId
       );
       chat.ultimaMensaje = preview;
-      chat.ultimaFecha = fecha;
+      this.applyChatLastDate(chat, fecha, 'local-edit-message');
       chat.lastPreviewId = lastId;
       this.stampChatLastMessageFieldsFromMessage(chat, updated);
       void this.syncChatItemLastPreviewMedia(chat, updated, 'local-edit-message');
@@ -11453,6 +11714,10 @@ private async decryptPreviewString(
     this.forwardSelectedChatIds = new Set(this.forwardSelectedChatIds);
   }
 
+  public trackChatById(_index: number, chat: any): number {
+    return Number(chat?.id ?? _index);
+  }
+
   public onChatItemClick(chat: any): void {
     this.openChatPinMenuChatId = null;
     if (this.forwardModalOpen) {
@@ -11632,7 +11897,7 @@ private async decryptPreviewString(
         imageNombre: original?.imageNombre || null,
       };
       item.unreadCount = 0;
-      item.ultimaFecha = nowIso;
+      this.applyChatLastDate(item, nowIso, 'forward-local-preview');
       item.lastPreviewId = previewMensaje.id ?? item.lastPreviewId;
       this.stampChatLastMessageFieldsFromMessage(item, previewMensaje);
       void this.syncChatItemLastPreviewMedia(
@@ -14039,6 +14304,56 @@ private async decryptPreviewString(
     if (senderId && senderId === Number(this.usuarioActualId)) return 'Tú';
     return '';
   }
+
+  // ─── CHAT LIST DATE FORMATTER ──────────────────────────────────────────────
+
+  private formatChatListLastDate(value?: string | Date | null): string | null {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value as string);
+    if (Number.isNaN(date.getTime())) return null;
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const diffDays = Math.floor((startOfToday.getTime() - startOfDate.getTime()) / 86400000);
+
+    if (diffDays === 0) {
+      return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+    if (diffDays === 1) return 'Ayer';
+    if (diffDays >= 2 && diffDays <= 6) {
+      return ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][date.getDay()];
+    }
+    return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }).replace('.', '');
+  }
+
+  private resolveChatListPreviewDate(message?: any): string {
+    const rawDate =
+      message?.fechaEnvio ||
+      message?.fechaCreacion ||
+      message?.createdAt ||
+      message?.fecha ||
+      new Date();
+    return this.formatChatListLastDate(rawDate) || this.formatChatListLastDate(new Date()) || '';
+  }
+
+  private applyChatLastDate(chat: any, rawDate: string | null | undefined, source: string): void {
+    if (!chat) return;
+    const raw = rawDate ?? null;
+    const formatted = this.formatChatListLastDate(raw);
+    if (formatted !== null) {
+      chat.__ultimaFechaRaw = raw;
+      chat.ultimaFecha = formatted;
+      console.debug('[CHAT_LIST][LAST_DATE_FORMATTED]', {
+        source,
+        chatId: chat.id,
+        rawDate: raw,
+        formattedDate: formatted,
+      });
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
 
   private stampChatLastMessageFieldsFromMessage(chat: any, mensaje: any): void {
     if (!chat || !mensaje) return;
@@ -16590,8 +16905,11 @@ private async decryptPreviewString(
         const unreadDiff = (b.c.unreadCount || 0) - (a.c.unreadCount || 0);
         if (unreadDiff !== 0) return unreadDiff;
 
-        // 3) por fecha (más reciente arriba)
-        const fd = compareFechaDesc(a.c.ultimaFecha, b.c.ultimaFecha);
+        // 3) por fecha (más reciente arriba) — usar raw ISO, ultimaFecha ya está formateado para display
+        const fd = compareFechaDesc(
+          a.c.__ultimaFechaRaw ?? null,
+          b.c.__ultimaFechaRaw ?? null
+        );
         if (fd !== 0) return fd;
 
         // 4) estable: índice original
@@ -18296,7 +18614,7 @@ private async decryptPreviewString(
             this.usuarioActualId
           );
           chatItem.ultimaMensaje = preview;
-          chatItem.ultimaFecha = fecha;
+          this.applyChatLastDate(chatItem, fecha, 'ws-group-list');
           chatItem.lastPreviewId = lastId;
           this.stampChatLastMessageFieldsFromMessage(chatItem, mensaje);
           void this.syncChatItemLastPreviewMedia(
@@ -18376,7 +18694,7 @@ private async decryptPreviewString(
         this.usuarioActualId
       );
       chat.ultimaMensaje = preview;
-      chat.ultimaFecha = fecha;
+      this.applyChatLastDate(chat, fecha, 'ws-group-open-chat');
       chat.lastPreviewId = lastId;
       this.stampChatLastMessageFieldsFromMessage(chat, mensaje);
       void this.syncChatItemLastPreviewMedia(chat, mensaje, 'ws-group-open-chat');
@@ -19742,6 +20060,11 @@ private async decryptPreviewString(
     this.globalMessageSearchResumenBusqueda = null;
     this.globalMessageSearchResultados = [];
     this.globalMessageSearchUiCustomizationResult = null;
+    this.globalMessageSearchClarificationMessage = null;
+    this.globalMessageSearchAwaitingClarification = false;
+    this.globalMessageSearchLastClarificationReason = null;
+    this.globalMessageSearchLastClarificationTarget = null;
+    this.globalMessageSearchSmartActionThinkingVisible = false;
     this.cdr.detectChanges();
   }
 
@@ -19754,6 +20077,11 @@ private async decryptPreviewString(
     this.globalMessageSearchAiSummaryLoading = false;
     this.globalMessageSearchCodigo = null;
     this.globalMessageSearchUiCustomizationResult = null;
+    this.globalMessageSearchClarificationMessage = null;
+    this.globalMessageSearchAwaitingClarification = false;
+    this.globalMessageSearchLastClarificationReason = null;
+    this.globalMessageSearchLastClarificationTarget = null;
+    this.globalMessageSearchSmartActionThinkingVisible = false;
   }
 
   public onGlobalMessageSearchConsultaChange(next: string): void {
@@ -19793,6 +20121,9 @@ private async decryptPreviewString(
     }
 
     this.globalMessageSearchLoading = true;
+    this.globalMessageSearchSmartActionThinkingVisible = true;
+    console.log('[AI][SMART_ACTION_PENDING] started=true');
+    console.log('[AI][SMART_ACTION_THINKING] visible=true');
     this.globalMessageSearchError = null;
     this.globalMessageSearchResumenBusqueda = null;
     this.globalMessageSearchResultados = [];
@@ -19800,6 +20131,11 @@ private async decryptPreviewString(
     this.globalMessageSearchAiSummaryLoading = false;
     this.globalMessageSearchCodigo = null;
     this.globalMessageSearchUiCustomizationResult = null;
+    this.globalMessageSearchClarificationMessage = null;
+    this.globalMessageSearchAwaitingClarification = false;
+    this.globalMessageSearchLastClarificationReason = null;
+    this.globalMessageSearchLastClarificationTarget = null;
+    this.globalMessageSearchSmartActionThinkingVisible = false;
 
     this.doGlobalMessageSearch(request);
   }
@@ -19810,12 +20146,40 @@ private async decryptPreviewString(
       .pipe(
         finalize(() => {
           this.globalMessageSearchLoading = false;
+          this.globalMessageSearchSmartActionThinkingVisible = false;
+          console.log('[AI][SMART_ACTION_PENDING] finished=true');
           this.cdr.markForCheck();
         })
       )
       .subscribe({
         next: (response) => {
           this.globalMessageSearchCodigo = String(response?.codigo || '').trim() || null;
+          this.globalMessageSearchSmartActionThinkingVisible = false;
+
+          if (this.isGlobalMessageSearchNeedsClarificationResponse(response)) {
+            const question = this.resolveGlobalMessageSearchClarificationQuestion(response);
+            this.globalMessageSearchAwaitingClarification = true;
+            this.globalMessageSearchClarificationMessage = question;
+            this.globalMessageSearchLastClarificationReason = String(response?.clarificationReason || '').trim() || null;
+            this.globalMessageSearchLastClarificationTarget = String(response?.target || '').trim() || null;
+            this.globalMessageSearchResultados = [];
+            this.globalMessageSearchResumenBusqueda = null;
+            this.globalMessageSearchAiSummary = null;
+            this.globalMessageSearchAiSummaryLoading = false;
+            this.globalMessageSearchError = null;
+            this.globalMessageSearchUiCustomizationResult = null;
+            console.log('[AI][SMART_ACTION_CLARIFICATION] target=%s reason=%s question=%s',
+              this.globalMessageSearchLastClarificationTarget || '-',
+              this.globalMessageSearchLastClarificationReason || '-',
+              question
+            );
+            return;
+          }
+
+          this.globalMessageSearchAwaitingClarification = false;
+          this.globalMessageSearchClarificationMessage = null;
+          this.globalMessageSearchLastClarificationReason = null;
+          this.globalMessageSearchLastClarificationTarget = null;
 
           if (this.isGlobalMessageSearchUiCustomizationResponse(response)) {
             this.globalMessageSearchUiCustomizationResult = response;
@@ -19860,6 +20224,11 @@ private async decryptPreviewString(
             error?.error?.mensaje || error?.error?.message || ''
           ).trim();
           this.globalMessageSearchResumenBusqueda = null;
+          this.globalMessageSearchAwaitingClarification = false;
+          this.globalMessageSearchClarificationMessage = null;
+          this.globalMessageSearchLastClarificationReason = null;
+          this.globalMessageSearchLastClarificationTarget = null;
+          this.globalMessageSearchSmartActionThinkingVisible = false;
           this.globalMessageSearchError =
             backendMessage || 'No se pudo completar la busqueda global.';
         },
@@ -19895,6 +20264,7 @@ private async decryptPreviewString(
     response: AiEncryptedMessageSearchResponse | null | undefined
   ): boolean {
     if (!response) return true;
+    if (this.isGlobalMessageSearchNeedsClarificationResponse(response)) return false;
     const codigo = String(response?.codigo || '').trim().toUpperCase();
     if (!codigo) return response?.success === false;
     if (codigo.includes('LOW_CONFIDENCE')) {
@@ -19910,6 +20280,30 @@ private async decryptPreviewString(
       return true;
     }
     return response?.success === false && !this.isGlobalMessageSearchUiCustomizationResponse(response);
+  }
+
+  private isGlobalMessageSearchNeedsClarificationResponse(
+    response: AiEncryptedMessageSearchResponse | null | undefined
+  ): boolean {
+    if (!response) return false;
+    const codigo = String(response?.codigo || '').trim().toUpperCase();
+    const action = String(response?.action || '').trim().toUpperCase();
+    return (
+      codigo === 'SMART_ACTION_NEEDS_CLARIFICATION' ||
+      codigo === 'UI_CUSTOMIZATION_NEEDS_CLARIFICATION' ||
+      action === 'NEEDS_CLARIFICATION' ||
+      response?.needsClarification === true
+    );
+  }
+
+  private resolveGlobalMessageSearchClarificationQuestion(
+    response: AiEncryptedMessageSearchResponse | null | undefined
+  ): string {
+    const question = String(response?.clarificationQuestion || '').trim();
+    if (question) return question;
+    const msg = String(response?.mensaje || '').trim();
+    if (msg) return msg;
+    return 'Necesito un poco mas de informacion para ayudarte.';
   }
 
   private getGlobalMessageSearchControlledErrorMessage(
@@ -22155,6 +22549,7 @@ private async decryptPreviewString(
   }
 
   public ngOnDestroy(): void {
+    this.disconnectLazyMediaObserver();
     this.limpiarRespuestasRapidas();
     if (this.browserNotificationRouteSub) {
       this.browserNotificationRouteSub.unsubscribe();

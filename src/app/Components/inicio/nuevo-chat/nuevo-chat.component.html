@@ -1,0 +1,173 @@
+<div class="nuevo-chat-panel" [class.nuevo-chat-panel--open]="open">
+
+  <!-- Header -->
+  <div class="nuevo-chat-panel__header">
+    <button class="nuevo-chat-panel__back" type="button" (click)="onBack()" aria-label="Volver">
+      <i class="bi bi-arrow-left"></i>
+    </button>
+    <span class="nuevo-chat-panel__title">Nuevo chat</span>
+    <button class="ncp-reload-btn" type="button" (click)="recargar()" [disabled]="loading" aria-label="Recargar" title="Recargar contactos">
+      <i class="bi bi-arrow-clockwise" [class.ncp-spin]="loading"></i>
+    </button>
+  </div>
+
+  <!-- Buscador -->
+  <div class="ncp-search">
+    <i class="bi bi-search ncp-search__icon"></i>
+    <input
+      class="ncp-search__input"
+      type="text"
+      placeholder="Buscar por nombre, email o @usuario"
+      [(ngModel)]="busqueda"
+      autocomplete="off"
+    />
+    <kbd class="ncp-search__kbd">⌘K</kbd>
+  </div>
+
+  <!-- Cuerpo scrollable -->
+  <div class="nuevo-chat-panel__body">
+
+    <!-- Loading -->
+    <div class="ncp-loading" *ngIf="loading">
+      <i class="fas fa-circle-notch fa-spin ncp-loading__icon"></i>
+      <span>Cargando contactos…</span>
+    </div>
+
+    <!-- Error -->
+    <div class="ncp-error" *ngIf="error && !loading">
+      <i class="bi bi-exclamation-circle ncp-error__icon"></i>
+      <span>{{ error }}</span>
+      <button class="ncp-error__retry" type="button" (click)="recargar()">Reintentar</button>
+    </div>
+
+    <ng-container *ngIf="!loading && !error">
+
+      <!-- Quick actions -->
+      <div class="ncp-quick-actions">
+        <button class="ncp-quick-btn" type="button" (click)="onNuevoGrupo()">
+          <span class="ncp-quick-btn__icon">
+            <i class="bi bi-people-fill"></i>
+          </span>
+          <span class="ncp-quick-btn__label">Nuevo grupo</span>
+        </button>
+        <button class="ncp-quick-btn" type="button" (click)="onUnirseEnlace()">
+          <span class="ncp-quick-btn__icon">
+            <i class="bi bi-link-45deg"></i>
+          </span>
+          <span class="ncp-quick-btn__label">Unirme por enlace de invitación</span>
+        </button>
+      </div>
+
+      <!-- Tus contactos -->
+      <div class="ncp-section" *ngIf="conConversacionFiltrados.length > 0">
+        <div class="ncp-section__label">
+          <span>Tus contactos</span>
+        </div>
+        <div class="ncp-list">
+          <div
+            class="ncp-row"
+            *ngFor="let u of conConversacionFiltrados; trackBy: trackById"
+            (click)="onContactoClick(u)"
+            role="button"
+            tabindex="0"
+            (keydown.enter)="onContactoClick(u)"
+          >
+            <!-- Avatar -->
+            <div class="ncp-avatar-wrap">
+              <img
+                *ngIf="u.fotoPerfil"
+                class="ncp-avatar ncp-avatar--img"
+                [src]="u.fotoPerfil"
+                [alt]="u.nombreCompleto"
+              />
+              <div
+                *ngIf="!u.fotoPerfil"
+                class="ncp-avatar ncp-avatar--initials ncp-avatar--color-{{ u.id % 8 }}"
+              >{{ getInitials(u) }}</div>
+              <span *ngIf="u.estado && u.estado !== 'Desconectado'"
+                class="estado-icono"
+                [ngClass]="{ 'conectado': u.estado === 'Conectado', 'ausente': u.estado === 'Ausente' }"
+                [title]="u.estado">
+              </span>
+            </div>
+            <!-- Info -->
+            <div class="ncp-row__info">
+              <div class="ncp-row__name-line">
+                <span class="ncp-row__name">{{ u.nombreCompleto }}</span>
+                <span class="ncp-row__date" *ngIf="u.ultimaFecha">{{ u.ultimaFecha }}</span>
+              </div>
+              <div class="ncp-row__sub-line">
+                <span class="ncp-row__sub" *ngIf="getPreview(u)">{{ getPreview(u) }}</span>
+                <span class="ncp-badge" *ngIf="u.mensajesNoLeidos && u.mensajesNoLeidos > 0">
+                  {{ u.mensajesNoLeidos > 99 ? '99+' : u.mensajesNoLeidos }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Personas nuevas -->
+      <div class="ncp-section" *ngIf="sinConversacionFiltrados.length > 0">
+        <div class="ncp-section__label">
+          <span>Personas nuevas</span>
+        </div>
+        <div class="ncp-list">
+          <div
+            class="ncp-row"
+            *ngFor="let u of sinConversacionFiltrados; trackBy: trackById"
+            (click)="onContactoClick(u)"
+            role="button"
+            tabindex="0"
+            (keydown.enter)="onContactoClick(u)"
+          >
+            <!-- Avatar -->
+            <div class="ncp-avatar-wrap">
+              <img
+                *ngIf="u.fotoPerfil"
+                class="ncp-avatar ncp-avatar--img"
+                [src]="u.fotoPerfil"
+                [alt]="u.nombreCompleto"
+              />
+              <div
+                *ngIf="!u.fotoPerfil"
+                class="ncp-avatar ncp-avatar--initials ncp-avatar--color-{{ u.id % 8 }}"
+              >{{ getInitials(u) }}</div>
+              <span *ngIf="u.estado && u.estado !== 'Desconectado'"
+                class="estado-icono"
+                [ngClass]="{ 'conectado': u.estado === 'Conectado', 'ausente': u.estado === 'Ausente' }"
+                [title]="u.estado">
+              </span>
+            </div>
+            <!-- Info -->
+            <div class="ncp-row__info">
+              <span class="ncp-row__name">{{ u.nombreCompleto }}</span>
+              <span class="ncp-row__sub" *ngIf="u.nombre && u.apellido">{{ u.nombre }} {{ u.apellido }}</span>
+            </div>
+            <button
+              class="ncp-saludar-btn"
+              type="button"
+              (click)="onSaludar(u, $event)"
+            >Saludar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Estado vacío con búsqueda activa -->
+      <div class="ncp-empty"
+        *ngIf="busqueda && conConversacionFiltrados.length === 0 && sinConversacionFiltrados.length === 0">
+        <i class="bi bi-search ncp-empty__icon"></i>
+        <span>Sin resultados para "{{ busqueda }}"</span>
+      </div>
+
+      <!-- Estado vacío sin datos -->
+      <div class="ncp-empty"
+        *ngIf="!busqueda && conConversacion.length === 0 && sinConversacion.length === 0">
+        <i class="bi bi-people ncp-empty__icon"></i>
+        <span>No hay contactos disponibles aún.</span>
+      </div>
+
+    </ng-container>
+
+  </div>
+</div>

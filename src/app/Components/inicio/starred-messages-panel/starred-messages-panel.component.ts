@@ -123,7 +123,11 @@ export class StarredMessagesPanelComponent implements OnChanges, OnDestroy {
   public senderInitial(item: StarredMessageItem): string {
     const sender = String(item?.emisorNombre || '').trim();
     if (!sender) return 'U';
-    return sender.charAt(0).toUpperCase();
+    const parts = sender.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) {
+      return parts[0].substring(0, 2).toUpperCase();
+    }
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
   }
 
   public messageTypeLabel(rawType: string | null | undefined): string {

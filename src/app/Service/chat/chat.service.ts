@@ -24,6 +24,7 @@ import {
   PinMessageRequestDTO,
 } from '../../Interface/ChatPinnedMessageDTO';
 import { PageResponse } from '../../Interface/PageResponse';
+import { UsuariosDisponiblesChatResponse } from '../../Interface/UsuarioDisponibleChatDTO';
 import { environment } from '../../environments';
 
 export interface PollVoteRestRequestDTO {
@@ -355,6 +356,12 @@ export class ChatService {
     dto: ChatIndividualCreateDTO
   ): Observable<ChatIndividualDTO> {
     return this.http.post<ChatIndividualDTO>(`${this.baseUrl}/individual`, dto);
+  }
+
+  obtenerUsuariosDisponiblesParaChat(): Observable<UsuariosDisponiblesChatResponse> {
+    return this.http.get<UsuariosDisponiblesChatResponse>(
+      `${this.baseUrl}/usuarios-disponibles`
+    );
   }
 
   listarConversacionesAdmin(

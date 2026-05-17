@@ -116,6 +116,15 @@ export interface MensajeDTO {
   reactionUserId?: number | null;
   reactionAt?: string | null;
   __deletedAtMs?: number | null;
+  __mediaLazy?: boolean;
+  __mediaLoading?: boolean;
+  __mediaLoaded?: boolean;
+  __mediaChatId?: number;
+  __mediaLoadError?: string;
+  __audioE2EEncrypted?: boolean;
+  __imageE2EEncrypted?: boolean;
+  __fileE2EEncrypted?: boolean;
+  __attachmentLoadError?: string;
   reacciones?:
     | Array<{
         userId?: number | null;

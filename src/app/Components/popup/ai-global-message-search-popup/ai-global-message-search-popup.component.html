@@ -12,9 +12,13 @@
         <div class="ai-global-search-popup__logo-box">
           <img src="assets/Nexo.svg" alt="Nexo" />
         </div>
-        <h2 class="ai-global-search-popup__title">
-          Buscador Inteligente <span class="ia-gradient-text">Nexo</span>
-        </h2>
+        <div class="ai-global-search-popup__title-stack">
+          <h2 class="ai-global-search-popup__title">
+            Gestor inteligente
+            <span class="ai-global-search-popup__beta-badge">NEXO</span>
+          </h2>
+          <span class="ai-global-search-popup__subtitle">Pregunta en lenguaje natural a Nexo</span>
+        </div>
       </div>
       <button
         type="button"
@@ -28,7 +32,6 @@
     </div>
 
     <div class="ai-global-search-popup__form">
-      <label for="aiGlobalSearchConsulta">Consulta con lenguaje natural</label>
       <div class="ai-global-search-popup__textarea-wrap">
         <input
           #reportImageInput
@@ -40,24 +43,43 @@
         />
         <textarea
           id="aiGlobalSearchConsulta"
-          rows="4"
-          placeholder="Pregunta por tus mensajes, reportes, denuncias o incidencias..."
+          rows="3"
+          placeholder="Describe lo que necesitas. Ej: «mensajes con archivos de la semana pasada»"
           [ngModel]="consulta"
           [disabled]="loading"
           (ngModelChange)="onConsultaChange($event)"
         ></textarea>
         <div class="ai-global-search-popup__textarea-footer">
+          <div class="ai-global-search-popup__textarea-actions">
+            <button
+              type="button"
+              class="ai-global-search-popup__ghost-btn"
+              [class.is-active]="hasReportImage"
+              [disabled]="loading || animationActive"
+              (click)="triggerReportImageInput(reportImageInput)"
+            >
+              <i class="bi bi-image"></i>
+              {{ hasReportImage ? 'Imagen adjunta' : 'Adjuntar' }}
+            </button>
+            <button
+              type="button"
+              class="ai-global-search-popup__ghost-btn"
+              [disabled]="loading || animationActive"
+            >
+              <i class="bi bi-clock-history"></i>
+              Historial
+            </button>
+          </div>
           <button
+            *ngIf="!animationActive"
             type="button"
-            class="ai-global-search-popup__attach-badge"
-            [class.ai-global-search-popup__attach-badge--selected]="hasReportImage"
-            [disabled]="loading || animationActive"
-            (click)="triggerReportImageInput(reportImageInput)"
+            class="ai-global-search-popup__submit"
+            [disabled]="!canSubmit"
+            (click)="onSubmit()"
           >
-            <i class="bi bi-stars"></i>
-            {{ hasReportImage ? 'Imagen adjunta' : 'Adjuntar imagen' }}
+            Procesar
+            <i class="bi bi-send"></i>
           </button>
-          <div class="ai-global-search-popup__textarea-hint">Analizado por IA</div>
         </div>
       </div>
       <div *ngIf="hasReportImage" class="ai-global-search-popup__attachment-chip">
@@ -75,18 +97,31 @@
         </button>
       </div>
 
-      <button
-        *ngIf="!animationActive"
-        type="button"
-        class="ai-global-search-popup__submit"
-        [disabled]="!canSubmit"
-        (click)="onSubmit()"
-      >
-        <i class="bi bi-search"></i>
-        Buscar mensajes
-      </button>
+      <div class="ai-global-search-popup__suggestions">
+        <span class="ai-global-search-popup__suggestions-label">SUGERENCIAS</span>
+        <div class="ai-global-search-popup__suggestions-grid">
+          <button
+            *ngFor="let chip of suggestionChips"
+            type="button"
+            class="ai-global-search-popup__suggestion-chip"
+            [disabled]="loading || animationActive"
+            (click)="applySuggestion(chip)"
+          >
+            {{ chip }}
+          </button>
+        </div>
+      </div>
 
-      <div *ngIf="animationActive" class="ai-search-checklist">
+      <div *ngIf="animationActive && shouldShowSmartActionThinking()" class="ai-search-checklist ai-search-checklist--thinking">
+        <div class="ai-search-step ai-search-step--active">
+          <span class="ai-search-step__icon">
+            <i class="bi bi-arrow-repeat ai-search-step__icon--spinning"></i>
+          </span>
+          <span class="ai-search-step__text">Pensando...</span>
+        </div>
+      </div>
+
+      <div *ngIf="animationActive && visibleProgressEvents.length > 0" class="ai-search-checklist">
         <ng-container *ngFor="let event of visibleProgressEvents; trackBy: trackByVisibleProgressEvent">
           <div
             class="ai-search-step"
@@ -130,8 +165,127 @@
             <p *ngIf="isUpdateStyleGroup()" class="customization-card__description-secondary">
               Se aplicarán varios cambios relacionados para mantener el contraste y la legibilidad.
             </p>
-            <div *ngIf="isUpdateStyleGroup() && getChangesCount() > 0" class="customization-card__changes-badge">
+            <button
+              *ngIf="getChangesCount() > 0"
+              type="button"
+              class="customization-card__changes-badge"
+              [attr.aria-expanded]="changesDropdownOpen"
+              aria-label="Ver cambios que se aplicaran"
+              (click)="toggleChangesDropdown($event)"
+            >
               <i class="bi bi-layers"></i> {{ getChangesCount() }} cambios incluidos
+              <i class="bi" [ngClass]="changesDropdownOpen ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+            </button>
+            <div *ngIf="changesDropdownOpen" class="customization-card__changes-dropdown customization-card__changes-list" (click)="stopPropagationOnly($event)">
+              <div
+                *ngFor="let change of editableChanges; trackBy: trackByCustomizationChange"
+                class="customization-change-card"
+                [class.is-selected]="change.selected"
+                [class.is-disabled]="!change.selected"
+              >
+                <button
+                  class="customization-change-card__check"
+                  type="button"
+                  [attr.aria-label]="change.selected ? 'Desactivar cambio' : 'Activar cambio'"
+                  (click)="toggleChangeSelected(change, $event)"
+                >
+                  <i *ngIf="change.selected" class="bi bi-check-lg"></i>
+                </button>
+
+                <div class="customization-change-card__icon">
+                  <i class="bi" [ngClass]="getChangeIconClass(change.area)"></i>
+                </div>
+
+                <div class="customization-change-card__content">
+                  <div class="customization-change-card__title">{{ getReadableAreaLabel(change.area) }}</div>
+                  <div class="customization-change-card__subtitle">{{ getReadablePropertyLabel(change.property) }}</div>
+                  <div *ngIf="getAllowedRangeLabel(change) as allowedRange" class="customization-change-card__meta">
+                    {{ allowedRange }}
+                  </div>
+                  <div *ngIf="shouldShowNormalizedNotice(change)" class="customization-change-card__meta customization-change-card__meta--notice">
+                    {{ getNormalizedNotice(change) }}
+                  </div>
+                </div>
+
+                <div class="customization-change-card__color-wrap">
+                  <button
+                    class="customization-change-card__color-pill"
+                    type="button"
+                    [disabled]="!change.selected"
+                    [class.customization-change-card__color-pill--readonly]="!isEditableProperty(change.property)"
+                    (click)="openValueEditor(change, $event)"
+                  >
+                    <span
+                      *ngIf="isColorProperty(change.property)"
+                      class="customization-change-card__color-input customization-change-card__color-input--preview"
+                      [style.background]="isColorValue(change.value) ? change.value : '#64748b'"
+                    ></span>
+                    <span>{{ getChangeDisplayValue(change) }}</span>
+                  </button>
+                  <div *ngIf="isColorEditorOpen(change)" class="customization-color-popover" (click)="stopPropagationOnly($event)">
+                    <ng-container *ngIf="isColorProperty(change.property); else valueEditor">
+                      <input
+                        class="customization-change-card__color-input"
+                        type="color"
+                        [value]="isColorValue(change.value) ? change.value : '#6366f1'"
+                        [disabled]="!change.selected"
+                        (click)="stopPropagationOnly($event)"
+                        (input)="onEditableValueInput(change, $any($event.target).value)"
+                      />
+                      <input
+                        type="text"
+                        class="customization-change-card__value-input"
+                        [disabled]="!change.selected"
+                        [ngModel]="change.value"
+                        (click)="stopPropagationOnly($event)"
+                        (ngModelChange)="onEditableValueInput(change, $event)"
+                        (blur)="applyEditableChange(change)"
+                      />
+                    </ng-container>
+                    <ng-template #valueEditor>
+                      <ng-container *ngIf="isSizeProperty(change.property)">
+                        <div *ngIf="shouldUseNumericPxEditor(change); else freeValueEditor" class="customization-change-card__px-editor">
+                          <input
+                            type="number"
+                            class="customization-change-card__value-input customization-change-card__value-input--number"
+                            [disabled]="!change.selected"
+                            [min]="getNumericEditorMin(change)"
+                            [max]="getNumericEditorMax(change)"
+                            [ngModel]="getNumericEditorValue(change)"
+                            (click)="stopPropagationOnly($event)"
+                            (ngModelChange)="onEditableNumericValueInput(change, $event)"
+                            (blur)="applyEditableChange(change)"
+                          />
+                          <span class="customization-change-card__unit">px</span>
+                        </div>
+                        <ng-template #freeValueEditor>
+                          <input
+                            type="text"
+                            class="customization-change-card__value-input"
+                            [disabled]="!change.selected"
+                            [placeholder]="getValueEditorPlaceholder(change.property)"
+                            [ngModel]="change.value"
+                            (click)="stopPropagationOnly($event)"
+                            (ngModelChange)="onEditableValueInput(change, $event)"
+                            (blur)="applyEditableChange(change)"
+                          />
+                        </ng-template>
+                      </ng-container>
+                    </ng-template>
+                    <button type="button" class="customization-color-popover__close" (click)="closeColorEditor($event)">OK</button>
+                  </div>
+                  <small *ngIf="change.colorError" class="customization-change-card__error">{{ change.colorError }}</small>
+                </div>
+
+                <button
+                  class="customization-change-card__apply-one"
+                  type="button"
+                  [disabled]="!change.selected || !!change.colorError"
+                  (click)="applySingleChange(change, $event)"
+                >
+                  Aplicar este
+                </button>
+              </div>
             </div>
             <div *ngIf="shouldShowUiCustomizationNotice()" class="customization-card__notice">
               <i class="bi bi-exclamation-triangle-fill"></i>
@@ -156,13 +310,14 @@
                   type="button"
                   class="customization-card__btn customization-card__btn--ghost"
                   [class.customization-card__btn--preview-active]="customizationPreviewActive"
+                  [disabled]="hasInvalidSelectedChanges()"
                   (click)="onPreviewCustomization()"
                 >
                   <i class="bi bi-eye"></i>
                   {{ customizationPreviewActive ? 'Previsualización activa' : 'Previsualizar' }}
                 </button>
-                <button *ngIf="canExecuteUiCustomization()" type="button" class="customization-card__btn customization-card__btn--primary" (click)="onApplyCustomization()">
-                  <i class="bi bi-check2"></i> Aplicar
+                <button *ngIf="canExecuteUiCustomization()" type="button" class="customization-card__btn customization-card__btn--primary" [disabled]="hasInvalidSelectedChanges()" (click)="onApplyCustomization()">
+                  <i class="bi bi-check2"></i> {{ getChangesCount() > 0 ? ('Aplicar todo (' + selectedChangesCount() + ')') : 'Aplicar' }}
                 </button>
                 <button type="button" class="customization-card__btn customization-card__btn--ghost" (click)="onCancelCustomization()">
                   Cancelar
@@ -171,6 +326,14 @@
             </div>
           </div>
         </ng-container>
+
+        <div *ngIf="awaitingClarification && clarificationMessage" class="ai-global-search-popup__clarification-card">
+          <div class="ai-global-search-popup__ai-summary-header">
+            <img src="assets/Nexo.svg" alt="Nexo" class="ai-summary-nexo-icon" />
+            <span>Respuesta de Nexo IA</span>
+          </div>
+          <p class="ai-global-search-popup__clarification-text">{{ clarificationMessage }}</p>
+        </div>
 
         <div *ngIf="!isEmptyAiResponse() && resultados.length > 0" class="ai-global-search-popup__results">
           <div *ngIf="isApproximateResult" class="ai-approximate-notice">
@@ -572,7 +735,7 @@
           </ng-container>
         </div>
 
-        <div *ngIf="!error && !isUiCustomizationResponse() && (isEmptyAiResponse() || resultados.length === 0)" class="ai-global-search-popup__empty">
+        <div *ngIf="!error && !awaitingClarification && !isUiCustomizationResponse() && (isEmptyAiResponse() || resultados.length === 0)" class="ai-global-search-popup__empty">
           <ng-container *ngIf="shouldShowAiSummaryCard; else noResultsPlain">
             <div class="ai-global-search-popup__ai-summary">
               <div class="ai-global-search-popup__ai-summary-header">
@@ -593,7 +756,10 @@
     </div>
 
     <div class="ai-global-search-popup__footer">
-      La IA analiza el contexto semántico de tu consulta para encontrar coincidencias exactas y relacionadas.
+      <span class="ai-global-search-popup__footer-text">Las respuestas pueden contener errores. Revísalas siempre.</span>
+      <span class="ai-global-search-popup__footer-brand">
+        <i class="bi bi-stars"></i> nexo &middot; ai
+      </span>
     </div>
   </div>
   <app-file-preview-viewer

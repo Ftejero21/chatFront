@@ -115,6 +115,42 @@ export class UiCustomizationService {
     'CHAT_LIST_FILE_PREVIEW':            ['.preview-line--file', '.preview-file-icon', '.preview-file-name', '.preview-file-caption'],
     'CHAT_LIST_STATUS_PILL_REPORTED':    ['.pill--reported'],
     'CHAT_LIST_STATUS_PILL_BLOCKED':     ['.pill--blocked'],
+    // Group-scoped areas — selectors are intentionally compound (.chat-item.chat-item--group > child)
+    'CHAT_LIST_ITEM_GROUP_PREVIEW':      ['.chat-item.chat-item--group .mensaje-preview', '.chat-item.chat-item--group .preview-text'],
+    'CHAT_LIST_ITEM_GROUP_DRAFT_PREVIEW':['.chat-item.chat-item--group .preview-text--draft', '.chat-item.chat-item--group .preview-draft-label'],
+    'CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW':['.chat-item.chat-item--group .preview-audio.compact', '.chat-item.chat-item--group .preview-audio'],
+    'CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW':['.chat-item.chat-item--group .preview-image-thumb', '.chat-item.chat-item--group .preview-line--image', '.chat-item.chat-item--group .preview-image-sender', '.chat-item.chat-item--group .preview-caption-chip'],
+    'CHAT_LIST_ITEM_GROUP_FILE_PREVIEW': ['.chat-item.chat-item--group .preview-file-icon', '.chat-item.chat-item--group .preview-file-name', '.chat-item.chat-item--group .preview-line--file', '.chat-item.chat-item--group .preview-file-caption'],
+    'CHAT_LIST_ITEM_GROUP_BADGES':       ['.chat-item.chat-item--group .badge-inline'],
+    'CHAT_LIST_ITEM_GROUP_ACTIONS':      ['.chat-item.chat-item--group .chat-muted-indicator', '.chat-item.chat-item--group .chat-favorite-indicator'],
+    'CHAT_LIST_ITEM_GROUP_STATUS_PILLS': ['.chat-item.chat-item--group .pill--reported', '.chat-item.chat-item--group .pill--blocked'],
+    'CHAT_LIST_ITEM_GROUP_NAME':         ['.chat-item.chat-item--group .nombre', '.chat-item.chat-item--group .nombre-linea'],
+    // Individual-chat-scoped areas (only affect .chat-item:not(.chat-item--group))
+    'CHAT_LIST_ITEM_PREVIEW':            ['.chat-item:not(.chat-item--group) .mensaje-preview', '.chat-item:not(.chat-item--group) .preview-text'],
+    'CHAT_LIST_ITEM_DRAFT_PREVIEW':      ['.chat-item:not(.chat-item--group) .preview-text--draft', '.chat-item:not(.chat-item--group) .preview-draft-label'],
+    'CHAT_LIST_ITEM_AUDIO_PREVIEW':      ['.chat-item:not(.chat-item--group) .preview-audio.compact', '.chat-item:not(.chat-item--group) .preview-audio'],
+    'CHAT_LIST_ITEM_IMAGE_PREVIEW':      ['.chat-item:not(.chat-item--group) .preview-image-thumb', '.chat-item:not(.chat-item--group) .preview-line--image', '.chat-item:not(.chat-item--group) .preview-image-sender', '.chat-item:not(.chat-item--group) .preview-caption-chip'],
+    'CHAT_LIST_ITEM_FILE_PREVIEW':       ['.chat-item:not(.chat-item--group) .preview-file-icon', '.chat-item:not(.chat-item--group) .preview-file-name', '.chat-item:not(.chat-item--group) .preview-line--file', '.chat-item:not(.chat-item--group) .preview-file-caption'],
+    'CHAT_LIST_ITEM_BADGES':             ['.chat-item:not(.chat-item--group) .badge-inline'],
+    'CHAT_LIST_ITEM_ACTIONS_SCOPED':     ['.chat-item:not(.chat-item--group) .chat-muted-indicator', '.chat-item:not(.chat-item--group) .chat-favorite-indicator'],
+    'CHAT_LIST_ITEM_STATUS_PILLS':       ['.chat-item:not(.chat-item--group) .pill--reported', '.chat-item:not(.chat-item--group) .pill--blocked'],
+    'CHAT_LIST_ITEM_NAME_SCOPED':        ['.chat-item:not(.chat-item--group) .nombre', '.chat-item:not(.chat-item--group) .nombre-linea'],
+    // Sidebar nav areas — all scoped to .barraLateral.sidebar-nav
+    'SIDEBAR_NAV':                       ['.barraLateral.sidebar-nav'],
+    'SIDEBAR_NAV_PANEL':                 ['.barraLateral.sidebar-nav'],
+    'SIDEBAR_NAV_GROUP':                 ['.barraLateral.sidebar-nav .iconos-superiores.sidebar-nav__group', '.barraLateral.sidebar-nav .sidebar-nav__group'],
+    'SIDEBAR_NAV_BOTTOM':                ['.barraLateral.sidebar-nav .usuario-config.sidebar-nav__bottom', '.barraLateral.sidebar-nav .sidebar-nav__bottom'],
+    'SIDEBAR_NAV_ITEM':                  ['.barraLateral.sidebar-nav .sidebar-nav__item'],
+    'SIDEBAR_NAV_ITEM_ACTIVE':           ['.barraLateral.sidebar-nav .sidebar-nav__item.sidebar-nav__item--active'],
+    'SIDEBAR_NAV_ACTIVE_ITEM':           ['.barraLateral.sidebar-nav .sidebar-nav__item.sidebar-nav__item--active'],
+    'SIDEBAR_NAV_ACTIVE_INDICATOR':      ['.barraLateral.sidebar-nav .sidebar-nav__item--active .sidebar-nav__active-indicator'],
+    'SIDEBAR_NAV_LOGO':                  ['.barraLateral.sidebar-nav .sidebar-nav__item--logo', '.barraLateral.sidebar-nav .sidebar-nav__nexo-logo'],
+    'SIDEBAR_NAV_ICON':                  ['.barraLateral.sidebar-nav .sidebar-nav__item .icono-barra', '.barraLateral.sidebar-nav .sidebar-nav__item i'],
+    'SIDEBAR_NAV_ICON_ACTIVE':           ['.barraLateral.sidebar-nav .sidebar-nav__item--active .icono-barra'],
+    'SIDEBAR_NAV_AI_ICON':               ['.barraLateral.sidebar-nav .sidebar-nav__nexo-ai-icon'],
+    'SIDEBAR_NAV_TOOLTIP':               ['.barraLateral.sidebar-nav .sidebar-nav__tooltip'],
+    'SIDEBAR_NAV_AVATAR':                ['.barraLateral.sidebar-nav .sidebar-nav__item--avatar', '.barraLateral.sidebar-nav .sidebar-nav__avatar-img'],
+    'SIDEBAR_NAV_SETTINGS':              ['.barraLateral.sidebar-nav .sidebar-nav__bottom .sidebar-nav__item'],
   };
 
   /** Maps NexoCssProperty key to the DOM CSS property for getComputedStyle. */
@@ -144,6 +180,12 @@ export class UiCustomizationService {
     'BORDER_WIDTH':              'border-width',
     'FONT_SIZE':                 'font-size',
     'SHADOW_PRESET':             'box-shadow',
+    'SHADOW':                    'box-shadow',
+    'OPACITY':                   'opacity',
+    'GAP':                       'gap',
+    'WIDTH':                     'width',
+    'HOVER_TEXT_COLOR':          'color',
+    'HOVER_ICON_COLOR':          'color',
   };
 
   /** Static parent→children expansion hints sent to the AI. */
@@ -159,6 +201,13 @@ export class UiCustomizationService {
       'CHAT_LIST_STATUS_PILL_REPORTED', 'CHAT_LIST_STATUS_PILL_BLOCKED',
       'CHAT_LIST_ITEM_ACTIONS', 'CHAT_LIST_PIN_TOGGLE',
       'CHAT_LIST_PIN_MENU', 'CHAT_LIST_PIN_MENU_ITEM', 'CHAT_LIST_PIN_MENU_REPORT', 'CHAT_LIST_PIN_MENU_DANGER',
+      'CHAT_LIST_ITEM_GROUP_NAME', 'CHAT_LIST_ITEM_GROUP_PREVIEW', 'CHAT_LIST_ITEM_GROUP_DRAFT_PREVIEW',
+      'CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW', 'CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW',
+      'CHAT_LIST_ITEM_GROUP_FILE_PREVIEW', 'CHAT_LIST_ITEM_GROUP_BADGES',
+      'CHAT_LIST_ITEM_GROUP_ACTIONS', 'CHAT_LIST_ITEM_GROUP_STATUS_PILLS',
+      'CHAT_LIST_ITEM_NAME_SCOPED', 'CHAT_LIST_ITEM_PREVIEW', 'CHAT_LIST_ITEM_DRAFT_PREVIEW',
+      'CHAT_LIST_ITEM_AUDIO_PREVIEW', 'CHAT_LIST_ITEM_IMAGE_PREVIEW', 'CHAT_LIST_ITEM_FILE_PREVIEW',
+      'CHAT_LIST_ITEM_BADGES', 'CHAT_LIST_ITEM_ACTIONS_SCOPED', 'CHAT_LIST_ITEM_STATUS_PILLS',
     ],
     'CHAT_LIST_HEADER': [
       'CHAT_LIST_TITLE', 'CHAT_LIST_HEADER_ACTIONS', 'CHAT_LIST_ACTIONS_MENU', 'CHAT_LIST_ACTIONS_MENU_ITEM',
@@ -172,8 +221,18 @@ export class UiCustomizationService {
       'CHAT_LIST_BADGES', 'CHAT_LIST_GROUP_PILL', 'CHAT_LIST_STATUS_PILLS',
       'CHAT_LIST_STATUS_PILL_REPORTED', 'CHAT_LIST_STATUS_PILL_BLOCKED',
       'CHAT_LIST_ITEM_ACTIONS', 'CHAT_LIST_PIN_TOGGLE',
+      // Individual-chat-scoped (non-group only):
+      'CHAT_LIST_ITEM_NAME_SCOPED', 'CHAT_LIST_ITEM_PREVIEW', 'CHAT_LIST_ITEM_DRAFT_PREVIEW',
+      'CHAT_LIST_ITEM_AUDIO_PREVIEW', 'CHAT_LIST_ITEM_IMAGE_PREVIEW', 'CHAT_LIST_ITEM_FILE_PREVIEW',
+      'CHAT_LIST_ITEM_BADGES', 'CHAT_LIST_ITEM_ACTIONS_SCOPED', 'CHAT_LIST_ITEM_STATUS_PILLS',
     ],
-    'CHAT_LIST_ITEM_GROUP':  ['CHAT_LIST_ITEM_NAME', 'CHAT_LIST_PREVIEW', 'CHAT_LIST_GROUP_PILL'],
+    'CHAT_LIST_ITEM_GROUP': [
+      'CHAT_LIST_ITEM_GROUP_NAME', 'CHAT_LIST_GROUP_PILL',
+      'CHAT_LIST_ITEM_GROUP_PREVIEW', 'CHAT_LIST_ITEM_GROUP_DRAFT_PREVIEW',
+      'CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW', 'CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW',
+      'CHAT_LIST_ITEM_GROUP_FILE_PREVIEW', 'CHAT_LIST_ITEM_GROUP_BADGES',
+      'CHAT_LIST_ITEM_GROUP_ACTIONS', 'CHAT_LIST_ITEM_GROUP_STATUS_PILLS',
+    ],
     'CHAT_LIST_ITEM_ACTIVE': ['CHAT_LIST_ITEM_NAME', 'CHAT_LIST_PREVIEW', 'CHAT_LIST_BADGES'],
     'CHAT_LIST_ITEM_UNREAD': ['CHAT_LIST_ITEM_NAME', 'CHAT_LIST_PREVIEW', 'CHAT_LIST_BADGES'],
     'CHAT_LIST_STATUS_PILLS': ['CHAT_LIST_STATUS_PILL_REPORTED', 'CHAT_LIST_STATUS_PILL_BLOCKED'],
@@ -183,6 +242,29 @@ export class UiCustomizationService {
     ],
     'CHAT_LIST_PIN_MENU': [
       'CHAT_LIST_PIN_MENU_ITEM', 'CHAT_LIST_PIN_MENU_REPORT', 'CHAT_LIST_PIN_MENU_DANGER',
+    ],
+    'SIDEBAR_NAV_PANEL': [
+      'SIDEBAR_NAV', 'SIDEBAR_NAV_GROUP', 'SIDEBAR_NAV_BOTTOM',
+      'SIDEBAR_NAV_ITEM', 'SIDEBAR_NAV_ITEM_ACTIVE', 'SIDEBAR_NAV_ACTIVE_ITEM',
+      'SIDEBAR_NAV_ACTIVE_INDICATOR', 'SIDEBAR_NAV_LOGO',
+      'SIDEBAR_NAV_ICON', 'SIDEBAR_NAV_ICON_ACTIVE',
+      'SIDEBAR_NAV_AI_ICON', 'SIDEBAR_NAV_TOOLTIP',
+      'SIDEBAR_NAV_AVATAR', 'SIDEBAR_NAV_SETTINGS',
+    ],
+    'SIDEBAR_NAV': [
+      'SIDEBAR_NAV_GROUP', 'SIDEBAR_NAV_BOTTOM',
+      'SIDEBAR_NAV_ITEM', 'SIDEBAR_NAV_ITEM_ACTIVE',
+      'SIDEBAR_NAV_ICON', 'SIDEBAR_NAV_ICON_ACTIVE',
+      'SIDEBAR_NAV_LOGO', 'SIDEBAR_NAV_AVATAR', 'SIDEBAR_NAV_TOOLTIP',
+    ],
+    'SIDEBAR_NAV_ITEM': [
+      'SIDEBAR_NAV_ICON', 'SIDEBAR_NAV_ACTIVE_INDICATOR',
+    ],
+    'SIDEBAR_NAV_ITEM_ACTIVE': [
+      'SIDEBAR_NAV_ICON_ACTIVE', 'SIDEBAR_NAV_ACTIVE_INDICATOR',
+    ],
+    'SIDEBAR_NAV_BOTTOM': [
+      'SIDEBAR_NAV_AVATAR', 'SIDEBAR_NAV_SETTINGS',
     ],
   };
 
@@ -248,6 +330,7 @@ export class UiCustomizationService {
   private applyVariable(cssVar: string, value: string, theme: 'light' | 'dark'): void {
     this.getThemeVars(theme).set(cssVar, value);
     this.flushStyleTag(theme);
+    console.log(`[UI_CUSTOMIZATION][STYLE_TAG_UPDATED] themeMode=${theme} containsVar=${cssVar} value=${value}`);
   }
 
   private saveCustomization(cssVar: string, value: string, theme: 'light' | 'dark'): void {
@@ -320,7 +403,6 @@ export class UiCustomizationService {
     this.applyVariable(cssVar, resolvedValue, theme);
     this.saveCustomization(cssVar, resolvedValue, theme);
     this.logApplyChange(area, property, cssVar, resolvedValue, theme);
-    console.log(`[UI_CUSTOMIZATION][THEME_APPLY] themeMode=${theme} ${area}/${property}=${resolvedValue}`);
 
     for (const companionVar of this.getCompanionVars(area, property)) {
       this.applyVariable(companionVar, resolvedValue, theme);
@@ -403,20 +485,35 @@ export class UiCustomizationService {
     this.previewTheme = theme;
     const vars  = this.getThemeVars(theme);
     let applied = 0;
+    let skipped = 0;
+    let failed  = 0;
+    const missingMappings: string[] = [];
+    console.log(`[UI_CUSTOMIZATION][THEME_PREVIEW] themeMode=${theme} changes=${changes.length}`);
 
     for (const change of changes) {
       const area     = change.area as NexoAreaId;
       const property = change.property as NexoCssProperty;
       const cssVar   = this.resolveCssVar(area, property);
-      const value    = this.resolveValue(property, String(change.value ?? change.valuePreset ?? ''));
-      if (!cssVar || !value) {
-        console.warn(`[NexoUI] preview skip: ${change.area}:${change.property}`);
+
+      if (!cssVar) {
+        console.warn(`[UI_CUSTOMIZATION][MISSING_MAPPING] area=${change.area} property=${change.property}`);
+        missingMappings.push(`${change.area}:${change.property}`);
+        skipped++;
         continue;
       }
+
+      const value = this.resolveValue(property, String(change.value ?? change.valuePreset ?? ''));
+      if (!value) {
+        console.warn(`[UI_CUSTOMIZATION][BAD_VALUE] area=${change.area} property=${change.property} cssVar=${cssVar} raw="${change.value ?? change.valuePreset ?? ''}"`);
+        failed++;
+        continue;
+      }
+
       if (!this.previewVars.has(cssVar)) {
         this.previewVars.set(cssVar, vars.get(cssVar) ?? '');
       }
       this.applyVariable(cssVar, value, theme);
+      this.logApplyChange(area, property, cssVar, value, theme);
 
       for (const companionVar of this.getCompanionVars(area, property)) {
         if (!this.previewVars.has(companionVar)) {
@@ -426,6 +523,11 @@ export class UiCustomizationService {
       }
       applied++;
     }
+
+    console.log(
+      `[UI_CUSTOMIZATION][APPLY_SUMMARY] total=${changes.length} applied=${applied} skipped=${skipped} failed=${failed}` +
+      (missingMappings.length ? ` missingMappings=[${missingMappings.join(', ')}]` : '')
+    );
     return applied > 0;
   }
 
@@ -459,17 +561,30 @@ export class UiCustomizationService {
     if (!changes?.length) return false;
     const theme = this.getActiveTheme();
     let applied = 0;
+    let skipped = 0;
+    let failed  = 0;
+    const missingMappings: string[] = [];
     console.log(`[UI_CUSTOMIZATION][THEME_APPLY] themeMode=${theme} changes=${changes.length}`);
 
     for (const change of changes) {
       const area     = change.area as NexoAreaId;
       const property = change.property as NexoCssProperty;
       const cssVar   = this.resolveCssVar(area, property);
-      const value    = this.resolveValue(property, String(change.value ?? change.valuePreset ?? ''));
-      if (!cssVar || !value) {
-        console.warn(`[NexoUI] apply skip: ${change.area}:${change.property}`);
+
+      if (!cssVar) {
+        console.warn(`[UI_CUSTOMIZATION][MISSING_MAPPING] area=${change.area} property=${change.property}`);
+        missingMappings.push(`${change.area}:${change.property}`);
+        skipped++;
         continue;
       }
+
+      const value = this.resolveValue(property, String(change.value ?? change.valuePreset ?? ''));
+      if (!value) {
+        console.warn(`[UI_CUSTOMIZATION][BAD_VALUE] area=${change.area} property=${change.property} cssVar=${cssVar} raw="${change.value ?? change.valuePreset ?? ''}"`);
+        failed++;
+        continue;
+      }
+
       this.applyVariable(cssVar, value, theme);
       this.saveCustomization(cssVar, value, theme);
       this.logApplyChange(area, property, cssVar, value, theme);
@@ -480,6 +595,11 @@ export class UiCustomizationService {
       }
       applied++;
     }
+
+    console.log(
+      `[UI_CUSTOMIZATION][APPLY_SUMMARY] total=${changes.length} applied=${applied} skipped=${skipped} failed=${failed}` +
+      (missingMappings.length ? ` missingMappings=[${missingMappings.join(', ')}]` : '')
+    );
     return applied > 0;
   }
 
@@ -522,6 +642,26 @@ export class UiCustomizationService {
       'CHAT_LIST_PIN_MENU_ITEM',
       'CHAT_LIST_PIN_MENU_DANGER',
       'CHAT_LIST_PIN_MENU_REPORT',
+      // Group-scoped sub-areas
+      'CHAT_LIST_ITEM_GROUP_NAME',
+      'CHAT_LIST_ITEM_GROUP_PREVIEW',
+      'CHAT_LIST_ITEM_GROUP_DRAFT_PREVIEW',
+      'CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW',
+      'CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW',
+      'CHAT_LIST_ITEM_GROUP_FILE_PREVIEW',
+      'CHAT_LIST_ITEM_GROUP_BADGES',
+      'CHAT_LIST_ITEM_GROUP_ACTIONS',
+      'CHAT_LIST_ITEM_GROUP_STATUS_PILLS',
+      // Individual-chat-scoped sub-areas
+      'CHAT_LIST_ITEM_NAME_SCOPED',
+      'CHAT_LIST_ITEM_PREVIEW',
+      'CHAT_LIST_ITEM_DRAFT_PREVIEW',
+      'CHAT_LIST_ITEM_AUDIO_PREVIEW',
+      'CHAT_LIST_ITEM_IMAGE_PREVIEW',
+      'CHAT_LIST_ITEM_FILE_PREVIEW',
+      'CHAT_LIST_ITEM_BADGES',
+      'CHAT_LIST_ITEM_ACTIONS_SCOPED',
+      'CHAT_LIST_ITEM_STATUS_PILLS',
     ];
 
     return {
@@ -695,7 +835,7 @@ export class UiCustomizationService {
   private resolveValue(property: string, value: string): string | null {
     const v = this.normalizeValue(value);
     if (!v) return null;
-    if (property === 'SHADOW_PRESET') {
+    if (property === 'SHADOW_PRESET' || property === 'SHADOW') {
       return UiCustomizationService.SHADOW_PRESETS[v.toUpperCase()] ?? v;
     }
     return v;

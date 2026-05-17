@@ -190,6 +190,31 @@
             <span class="sidebar-nav__tooltip">Comunidades</span>
           </button>
 
+          <!-- Nexo IA -->
+          <button
+            class="sidebar-nav__item sidebar-nav__item--ai"
+            type="button"
+            tabindex="0"
+            title="Buscar con Nexo IA"
+            (click)="openGlobalMessageSearchPopup($event)"
+          >
+            <span class="sidebar-nav__active-indicator"></span>
+            <img src="assets/Nexo.svg" alt="Nexo IA" class="sidebar-nav__nexo-ai-icon" />
+            <span class="sidebar-nav__tooltip">Nexo IA</span>
+          </button>
+
+          <!-- Notificaciones -->
+          <button
+            class="sidebar-nav__item"
+            type="button"
+            tabindex="0"
+            title="Notificaciones"
+          >
+            <span class="sidebar-nav__active-indicator"></span>
+            <i class="fas fa-bell icono-barra icono-barra--bell"></i>
+            <span class="sidebar-nav__tooltip">Notificaciones</span>
+          </button>
+
         </div>
 
         <div class="usuario-config sidebar-nav__bottom">
@@ -215,8 +240,8 @@
 
       </div>
 
-      <div class="chat-list-wrapper">
-      <div class="listadoChats" *ngIf="!isStarredView">
+      <div class="chat-list-wrapper" *ngIf="!isStarredView">
+      <div class="listadoChats">
         <ng-container *ngIf="showChatListSkeleton; else chatListContent">
           <app-chat-list-skeleton [itemCount]="7"></app-chat-list-skeleton>
         </ng-container>
@@ -228,10 +253,17 @@
             <div class="acciones-chat">
               <button class="icono-chat" title="Crear grupo" data-bs-toggle="modal" (click)="crearGrupoModal.open()"
                 data-bs-target="#crearGrupoModal">
-                <img src="assets/crearGrupo.svg" alt="Crear grupo" class="icono-chat-svg" />
+                <svg class="icono-chat-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                  <path d="M5 20C5 17.2386 7.23858 15 10 15H14C16.7614 15 19 17.2386 19 20" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                  <path d="M18 8H22M20 6V10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                </svg>
               </button>
               <button class="icono-chat" title="Nuevo chat" type="button" (click)="showNuevoChatPanel = true">
-                <img src="assets/pencil.svg" alt="Nuevo chat" class="icono-chat-svg" />
+                <svg class="icono-chat-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M15.5 4.5L19.5 8.5M17.5 2.5L21.5 6.5L10 18H6V14L17.5 2.5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M6 21H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                </svg>
               </button>
               <div class="chat-list-menu-anchor">
                 <button
@@ -244,15 +276,6 @@
                   <i class="fas fa-ellipsis-v"></i>
                 </button>
                 <div class="chat-list-menu" *ngIf="showChatListHeaderMenu">
-                  <button
-                    type="button"
-                    class="chat-list-menu-item chat-list-menu-item--ai"
-                    (mousedown)="$event.stopPropagation()"
-                    (click)="openGlobalMessageSearchPopup($event)"
-                  >
-                    <i class="bi bi-stars"></i>
-                    Buscar Mensajes Global
-                  </button>
                   <button
                     type="button"
                     class="chat-list-menu-item chat-list-menu-item--schedule"
@@ -302,7 +325,7 @@
           </div>
           <div class="chat-scroll" [class.chat-scroll--empty]="chatsFiltrados.length === 0">
           <ng-container *ngIf="chatsFiltrados.length > 0">
-          <div *ngFor="let chat of chatsFiltrados" class="chat-item" [class.chat-item--unread]="chat.unreadCount > 0"
+          <div *ngFor="let chat of chatsFiltrados; trackBy: trackChatById" class="chat-item" [class.chat-item--unread]="chat.unreadCount > 0"
             [class.chat-item--group]="chat.esGrupo"
             [class.chat-item--selected]="chat.id === chatSeleccionadoId"
             [class.chat-item--pinned]="isChatPinned(chat)"
@@ -487,6 +510,7 @@
                   </ng-template>
                   </ng-template>
                 </ng-template>
+                <span *ngIf="chat.ultimaFecha && !forwardModalOpen" class="chat-item-date">{{ chat.ultimaFecha }}</span>
               </div>
             </div>
 
@@ -782,17 +806,12 @@
       </div>
 
       <!-- Panel Nuevo Chat -->
-      <div class="nuevo-chat-panel" [class.nuevo-chat-panel--open]="showNuevoChatPanel">
-        <div class="nuevo-chat-panel__header">
-          <button class="nuevo-chat-panel__back" type="button" (click)="showNuevoChatPanel = false">
-            <i class="bi bi-arrow-left"></i>
-          </button>
-          <span class="nuevo-chat-panel__title">Nuevo chat</span>
-        </div>
-        <div class="nuevo-chat-panel__body">
-          <!-- contenido futuro -->
-        </div>
-      </div>
+      <app-nuevo-chat
+        [open]="showNuevoChatPanel"
+        (closed)="showNuevoChatPanel = false"
+        (contactoSeleccionado)="onNuevoChatContactoSeleccionado($event)"
+        (nuevoGrupo)="crearGrupoModal.open()">
+      </app-nuevo-chat>
 
       <!-- Panel Perfil -->
       <div class="nuevo-chat-panel perfil-panel" [class.nuevo-chat-panel--open]="showPerfilPanel">
@@ -1287,7 +1306,19 @@
                           </div>
                         </ng-container>
                         <ng-template #audioCipherMissing>
-                          <span class="msg-text-inline">[Mensaje de voz cifrado]</span>
+                          <ng-container *ngIf="mensaje.__mediaLazy; else audioReallyMissing">
+                            <span *ngIf="!mensaje.__mediaLoading"
+                              class="media-lazy-placeholder"
+                              [attr.data-lazy-msg-id]="mensaje.id">
+                              <i class="fas fa-circle-notch fa-spin media-lazy-placeholder__spin"></i>
+                            </span>
+                            <span *ngIf="mensaje.__mediaLoading" class="media-lazy-loading">
+                              <i class="fas fa-circle-notch fa-spin"></i>
+                            </span>
+                          </ng-container>
+                          <ng-template #audioReallyMissing>
+                            <span class="msg-text-inline">[Mensaje de voz cifrado]</span>
+                          </ng-template>
                         </ng-template>
                       </ng-container>
 
@@ -1328,7 +1359,19 @@
                               </ng-template>
                             </ng-container>
                             <ng-template #imageCipherMissing>
-                              <span class="msg-text-inline">[Imagen cifrada]</span>
+                              <ng-container *ngIf="mensaje.__mediaLazy; else imageReallyMissing">
+                                <span *ngIf="!mensaje.__mediaLoading"
+                                  class="media-lazy-placeholder"
+                                  [attr.data-lazy-msg-id]="mensaje.id">
+                                  <i class="fas fa-circle-notch fa-spin media-lazy-placeholder__spin"></i>
+                                </span>
+                                <span *ngIf="mensaje.__mediaLoading" class="media-lazy-loading">
+                                  <i class="fas fa-circle-notch fa-spin"></i>
+                                </span>
+                              </ng-container>
+                              <ng-template #imageReallyMissing>
+                                <span class="msg-text-inline">[Imagen cifrada]</span>
+                              </ng-template>
                             </ng-template>
                             <span
                               class="msg-meta-inline msg-meta-inline--image"
@@ -1354,13 +1397,10 @@
                             <span class="msg-file-inline-wrap">
                               <ng-container *ngIf="getFileSrc(mensaje) as fileSrc; else fileCipherMissing">
                                 <span class="msg-file-content">
-                                  <a
+                                  <button
                                     class="file-bubble"
                                     [class.mine]="mensaje.emisorId === usuarioActualId"
-                                    [href]="fileSrc"
-                                    [attr.download]="getFileName(mensaje)"
-                                    target="_blank"
-                                    rel="noopener"
+                                    type="button"
                                     (click)="openFilePreview(mensaje, fileSrc, $event)"
                                   >
                                     <span class="file-bubble__icon" aria-hidden="true">
@@ -1376,14 +1416,26 @@
                                         &nbsp;&bull;&nbsp;{{ getFileTypeLabel(mensaje) }}
                                       </span>
                                     </span>
-                                  </a>
+                                  </button>
                                   <span *ngIf="getFileCaption(mensaje) as fileCaption" class="msg-file-caption">
                                     {{ fileCaption }}
                                   </span>
                                 </span>
                               </ng-container>
                               <ng-template #fileCipherMissing>
-                                <span class="msg-text-inline">[Archivo cifrado]</span>
+                                <ng-container *ngIf="mensaje.__mediaLazy; else fileReallyMissing">
+                                  <span *ngIf="!mensaje.__mediaLoading"
+                                    class="media-lazy-placeholder"
+                                    [attr.data-lazy-msg-id]="mensaje.id">
+                                    <i class="fas fa-circle-notch fa-spin media-lazy-placeholder__spin"></i>
+                                  </span>
+                                  <span *ngIf="mensaje.__mediaLoading" class="media-lazy-loading">
+                                    <i class="fas fa-circle-notch fa-spin"></i>
+                                  </span>
+                                </ng-container>
+                                <ng-template #fileReallyMissing>
+                                  <span class="msg-text-inline">[Archivo cifrado]</span>
+                                </ng-template>
                               </ng-template>
                               <span class="msg-meta-inline msg-meta-inline--file">
                                 <span class="msg-time">{{ formatMensajeHora(mensaje) }}</span>
@@ -2302,6 +2354,11 @@
   [aiSummaryLoading]="globalMessageSearchAiSummaryLoading"
   [searchCodigo]="globalMessageSearchCodigo"
   [uiCustomizationResult]="globalMessageSearchUiCustomizationResult"
+  [awaitingClarification]="globalMessageSearchAwaitingClarification"
+  [clarificationMessage]="globalMessageSearchClarificationMessage"
+  [clarificationReason]="globalMessageSearchLastClarificationReason"
+  [clarificationTarget]="globalMessageSearchLastClarificationTarget"
+  [smartActionThinkingVisible]="globalMessageSearchSmartActionThinkingVisible"
   (closed)="closeGlobalMessageSearchPopup()"
   (consultaChange)="onGlobalMessageSearchConsultaChange($event)"
   (submitted)="submitGlobalMessageSearch($event)"

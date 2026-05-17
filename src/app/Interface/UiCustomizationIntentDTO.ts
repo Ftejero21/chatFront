@@ -3,6 +3,12 @@ export interface UiCustomizationChange {
   property: string;
   value?: string | null;
   valuePreset?: string | null;
+  requestedValue?: string | null;
+  appliedValue?: string | null;
+  minAllowedValue?: string | null;
+  maxAllowedValue?: string | null;
+  normalized?: boolean | null;
+  normalizationReason?: string | null;
 }
 
 export interface UiCustomizationIntentRequest {
@@ -22,6 +28,12 @@ export interface UiCustomizationIntentResponse {
   property?: string;
   value?: string;
   valuePreset?: string;
+  requestedValue?: string;
+  appliedValue?: string;
+  minAllowedValue?: string;
+  maxAllowedValue?: string;
+  normalized?: boolean;
+  normalizationReason?: string;
   label?: string;
   cssVariable?: string;
   confidence?: number;

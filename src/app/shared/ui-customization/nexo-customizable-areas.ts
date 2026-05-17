@@ -12,6 +12,8 @@ export type NexoCssProperty =
   | 'ACTIVE_TEXT_COLOR'
   | 'ACTIVE_ICON_COLOR'
   | 'HOVER_BACKGROUND_COLOR'
+  | 'HOVER_TEXT_COLOR'
+  | 'HOVER_ICON_COLOR'
   | 'UNREAD_BACKGROUND_COLOR'
   | 'CARD_BACKGROUND_COLOR'
   | 'INPUT_BACKGROUND_COLOR'
@@ -19,6 +21,10 @@ export type NexoCssProperty =
   | 'SEND_BUTTON_COLOR'
   | 'CHECK_COLOR'
   | 'SHADOW_PRESET'
+  | 'SHADOW'
+  | 'OPACITY'
+  | 'GAP'
+  | 'WIDTH'
   | 'BADGE_COLOR'
   | 'SENDER_TEXT_COLOR'
   | 'PREVIEW_SENDER_TEXT_COLOR'
@@ -30,7 +36,9 @@ export type NexoCssProperty =
   | 'SEPARATOR_COLOR'
   | 'TIME_COLOR'
   | 'FOCUS_BORDER_COLOR'
-  | 'BORDER_WIDTH';
+  | 'BORDER_WIDTH'
+  | 'PREVIEW_TEXT_COLOR'
+  | 'FONT_WEIGHT';
 
 export type NexoAreaId =
   | 'MAIN_LAYOUT'
@@ -105,7 +113,43 @@ export type NexoAreaId =
   | 'CHAT_LIST_IMAGE_PREVIEW'
   | 'CHAT_LIST_FILE_PREVIEW'
   | 'CHAT_LIST_STATUS_PILL_REPORTED'
-  | 'CHAT_LIST_STATUS_PILL_BLOCKED';
+  | 'CHAT_LIST_STATUS_PILL_BLOCKED'
+  | 'CHAT_LIST_ITEM_GROUP_PREVIEW'
+  | 'CHAT_LIST_ITEM_GROUP_DRAFT_PREVIEW'
+  | 'CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW'
+  | 'CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW'
+  | 'CHAT_LIST_ITEM_GROUP_FILE_PREVIEW'
+  | 'CHAT_LIST_ITEM_GROUP_BADGES'
+  | 'CHAT_LIST_ITEM_GROUP_ACTIONS'
+  | 'CHAT_LIST_ITEM_GROUP_STATUS_PILLS'
+  | 'CHAT_LIST_ITEM_PREVIEW'
+  | 'CHAT_LIST_ITEM_DRAFT_PREVIEW'
+  | 'CHAT_LIST_ITEM_AUDIO_PREVIEW'
+  | 'CHAT_LIST_ITEM_IMAGE_PREVIEW'
+  | 'CHAT_LIST_ITEM_FILE_PREVIEW'
+  | 'CHAT_LIST_ITEM_BADGES'
+  | 'CHAT_LIST_ITEM_ACTIONS_SCOPED'
+  | 'CHAT_LIST_ITEM_STATUS_PILLS'
+  | 'CHAT_LIST_ITEM_NAME_SCOPED'
+  | 'CHAT_LIST_ITEM_GROUP_NAME'
+  | 'CHAT_LIST_TYPING_PREVIEW'
+  | 'CHAT_LIST_POLL_PREVIEW'
+  | 'CHAT_LIST_CLOSED_PREVIEW'
+  | 'CHAT_LIST_STATUS_INDICATOR'
+  | 'CHAT_LIST_ITEM_GROUP_ACTIVE'
+  | 'CHAT_LIST_ITEM_DATE'
+  | 'SIDEBAR_NAV_PANEL'
+  | 'SIDEBAR_NAV_GROUP'
+  | 'SIDEBAR_NAV_BOTTOM'
+  | 'SIDEBAR_NAV_ITEM_ACTIVE'
+  | 'SIDEBAR_NAV_ACTIVE_INDICATOR'
+  | 'SIDEBAR_NAV_LOGO'
+  | 'SIDEBAR_NAV_ICON'
+  | 'SIDEBAR_NAV_ICON_ACTIVE'
+  | 'SIDEBAR_NAV_AI_ICON'
+  | 'SIDEBAR_NAV_TOOLTIP'
+  | 'SIDEBAR_NAV_AVATAR'
+  | 'SIDEBAR_NAV_SETTINGS';
 
 export interface NexoCustomizableArea {
   id: NexoAreaId;
@@ -131,12 +175,16 @@ export const NEXO_CUSTOMIZABLE_AREAS: Record<NexoAreaId, NexoCustomizableArea> =
     BORDER_COLOR: '--nexo-sidebar-border',
     ICON_COLOR: '--nexo-sidebar-icon-color',
   }),
-  SIDEBAR_NAV_ITEM: area('SIDEBAR_NAV_ITEM', 'Items barra lateral', ['iconos sidebar'], {
-    BACKGROUND_COLOR: '--nexo-sidebar-item-bg',
-    TEXT_COLOR: '--nexo-sidebar-item-text',
-    ICON_COLOR: '--nexo-sidebar-item-icon-color',
-    BORDER_RADIUS: '--nexo-sidebar-item-radius',
-    HOVER_BACKGROUND_COLOR: '--nexo-sidebar-item-hover-bg',
+  SIDEBAR_NAV_ITEM: area('SIDEBAR_NAV_ITEM', 'Items barra lateral', ['iconos sidebar', 'botones sidebar'], {
+    BACKGROUND_COLOR:       '--nexo-sidebar-nav-item-bg',
+    TEXT_COLOR:             '--nexo-sidebar-nav-item-text',
+    ICON_COLOR:             '--nexo-sidebar-nav-item-icon',
+    BORDER_COLOR:           '--nexo-sidebar-nav-item-border',
+    BORDER_WIDTH:           '--nexo-sidebar-nav-item-border-width',
+    BORDER_RADIUS:          '--nexo-sidebar-nav-item-radius',
+    HOVER_BACKGROUND_COLOR: '--nexo-sidebar-nav-item-hover-bg',
+    HOVER_TEXT_COLOR:       '--nexo-sidebar-nav-item-hover-text',
+    HOVER_ICON_COLOR:       '--nexo-sidebar-nav-item-hover-icon',
   }),
   SIDEBAR_NAV_ACTIVE_ITEM: area('SIDEBAR_NAV_ACTIVE_ITEM', 'Item activo barra lateral', ['sidebar activo'], {
     ACTIVE_BACKGROUND_COLOR: '--nexo-sidebar-active-bg',
@@ -237,6 +285,7 @@ export const NEXO_CUSTOMIZABLE_AREAS: Record<NexoAreaId, NexoCustomizableArea> =
     ACTIVE_BACKGROUND_COLOR: '--nexo-chat-item-active-bg',
     ACTIVE_TEXT_COLOR:       '--nexo-chat-item-active-text',
     BORDER_COLOR:            '--nexo-chat-item-active-border',
+    BORDER_WIDTH:            '--nexo-chat-item-active-border-width',
     BORDER_RADIUS:           '--nexo-chat-item-active-radius',
   }),
   CHAT_LIST_ITEM_UNREAD: area('CHAT_LIST_ITEM_UNREAD', 'Item chat no leido', ['chat no leido'], {
@@ -621,6 +670,216 @@ export const NEXO_CUSTOMIZABLE_AREAS: Record<NexoAreaId, NexoCustomizableArea> =
     BORDER_RADIUS:    '--nexo-chat-status-pill-radius',
     FONT_SIZE:        '--nexo-chat-status-pill-font-size',
     ICON_COLOR:       '--nexo-chat-status-pill-icon',
+  }),
+  CHAT_LIST_ITEM_GROUP_PREVIEW: area('CHAT_LIST_ITEM_GROUP_PREVIEW', 'Preview mensaje chat grupal', ['preview grupo', 'ultimo mensaje grupo'], {
+    TEXT_COLOR:                 '--nexo-group-item-preview-text',
+    FONT_SIZE:                  '--nexo-group-item-preview-font-size',
+    PREVIEW_SENDER_TEXT_COLOR:  '--nexo-group-item-preview-sender',
+  }),
+  CHAT_LIST_ITEM_GROUP_DRAFT_PREVIEW: area('CHAT_LIST_ITEM_GROUP_DRAFT_PREVIEW', 'Preview borrador chat grupal', ['draft preview grupo', 'borrador grupo'], {
+    TEXT_COLOR:   '--nexo-group-item-draft-text',
+    LABEL_COLOR:  '--nexo-group-item-draft-label',
+    FONT_SIZE:    '--nexo-group-item-draft-font-size',
+  }),
+  CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW: area('CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW', 'Preview audio chat grupal', ['audio preview grupo', 'audio grupo lista'], {
+    BACKGROUND_COLOR: '--nexo-group-item-audio-bg',
+    TEXT_COLOR:       '--nexo-group-item-audio-text',
+    ICON_COLOR:       '--nexo-group-item-audio-icon',
+    BORDER_COLOR:     '--nexo-group-item-audio-border',
+    LABEL_COLOR:      '--nexo-group-item-audio-label',
+    TIME_COLOR:       '--nexo-group-item-audio-time',
+    SEPARATOR_COLOR:  '--nexo-group-item-audio-separator',
+  }),
+  CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW: area('CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW', 'Preview imagen chat grupal', ['imagen preview grupo', 'foto preview grupo'], {
+    BACKGROUND_COLOR: '--nexo-group-item-image-bg',
+    TEXT_COLOR:       '--nexo-group-item-image-text',
+    BORDER_COLOR:     '--nexo-group-item-image-border',
+  }),
+  CHAT_LIST_ITEM_GROUP_FILE_PREVIEW: area('CHAT_LIST_ITEM_GROUP_FILE_PREVIEW', 'Preview archivo chat grupal', ['archivo preview grupo', 'fichero preview grupo'], {
+    BACKGROUND_COLOR: '--nexo-group-item-file-bg',
+    TEXT_COLOR:       '--nexo-group-item-file-text',
+    ICON_COLOR:       '--nexo-group-item-file-icon',
+    BORDER_COLOR:     '--nexo-group-item-file-border',
+  }),
+  CHAT_LIST_ITEM_GROUP_BADGES: area('CHAT_LIST_ITEM_GROUP_BADGES', 'Badges no leidos chat grupal', ['badge grupo', 'contador grupo'], {
+    BACKGROUND_COLOR: '--nexo-group-item-badge-bg',
+    TEXT_COLOR:       '--nexo-group-item-badge-text',
+    BORDER_COLOR:     '--nexo-group-item-badge-border',
+  }),
+  CHAT_LIST_ITEM_GROUP_ACTIONS: area('CHAT_LIST_ITEM_GROUP_ACTIONS', 'Iconos accion chat grupal', ['acciones grupo', 'iconos grupo lista'], {
+    ICON_COLOR:             '--nexo-group-item-action-icon',
+    HOVER_BACKGROUND_COLOR: '--nexo-group-item-action-hover-bg',
+  }),
+  CHAT_LIST_ITEM_GROUP_STATUS_PILLS: area('CHAT_LIST_ITEM_GROUP_STATUS_PILLS', 'Pills estado chat grupal', ['pills estado grupo', 'reportado bloqueado grupo'], {
+    REPORTED_BACKGROUND_COLOR: '--nexo-group-item-reported-bg',
+    REPORTED_TEXT_COLOR:       '--nexo-group-item-reported-text',
+    BLOCKED_BACKGROUND_COLOR:  '--nexo-group-item-blocked-bg',
+    BLOCKED_TEXT_COLOR:        '--nexo-group-item-blocked-text',
+  }),
+  CHAT_LIST_ITEM_PREVIEW: area('CHAT_LIST_ITEM_PREVIEW', 'Preview mensaje chat individual', ['preview individual', 'ultimo mensaje individual'], {
+    TEXT_COLOR:                '--nexo-indiv-item-preview-text',
+    FONT_SIZE:                 '--nexo-indiv-item-preview-font-size',
+    PREVIEW_SENDER_TEXT_COLOR: '--nexo-indiv-item-preview-sender',
+  }),
+  CHAT_LIST_ITEM_DRAFT_PREVIEW: area('CHAT_LIST_ITEM_DRAFT_PREVIEW', 'Preview borrador chat individual', ['draft individual', 'borrador individual'], {
+    TEXT_COLOR:  '--nexo-indiv-item-draft-text',
+    LABEL_COLOR: '--nexo-indiv-item-draft-label',
+    FONT_SIZE:   '--nexo-indiv-item-draft-font-size',
+  }),
+  CHAT_LIST_ITEM_AUDIO_PREVIEW: area('CHAT_LIST_ITEM_AUDIO_PREVIEW', 'Preview audio chat individual', ['audio individual', 'audio preview individual'], {
+    BACKGROUND_COLOR: '--nexo-indiv-item-audio-bg',
+    TEXT_COLOR:       '--nexo-indiv-item-audio-text',
+    ICON_COLOR:       '--nexo-indiv-item-audio-icon',
+    BORDER_COLOR:     '--nexo-indiv-item-audio-border',
+    LABEL_COLOR:      '--nexo-indiv-item-audio-label',
+    TIME_COLOR:       '--nexo-indiv-item-audio-time',
+    SEPARATOR_COLOR:  '--nexo-indiv-item-audio-separator',
+  }),
+  CHAT_LIST_ITEM_IMAGE_PREVIEW: area('CHAT_LIST_ITEM_IMAGE_PREVIEW', 'Preview imagen chat individual', ['imagen individual', 'foto preview individual'], {
+    BACKGROUND_COLOR: '--nexo-indiv-item-image-bg',
+    TEXT_COLOR:       '--nexo-indiv-item-image-text',
+    BORDER_COLOR:     '--nexo-indiv-item-image-border',
+  }),
+  CHAT_LIST_ITEM_FILE_PREVIEW: area('CHAT_LIST_ITEM_FILE_PREVIEW', 'Preview archivo chat individual', ['archivo individual', 'fichero preview individual'], {
+    BACKGROUND_COLOR: '--nexo-indiv-item-file-bg',
+    TEXT_COLOR:       '--nexo-indiv-item-file-text',
+    ICON_COLOR:       '--nexo-indiv-item-file-icon',
+    BORDER_COLOR:     '--nexo-indiv-item-file-border',
+  }),
+  CHAT_LIST_ITEM_BADGES: area('CHAT_LIST_ITEM_BADGES', 'Badges no leidos chat individual', ['badge individual', 'contador individual'], {
+    BACKGROUND_COLOR: '--nexo-indiv-item-badge-bg',
+    TEXT_COLOR:       '--nexo-indiv-item-badge-text',
+    BORDER_COLOR:     '--nexo-indiv-item-badge-border',
+  }),
+  CHAT_LIST_ITEM_ACTIONS_SCOPED: area('CHAT_LIST_ITEM_ACTIONS_SCOPED', 'Iconos accion chat individual', ['acciones individual', 'iconos individual lista'], {
+    ICON_COLOR:             '--nexo-indiv-item-action-icon',
+    HOVER_BACKGROUND_COLOR: '--nexo-indiv-item-action-hover-bg',
+  }),
+  CHAT_LIST_ITEM_STATUS_PILLS: area('CHAT_LIST_ITEM_STATUS_PILLS', 'Pills estado chat individual', ['pills estado individual', 'reportado bloqueado individual'], {
+    REPORTED_BACKGROUND_COLOR: '--nexo-indiv-item-reported-bg',
+    REPORTED_TEXT_COLOR:       '--nexo-indiv-item-reported-text',
+    BLOCKED_BACKGROUND_COLOR:  '--nexo-indiv-item-blocked-bg',
+    BLOCKED_TEXT_COLOR:        '--nexo-indiv-item-blocked-text',
+  }),
+  CHAT_LIST_ITEM_NAME_SCOPED: area('CHAT_LIST_ITEM_NAME_SCOPED', 'Nombre chat individual', ['nombre individual', 'nombre item individual'], {
+    TEXT_COLOR: '--nexo-indiv-item-name-color',
+    FONT_SIZE:  '--nexo-indiv-item-name-font-size',
+  }),
+  CHAT_LIST_ITEM_GROUP_NAME: area('CHAT_LIST_ITEM_GROUP_NAME', 'Nombre chat grupal', ['nombre grupal', 'nombre item grupal'], {
+    TEXT_COLOR: '--nexo-group-item-name-color',
+    FONT_SIZE:  '--nexo-group-item-name-font-size',
+  }),
+  CHAT_LIST_TYPING_PREVIEW: area('CHAT_LIST_TYPING_PREVIEW', 'Preview escribiendo lista', ['escribiendo lista', 'typing lista', 'audio lista'], {
+    TEXT_COLOR: '--nexo-chat-typing-preview-text',
+    ICON_COLOR: '--nexo-chat-typing-preview-icon',
+  }),
+  CHAT_LIST_POLL_PREVIEW: area('CHAT_LIST_POLL_PREVIEW', 'Preview encuesta lista', ['encuesta lista', 'poll preview lista'], {
+    TEXT_COLOR: '--nexo-chat-poll-preview-text',
+    ICON_COLOR: '--nexo-chat-poll-preview-icon',
+  }),
+  CHAT_LIST_CLOSED_PREVIEW: area('CHAT_LIST_CLOSED_PREVIEW', 'Preview chat cerrado lista', ['chat cerrado lista', 'closed preview'], {
+    TEXT_COLOR: '--nexo-chat-closed-preview-text',
+    ICON_COLOR: '--nexo-chat-closed-preview-icon',
+  }),
+  CHAT_LIST_STATUS_INDICATOR: area('CHAT_LIST_STATUS_INDICATOR', 'Indicador estado usuario lista', ['estado online', 'punto conectado', 'indicador online'], {
+    BACKGROUND_COLOR: '--nexo-chat-status-online-bg',
+    BORDER_COLOR:     '--nexo-chat-status-online-border',
+  }),
+  CHAT_LIST_ITEM_GROUP_ACTIVE: area('CHAT_LIST_ITEM_GROUP_ACTIVE', 'Chat grupal activo/seleccionado', ['chat grupo activo', 'grupo seleccionado', 'grupo activo'], {
+    BACKGROUND_COLOR:       '--nexo-chat-item-group-active-bg',
+    TEXT_COLOR:             '--nexo-chat-item-group-active-text',
+    BORDER_COLOR:           '--nexo-chat-item-group-active-border',
+    BORDER_WIDTH:           '--nexo-chat-item-group-active-border-width',
+    BORDER_RADIUS:          '--nexo-chat-item-group-active-radius',
+    HOVER_BACKGROUND_COLOR: '--nexo-chat-item-group-active-hover-bg',
+    ICON_COLOR:             '--nexo-chat-item-group-active-icon',
+    PREVIEW_TEXT_COLOR:     '--nexo-chat-item-group-active-preview-text',
+  }),
+  CHAT_LIST_ITEM_DATE: area('CHAT_LIST_ITEM_DATE', 'Fecha última actividad chat', ['fecha chat', 'hora chat', 'ultima fecha chat', 'fecha item lista'], {
+    TEXT_COLOR:   '--nexo-chat-item-date-color',
+    FONT_SIZE:    '--nexo-chat-item-date-font-size',
+    FONT_WEIGHT:  '--nexo-chat-item-date-font-weight',
+  }),
+  SIDEBAR_NAV_PANEL: area('SIDEBAR_NAV_PANEL', 'Panel barra lateral', ['barra lateral panel', 'sidebar panel', 'barra izquierda'], {
+    BACKGROUND_COLOR: '--nexo-sidebar-nav-bg',
+    TEXT_COLOR:       '--nexo-sidebar-nav-text',
+    BORDER_COLOR:     '--nexo-sidebar-nav-border',
+    BORDER_WIDTH:     '--nexo-sidebar-nav-border-width',
+    BORDER_RADIUS:    '--nexo-sidebar-nav-radius',
+    SHADOW:           '--nexo-sidebar-nav-shadow',
+    SHADOW_PRESET:    '--nexo-sidebar-nav-shadow',
+  }),
+  SIDEBAR_NAV_GROUP: area('SIDEBAR_NAV_GROUP', 'Grupo iconos barra lateral', ['grupo sidebar', 'iconos superiores sidebar'], {
+    BACKGROUND_COLOR: '--nexo-sidebar-nav-group-bg',
+    BORDER_COLOR:     '--nexo-sidebar-nav-group-border',
+    GAP:              '--nexo-sidebar-nav-group-gap',
+  }),
+  SIDEBAR_NAV_BOTTOM: area('SIDEBAR_NAV_BOTTOM', 'Zona inferior barra lateral', ['sidebar bottom', 'zona usuario sidebar'], {
+    BACKGROUND_COLOR: '--nexo-sidebar-nav-bottom-bg',
+    BORDER_COLOR:     '--nexo-sidebar-nav-bottom-border',
+  }),
+  SIDEBAR_NAV_ITEM_ACTIVE: area('SIDEBAR_NAV_ITEM_ACTIVE', 'Item activo barra lateral', ['boton activo sidebar', 'item activo sidebar'], {
+    BACKGROUND_COLOR:        '--nexo-sidebar-nav-item-active-bg',
+    ACTIVE_BACKGROUND_COLOR: '--nexo-sidebar-nav-item-active-bg',
+    TEXT_COLOR:              '--nexo-sidebar-nav-item-active-text',
+    ACTIVE_TEXT_COLOR:       '--nexo-sidebar-nav-item-active-text',
+    ICON_COLOR:              '--nexo-sidebar-nav-item-active-icon',
+    ACTIVE_ICON_COLOR:       '--nexo-sidebar-nav-item-active-icon',
+    BORDER_COLOR:            '--nexo-sidebar-nav-item-active-border',
+    BORDER_WIDTH:            '--nexo-sidebar-nav-item-active-border-width',
+    BORDER_RADIUS:           '--nexo-sidebar-nav-item-active-radius',
+  }),
+  SIDEBAR_NAV_ACTIVE_INDICATOR: area('SIDEBAR_NAV_ACTIVE_INDICATOR', 'Indicador activo barra lateral', ['indicador activo sidebar', 'barra activa sidebar'], {
+    BACKGROUND_COLOR: '--nexo-sidebar-nav-active-indicator-bg',
+    BORDER_COLOR:     '--nexo-sidebar-nav-active-indicator-border',
+    WIDTH:            '--nexo-sidebar-nav-active-indicator-width',
+  }),
+  SIDEBAR_NAV_LOGO: area('SIDEBAR_NAV_LOGO', 'Logo barra lateral', ['logo nexo sidebar', 'logo n sidebar'], {
+    BACKGROUND_COLOR: '--nexo-sidebar-nav-logo-bg',
+    TEXT_COLOR:       '--nexo-sidebar-nav-logo-text',
+    BORDER_COLOR:     '--nexo-sidebar-nav-logo-border',
+    BORDER_RADIUS:    '--nexo-sidebar-nav-logo-radius',
+    FONT_SIZE:        '--nexo-sidebar-nav-logo-font-size',
+    SHADOW:           '--nexo-sidebar-nav-logo-shadow',
+    SHADOW_PRESET:    '--nexo-sidebar-nav-logo-shadow',
+  }),
+  SIDEBAR_NAV_ICON: area('SIDEBAR_NAV_ICON', 'Iconos barra lateral', ['iconos sidebar', 'iconos barra lateral'], {
+    ICON_COLOR: '--nexo-sidebar-nav-icon-color',
+    TEXT_COLOR: '--nexo-sidebar-nav-icon-color',
+    COLOR:      '--nexo-sidebar-nav-icon-color',
+  }),
+  SIDEBAR_NAV_ICON_ACTIVE: area('SIDEBAR_NAV_ICON_ACTIVE', 'Iconos activos barra lateral', ['iconos activos sidebar', 'iconos activos barra lateral'], {
+    ICON_COLOR:        '--nexo-sidebar-nav-icon-active-color',
+    TEXT_COLOR:        '--nexo-sidebar-nav-icon-active-color',
+    ACTIVE_ICON_COLOR: '--nexo-sidebar-nav-icon-active-color',
+    COLOR:             '--nexo-sidebar-nav-icon-active-color',
+  }),
+  SIDEBAR_NAV_AI_ICON: area('SIDEBAR_NAV_AI_ICON', 'Icono Nexo IA barra lateral', ['icono ia sidebar', 'nexo ai sidebar'], {
+    BACKGROUND_COLOR: '--nexo-sidebar-nav-ai-icon-bg',
+    BORDER_COLOR:     '--nexo-sidebar-nav-ai-icon-border',
+    BORDER_RADIUS:    '--nexo-sidebar-nav-ai-icon-radius',
+    OPACITY:          '--nexo-sidebar-nav-ai-icon-opacity',
+  }),
+  SIDEBAR_NAV_TOOLTIP: area('SIDEBAR_NAV_TOOLTIP', 'Tooltip barra lateral', ['tooltip sidebar', 'tooltip barra lateral'], {
+    BACKGROUND_COLOR: '--nexo-sidebar-nav-tooltip-bg',
+    TEXT_COLOR:       '--nexo-sidebar-nav-tooltip-text',
+    BORDER_COLOR:     '--nexo-sidebar-nav-tooltip-border',
+    BORDER_RADIUS:    '--nexo-sidebar-nav-tooltip-radius',
+    SHADOW:           '--nexo-sidebar-nav-tooltip-shadow',
+    SHADOW_PRESET:    '--nexo-sidebar-nav-tooltip-shadow',
+  }),
+  SIDEBAR_NAV_AVATAR: area('SIDEBAR_NAV_AVATAR', 'Avatar barra lateral', ['avatar sidebar', 'avatar barra lateral'], {
+    BACKGROUND_COLOR: '--nexo-sidebar-nav-avatar-bg',
+    TEXT_COLOR:       '--nexo-sidebar-nav-avatar-text',
+    BORDER_COLOR:     '--nexo-sidebar-nav-avatar-border',
+    BORDER_WIDTH:     '--nexo-sidebar-nav-avatar-border-width',
+    BORDER_RADIUS:    '--nexo-sidebar-nav-avatar-radius',
+  }),
+  SIDEBAR_NAV_SETTINGS: area('SIDEBAR_NAV_SETTINGS', 'Botones ajustes barra lateral', ['ajustes sidebar', 'settings sidebar'], {
+    BACKGROUND_COLOR:       '--nexo-sidebar-nav-settings-bg',
+    ICON_COLOR:             '--nexo-sidebar-nav-settings-icon',
+    TEXT_COLOR:             '--nexo-sidebar-nav-settings-text',
+    HOVER_BACKGROUND_COLOR: '--nexo-sidebar-nav-settings-hover-bg',
   }),
 };
 

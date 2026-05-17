@@ -43,6 +43,7 @@ import { AiConversationSummaryPopupComponent } from './Components/popup/ai-conve
 import { StickerEditorPanelComponent } from './Components/inicio/sticker-editor-panel/sticker-editor-panel.component';
 import { StickerCollectionPopupComponent } from './Components/popup/sticker-collection-popup/sticker-collection-popup.component';
 import { AiGlobalMessageSearchPopupComponent } from './Components/popup/ai-global-message-search-popup/ai-global-message-search-popup.component';
+import { NuevoChatComponent } from './Components/inicio/nuevo-chat/nuevo-chat.component';
 
 @NgModule({
   declarations: [
@@ -79,7 +80,8 @@ import { AiGlobalMessageSearchPopupComponent } from './Components/popup/ai-globa
     AiConversationSummaryPopupComponent,
     StickerEditorPanelComponent,
     StickerCollectionPopupComponent,
-    AiGlobalMessageSearchPopupComponent
+    AiGlobalMessageSearchPopupComponent,
+    NuevoChatComponent,
   ],
   imports: [
     BrowserModule,
