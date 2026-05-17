@@ -2173,18 +2173,26 @@ body.dark-mode .chat-item-date {
 }
 
 .cuerpo-mensajes--chat-selected {
+  position: relative;
   flex: 1 1 auto;
   width: 100%;
   height: 100%;
   min-height: 0;
   background-color: var(--nexo-chat-bg, transparent);
-  background-image: var(--nexo-chat-bg-image, url('/assets/fondoChats.png'));
-  background-size: cover;
+  background-image: var(
+    --nexo-chat-bg-image,
+    radial-gradient(60% 50% at 15% 20%, rgba(139, 92, 246, 0.07), transparent 60%),
+    radial-gradient(50% 45% at 85% 80%, rgba(56, 189, 248, 0.06), transparent 60%),
+    radial-gradient(40% 40% at 60% 35%, rgba(34, 197, 94, 0.05), transparent 65%)
+  );
+  background-size: auto;
   background-position: center;
   background-repeat: no-repeat;
 }
 
 .mensaje {
+  position: relative;
+  z-index: 1;
   max-width: 100%;
   padding: 10px 14px;
   border-radius: var(--nexo-message-radius, 10px);
@@ -3257,7 +3265,15 @@ body.dark-mode .chat-item-date {
   min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
+  font-weight: normal;
+}
+
+.mensaje-propio .msg-text-inline {
   font-weight: bold;
+}
+
+.mensaje-otro .msg-text-inline {
+  font-weight: normal;
 }
 
 .media-lazy-placeholder {
@@ -5563,54 +5579,107 @@ body.dark-mode .chat-item-date {
   }
 }
 
-/* estilos para el audio de los mensajes*/
+/* =====================================================================
+   AUDIO BUBBLE — single row: play | waveform | speed
+   Light mode default; dark via body.dark-mode prefix below.
+   ===================================================================== */
+
 .audio-bubble {
   display: flex;
   align-items: center;
   gap: 12px;
-  max-width: 320px;
-  padding: 10px 12px;
-  border-radius: 16px;
-  background: #eef2ff;
-  /* azul muy suave */
-  border: 1px solid #dbeafe;
+  width: 360px;
+  max-width: 100%;
+  padding: 10px 14px 10px 10px;
+  border-radius: 18px;
+  background: rgba(79, 70, 229, 0.08);
+  border: 1px solid rgba(79, 70, 229, 0.22);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+  font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
 .audio-bubble.mine {
-  background: #e8f1ff;
-  /* para tus propios mensajes, sutilmente distinto */
+  background: rgba(79, 70, 229, 0.08);
+  border: 1px solid rgba(79, 70, 229, 0.22);
 }
 
 .audio-play {
-  width: 38px;
-  height: 38px;
-  border: 0;
-  border-radius: 9999px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
   display: grid;
   place-items: center;
-  background: #ffffff;
-  color: #1d4ed8;
-  box-shadow: 0 6px 16px rgba(2, 6, 23, 0.08);
-  cursor: pointer;
-  transition: transform .08s ease, filter .12s ease;
+  flex-shrink: 0;
+  background: #4f46e5;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+  transition: transform 0.12s ease, filter 0.12s ease;
 }
 
 .audio-play:hover {
-  filter: brightness(1.02);
-  transform: translateY(-1px);
+  filter: brightness(1.05);
 }
 
 .audio-play i {
-  font-size: 14px;
+  font-size: 16px;
+  color: #ffffff;
 }
 
 .audio-wave {
   flex: 1;
-  display: grid;
-  grid-template-columns: 1fr auto;
+  min-width: 0;
+  display: flex;
   align-items: center;
-  gap: 10px;
-  min-width: 160px;
+  gap: 2px;
+  height: 32px;
+  cursor: pointer;
+}
+
+.audio-wave-bar {
+  flex: 1;
+  border-radius: 2px;
+  min-height: 4px;
+  background: linear-gradient(
+    to right,
+    #4f46e5 0%,
+    #4f46e5 var(--bar-fill, 0%),
+    rgba(15, 23, 42, 0.22) var(--bar-fill, 0%),
+    rgba(15, 23, 42, 0.22) 100%
+  );
+}
+
+.audio-speed-btn {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  color: #475569;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.audio-speed-btn:hover {
+  border-color: rgba(15, 23, 42, 0.24);
+  color: #0f172a;
+}
+
+/* Quita fondo de mensaje-propio / mensaje-otro cuando es AUDIO solo */
+.mensaje.mensaje--audio.mensaje-propio,
+.mensaje.mensaje--audio.mensaje-otro {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.mensaje.mensaje--audio.mensaje-otro::before {
+  display: none !important;
 }
 
 .image-bubble {
@@ -5802,31 +5871,7 @@ body.dark-mode .chat-item-date {
   justify-content: flex-end;
 }
 
-.audio-track {
-  position: relative;
-  height: 4px;
-  background: #c7d2fe;
-  border-radius: 9999px;
-  overflow: hidden;
-}
-
-.audio-progress {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 0%;
-  background: linear-gradient(90deg, #2563eb, #1d4ed8);
-  border-radius: 9999px;
-  transition: width .15s linear;
-}
-
-.audio-time {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  font-size: 12px;
-  color: #0f172a;
-}
+/* .audio-track / .audio-progress / .audio-time removidos — waveform reemplaza progreso */
 
 .mensaje-preview .preview-audio {
   display: inline-flex;

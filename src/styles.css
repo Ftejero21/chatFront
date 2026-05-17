@@ -27,7 +27,10 @@ body {
   --bubble-other-text: #1f2937;
   /* ── Nexo UI customization vars (light defaults) ── */
   --nexo-chat-bg: transparent;
-  --nexo-chat-bg-image: url('/assets/fondoChats.png');
+  --nexo-chat-bg-image:
+    radial-gradient(60% 50% at 15% 20%, rgba(139, 92, 246, 0.07), transparent 60%),
+    radial-gradient(50% 45% at 85% 80%, rgba(56, 189, 248, 0.06), transparent 60%),
+    radial-gradient(40% 40% at 60% 35%, rgba(34, 197, 94, 0.05), transparent 65%);
   --nexo-own-message-bg: var(--bubble-own-bg);
   --nexo-own-message-color: var(--bubble-own-text);
   --nexo-other-message-bg: var(--bubble-other-bg);
@@ -279,7 +282,10 @@ body.dark-mode {
   --bubble-other-text: #e5e7eb;
   /* ── Nexo UI customization vars (dark defaults) ── */
   --nexo-chat-bg: transparent;
-  --nexo-chat-bg-image: url('/assets/fondoChatsOscuro.png');
+  --nexo-chat-bg-image:
+    radial-gradient(60% 50% at 15% 20%, rgba(139, 92, 246, 0.10), transparent 60%),
+    radial-gradient(50% 45% at 85% 80%, rgba(56, 189, 248, 0.07), transparent 60%),
+    radial-gradient(40% 40% at 60% 35%, rgba(34, 197, 94, 0.05), transparent 65%);
   --nexo-own-message-bg: #6b8afd;
   --nexo-own-message-color: #ffffff;
   --nexo-other-message-bg: #161a21;
@@ -2100,13 +2106,19 @@ body.dark-mode .input-mensaje {
   border: 1px solid #232934 !important;
 }
 
-/* ── chat background image ── */
+/* ── chat background mesh gradient (Nexo brand) ── */
 body.dark-mode .cuerpo-mensajes,
 body.dark-mode .cuerpo-mensajes--chat-selected,
 body.dark-mode .cuerpoMensajes {
+  position: relative !important;
   background-color: var(--nexo-chat-bg, transparent) !important;
-  background-image: var(--nexo-chat-bg-image, url('/assets/fondoChatsOscuro.png')) !important;
-  background-size: cover !important;
+  background-image: var(
+    --nexo-chat-bg-image,
+    radial-gradient(60% 50% at 15% 20%, rgba(139, 92, 246, 0.10), transparent 60%),
+    radial-gradient(50% 45% at 85% 80%, rgba(56, 189, 248, 0.07), transparent 60%),
+    radial-gradient(40% 40% at 60% 35%, rgba(34, 197, 94, 0.05), transparent 65%)
+  ) !important;
+  background-size: auto !important;
   background-position: center !important;
   background-repeat: no-repeat !important;
   width: 100% !important;
@@ -3660,24 +3672,55 @@ body.dark-mode .ai-approximate-notice {
   color: #fcd34d !important;
 }
 
-/* audio bubble */
-body.dark-mode .audio-bubble {
-  background: #1e1b4b !important;
-  border-color: #3730a3 !important;
-}
-
+/* audio bubble — dark mode (waveform variant) */
+body.dark-mode .audio-bubble,
 body.dark-mode .audio-bubble.mine {
-  background: #0d2b1a !important;
-  border-color: rgba(34, 197, 94, 0.25) !important;
+  background: rgba(99, 102, 241, 0.14) !important;
+  border: 1px solid rgba(99, 102, 241, 0.32) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
 }
 
 body.dark-mode .audio-play {
-  background: #1f2937 !important;
-  color: #93c5fd !important;
+  background: #6366f1 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4) !important;
 }
 
-body.dark-mode .audio-track {
-  background: #334155 !important;
+body.dark-mode .audio-play i {
+  color: #ffffff !important;
+}
+
+body.dark-mode .audio-wave-bar {
+  background: linear-gradient(
+    to right,
+    #6366f1 0%,
+    #6366f1 var(--bar-fill, 0%),
+    rgba(255, 255, 255, 0.22) var(--bar-fill, 0%),
+    rgba(255, 255, 255, 0.22) 100%
+  ) !important;
+}
+
+body.dark-mode .audio-speed-btn {
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #9aa6bd !important;
+  background: transparent !important;
+}
+
+body.dark-mode .audio-speed-btn:hover {
+  border-color: rgba(255, 255, 255, 0.24) !important;
+  color: #e6ecf5 !important;
+}
+
+/* audio-only message: no background on bubble wrapper */
+body.dark-mode .mensaje.mensaje--audio.mensaje-propio,
+body.dark-mode .mensaje.mensaje--audio.mensaje-otro {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+body.dark-mode .mensaje.mensaje--audio.mensaje-otro::before {
+  display: none !important;
 }
 
 /* src-complaint cards */

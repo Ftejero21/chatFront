@@ -1135,7 +1135,8 @@
                     'mensaje-otro': mensaje.emisorId !== usuarioActualId,
                     'mensaje-otro--group': chatActual?.esGrupo && mensaje.emisorId !== usuarioActualId,
                     'mensaje--edited': isMensajeEditado(mensaje),
-                    'mensaje--sticker': isStickerMessage(mensaje) && mensaje.activo !== false
+                    'mensaje--sticker': isStickerMessage(mensaje) && mensaje.activo !== false,
+                    'mensaje--audio': (mensaje.tipo || 'TEXT') === 'AUDIO' && mensaje.activo !== false
                   }"
                 >
 
@@ -1285,21 +1286,25 @@
                       <ng-container *ngIf="(mensaje.tipo || 'TEXT') === 'AUDIO'; else contenidoNoAudio">
                         <ng-container *ngIf="getAudioSrc(mensaje) as audioSrc; else audioCipherMissing">
                           <div class="audio-bubble" [class.mine]="mensaje.emisorId === usuarioActualId">
-                            <button class="audio-play"
+                            <button type="button" class="audio-play"
                               [attr.aria-label]="(audioStates.get(mensaje.id!)?.playing ? 'Pausar' : 'Reproducir') + ' audio'"
                               (click)="togglePlay(mensaje, audioRef)">
                               <i class="fas"
                                 [ngClass]="audioStates.get(mensaje.id!)?.playing ? 'fa-pause' : 'fa-play'"></i>
                             </button>
-                            <div class="audio-wave">
-                              <div class="audio-track">
-                                <div class="audio-progress" [style.width.%]="progressPercent(mensaje)"></div>
-                              </div>
-                              <div class="audio-time">
-                                {{ formatDur(audioStates.get(mensaje.id!)?.current) || formatDur(mensaje.audioDuracionMs)
-                                }}
-                              </div>
+                            <div class="audio-wave" (click)="seekAudio(mensaje, audioRef, $event)">
+                              <span
+                                class="audio-wave-bar"
+                                *ngFor="let h of audioWaveformBars; let i = index"
+                                [style.height.px]="h"
+                                [style.--bar-fill.%]="getAudioBarFillPercent(mensaje, i, audioWaveformBars.length)"
+                              ></span>
                             </div>
+                            <button type="button" class="audio-speed-btn"
+                              [attr.aria-label]="'Velocidad ' + getAudioPlaybackLabel(mensaje)"
+                              (click)="cycleAudioPlaybackSpeed(mensaje, audioRef, $event)">
+                              {{ getAudioPlaybackLabel(mensaje) }}
+                            </button>
                             <audio #audioRef [src]="audioSrc"
                               (loadedmetadata)="onAudioLoadedMetadata(mensaje, audioRef)"
                               (timeupdate)="onAudioTimeUpdate(mensaje, audioRef)" (ended)="onAudioEnded(mensaje)"></audio>

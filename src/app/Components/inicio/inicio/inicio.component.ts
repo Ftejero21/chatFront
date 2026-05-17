@@ -767,6 +767,15 @@ export class InicioComponent {
     { playing: boolean; current: number; duration: number }
   >();
 
+  public audioPlaybackRates = new Map<number, number>();
+  public readonly audioWaveformBars: number[] = [
+    3, 8, 14, 6, 18, 22, 12, 28, 20, 26, 32, 18, 24, 30, 22, 16,
+    28, 36, 22, 18, 26, 30, 14, 20, 28, 18, 12, 22, 26, 14, 8, 5,
+  ];
+  private audioRafId: number | null = null;
+  private audioRafAudio: HTMLAudioElement | null = null;
+  private audioRafMessageId: number | null = null;
+
   public aiPanelOpen = false;
   public readonly aiTextMode = AiTextMode;
   public aiQuote = '';
@@ -16663,7 +16672,44 @@ private async decryptPreviewString(
     const st =
       this.audioStates.get(id) ||
       ({ playing: false, current: 0, duration: 0 } as const);
-    this.audioStates.set(id, { ...st, current: Math.floor(audio.currentTime) });
+    const cur = isFinite(audio.currentTime) ? audio.currentTime : 0;
+    this.audioStates.set(id, { ...st, current: cur });
+  }
+
+  /**
+   * Loop rAF para actualizar audioStates.current a ~60fps mientras se reproduce.
+   * Da progreso fluido en el waveform en vez de tirones cada 250ms del evento timeupdate.
+   */
+  private startAudioRaf(messageId: number, audio: HTMLAudioElement): void {
+    this.stopAudioRaf();
+    this.audioRafAudio = audio;
+    this.audioRafMessageId = messageId;
+    const tick = (): void => {
+      if (this.audioRafAudio !== audio) return;
+      const st = this.audioStates.get(messageId);
+      if (!st || !st.playing) {
+        this.audioRafId = null;
+        this.audioRafAudio = null;
+        this.audioRafMessageId = null;
+        return;
+      }
+      const cur = isFinite(audio.currentTime) ? audio.currentTime : 0;
+      const dur = isFinite(audio.duration) ? audio.duration : st.duration;
+      this.audioStates.set(messageId, { ...st, current: cur, duration: dur });
+      this.audioRafId = requestAnimationFrame(tick);
+    };
+    this.audioRafId = requestAnimationFrame(tick);
+  }
+
+  private stopAudioRaf(): void {
+    if (this.audioRafId !== null) {
+      try {
+        cancelAnimationFrame(this.audioRafId);
+      } catch {}
+    }
+    this.audioRafId = null;
+    this.audioRafAudio = null;
+    this.audioRafMessageId = null;
   }
 
   /**
@@ -16676,6 +16722,100 @@ private async decryptPreviewString(
       ({ playing: false, current: 0, duration: 0 } as const);
     this.audioStates.set(id, { ...st, playing: false, current: st.duration });
     if (this.currentPlayingId === id) this.currentPlayingId = null;
+    this.stopAudioRaf();
+  }
+
+  /**
+   * Retorna velocidad de reproduccion actual del audio (1, 1.5 o 2).
+   */
+  public getAudioPlaybackRate(m: MensajeDTO): number {
+    const id = Number(m?.id);
+    if (!Number.isFinite(id)) return 1;
+    return this.audioPlaybackRates.get(id) ?? 1;
+  }
+
+  /**
+   * Etiqueta para el boton de velocidad: "1x", "1.5x" o "2x".
+   */
+  public getAudioPlaybackLabel(m: MensajeDTO): string {
+    const rate = this.getAudioPlaybackRate(m);
+    if (rate === 1.5) return '1.5x';
+    if (rate === 2) return '2x';
+    return '1x';
+  }
+
+  /**
+   * Cicla velocidad 1x -> 1.5x -> 2x -> 1x y aplica al elemento audio.
+   */
+  public cycleAudioPlaybackSpeed(
+    m: MensajeDTO,
+    audio: HTMLAudioElement,
+    event?: Event
+  ): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    const id = Number(m?.id);
+    if (!Number.isFinite(id)) return;
+    const current = this.audioPlaybackRates.get(id) ?? 1;
+    const next = current === 1 ? 1.5 : current === 1.5 ? 2 : 1;
+    this.audioPlaybackRates.set(id, next);
+    try {
+      audio.playbackRate = next;
+    } catch {}
+  }
+
+  /**
+   * Indica si la barra i del waveform ya esta reproducida segun progreso.
+   */
+  public isAudioBarPlayed(m: MensajeDTO, index: number, total: number): boolean {
+    if (!total || total <= 0) return false;
+    const progress = this.progressPercent(m) / 100;
+    return (index + 0.5) / total <= progress;
+  }
+
+  /**
+   * Devuelve % de relleno por barra (0..100). Barras pasadas = 100, futuras = 0,
+   * la barra actual interpola sub-progreso para animacion fluida.
+   */
+  public getAudioBarFillPercent(m: MensajeDTO, index: number, total: number): number {
+    if (!total || total <= 0) return 0;
+    const progress = this.progressPercent(m) / 100;
+    const barProgress = progress * total - index;
+    if (barProgress <= 0) return 0;
+    if (barProgress >= 1) return 100;
+    return barProgress * 100;
+  }
+
+  /**
+   * Click en waveform: salta a posicion clicada (0..1 * duracion).
+   */
+  public seekAudio(
+    m: MensajeDTO,
+    audio: HTMLAudioElement,
+    event: MouseEvent
+  ): void {
+    event.stopPropagation();
+    event.preventDefault();
+    const target = event.currentTarget as HTMLElement | null;
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    let pct = (event.clientX - rect.left) / Math.max(rect.width, 1);
+    if (pct < 0) pct = 0;
+    if (pct > 1) pct = 1;
+    const dur = isFinite(audio.duration) ? audio.duration : 0;
+    if (dur <= 0) return;
+    try {
+      audio.currentTime = pct * dur;
+      const id = Number(m?.id);
+      const st =
+        this.audioStates.get(id) ||
+        ({ playing: false, current: 0, duration: 0 } as const);
+      this.audioStates.set(id, {
+        ...st,
+        current: Math.floor(audio.currentTime),
+        duration: Math.floor(dur),
+      });
+    } catch {}
   }
 
   /**
@@ -16704,6 +16844,7 @@ private async decryptPreviewString(
       audio.pause();
       this.audioStates.set(id, { ...st, playing: false });
       this.currentPlayingId = null;
+      this.stopAudioRaf();
     } else {
       this.pauseAllAudios();
       if (isNaN(audio.duration) || !isFinite(audio.duration)) {
@@ -16711,18 +16852,22 @@ private async decryptPreviewString(
           audio.load();
         } catch {}
       }
+      try {
+        audio.playbackRate = this.audioPlaybackRates.get(id) ?? 1;
+      } catch {}
       audio
         .play()
         .then(() => {
           const duration = isFinite(audio.duration)
-            ? Math.max(0, Math.floor(audio.duration))
+            ? Math.max(0, audio.duration)
             : st.duration;
           this.audioStates.set(id, {
             playing: true,
-            current: Math.floor(audio.currentTime || 0),
+            current: audio.currentTime || 0,
             duration,
           });
           this.currentPlayingId = id;
+          this.startAudioRaf(id, audio);
         })
         .catch((err) => console.error('No se pudo reproducir el audio:', err));
     }
@@ -19166,6 +19311,7 @@ private async decryptPreviewString(
         this.audioStates.set(this.currentPlayingId, { ...st, playing: false });
     }
     this.currentPlayingId = null;
+    this.stopAudioRaf();
   }
 
   /**
